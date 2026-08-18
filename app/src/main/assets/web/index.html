@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>GeoGebraForQuest</title>
+  <style>
+    html, body, #ggb-element { width:100%; height:100%; margin:0; overflow:hidden; background:transparent; }
+    body { font-family:system-ui, sans-serif; }
+    #status {
+      position:fixed; left:10px; bottom:8px; z-index:999999;
+      padding:5px 8px; border-radius:8px; background:rgba(0,0,0,.62); color:white;
+      font-size:12px; pointer-events:none;
+    }
+    #headset {
+      position:fixed; z-index:999999; right:72px; top:70px;
+      width:46px; height:38px; border:1px solid #aeb3bd; border-radius:8px;
+      background:#f2f3f5; font-size:23px; cursor:pointer;
+      box-shadow:0 1px 3px rgba(0,0,0,.15);
+    }
+    #back2d {
+      display:none; position:fixed; z-index:999999; right:14px; top:70px;
+      height:38px; border:1px solid #aeb3bd; border-radius:8px;
+      background:#f2f3f5; padding:0 10px; cursor:pointer;
+    }
+    body.spatial #back2d { display:block; }
+
+    /*
+      v0.1 portal hole. When spatial mode is active we make the largest
+      GeoGebra graphics canvas transparent. v0.2 will bind this precisely
+      to GeoGebra's 3D dock panel / renderer.
+    */
+    body.portal-on canvas.ggb-portal-canvas { opacity:0 !important; }
+  </style>
+</head>
+<body>
+  <div id="ggb-element"></div>
+  <button id="headset" title="Spatial 3D">🥽</button>
+  <button id="back2d">2D</button>
+  <div id="status">GeoGebra yükleniyor…</div>
+
+<script>
+(function(){
+  const status = document.getElementById('status');
+  let spatialMode = false;
+  let portalEnabled = false;
+
+  function setStatus(s){ status.textContent = s; }
+
+  function markGraphicsCanvasForPortal(){
+    const canvases = [...document.querySelectorAll('#ggb-element canvas')]
+      .filter(c => c.width > 300 && c.height > 250);
+    if (!canvases.length) return false;
+    canvases.sort((a,b) => (b.width*b.height) - (a.width*a.height));
+    const canvas = canvases[0];
+    canvas.classList.add('ggb-portal-canvas');
+    let p = canvas.parentElement;
+    for (let i=0; p && i<4; i++, p=p.parentElement) {
+      p.style.background = 'transparent';
+    }
+    return true;
+  }
+
+  function setPortal(on){
+    portalEnabled = !!on;
+    document.body.classList.toggle('portal-on', portalEnabled && spatialMode);
+    if (portalEnabled && spatialMode) {
+      let tries=0;
+      const t=setInterval(()=>{
+        tries++;
+        if (markGraphicsCanvasForPortal() || tries>20) clearInterval(t);
+      },150);
+    }
+    if (window.QuestBridge && QuestBridge.setPortalEnabled) {
+      QuestBridge.setPortalEnabled(portalEnabled);
+    }
+    document.getElementById('headset').style.background = portalEnabled ? '#dfe5ff' : '#f2f3f5';
+  }
+
+  function saveBase64(cb){
+    if (!window.ggbApplet || !ggbApplet.getBase64) { cb(''); return; }
+    ggbApplet.getBase64(function(b64){ cb(b64 || ''); });
+  }
+
+  window.GeoGebraForQuest = {
+    setSpatialMode(on){
+      spatialMode = !!on;
+      document.body.classList.toggle('spatial', spatialMode);
+      if (spatialMode) setPortal(true);
+    },
+    importBase64(b64){
+      if (!b64) return;
+      const tryLoad = () => {
+        if (window.ggbApplet && ggbApplet.setBase64) {
+          try { ggbApplet.setBase64(b64); setStatus('Yerel çalışma yüklendi'); } catch(e) {}
+        } else setTimeout(tryLoad, 250);
+      };
+      tryLoad();
+    },
+    exportState(cb){ saveBase64(cb); }
+  };
+
+  document.getElementById('headset').addEventListener('click', function(){
+    if (!spatialMode) {
+      saveBase64(function(b64){
+        if (window.QuestBridge && QuestBridge.enterSpatial) QuestBridge.enterSpatial(b64);
+      });
+    } else {
+      setPortal(!portalEnabled);
+    }
+  });
+
+  document.getElementById('back2d').addEventListener('click', function(){
+    saveBase64(function(b64){
+      if (window.QuestBridge && QuestBridge.returnToPanel) QuestBridge.returnToPanel(b64);
+    });
+  });
+
+  function injectGeoGebra(deployUrl, local){
+    const s=document.createElement('script');
+    s.src=deployUrl;
+    s.onload=function(){
+      const params = {
+        appName:'classic',
+        width:1080,
+        height:720,
+        showToolBar:true,
+        showMenuBar:true,
+        showAlgebraInput:true,
+        showResetIcon:true,
+        enableFileFeatures:true,
+        enableRightClick:true,
+        errorDialogsActive:true,
+        useBrowserForJS:false,
+        appletOnLoad:function(){ setStatus(local ? 'GeoGebra: yerel' : 'GeoGebra: çevrimiçi yedek'); }
+      };
+      const applet = new GGBApplet(params, true);
+      if (local) {
+        applet.setHTML5Codebase('GeoGebra/HTML5/5.4/web3d/');
+      }
+      applet.inject('ggb-element');
+    };
+    s.onerror=function(){
+      if (local) {
+        setStatus('Yerel paket yok; GeoGebra CDN deneniyor…');
+        injectGeoGebra('https://www.geogebra.org/apps/deployggb.js', false);
+      } else {
+        setStatus('GeoGebra yüklenemedi');
+      }
+    };
+    document.head.appendChild(s);
+  }
+
+  // Local-first. tools/get-geogebra.sh places deployggb.js here during CI.
+  injectGeoGebra('GeoGebra/deployggb.js', true);
+})();
+</script>
+</body>
+</html>
