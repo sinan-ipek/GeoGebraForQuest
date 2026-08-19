@@ -36,6 +36,10 @@ import javax.microedition.khronos.egl.EGLSurface
  * class does not decide which eye sees which pixels: it simply paints a normal
  * 1280x480 SBS image (640x480 left eye + 640x480 right eye). Meta's compositor
  * performs the per-eye selection.
+ *
+ * v0.5.1 reports presentation only after eglSwapBuffers() succeeds. The parent
+ * Activity keeps the stereo portal hidden until that callback, so a missing
+ * GeoGebra eye frame can never replace the working 3D view with a black panel.
  */
 class StereoFrameSurface {
 
@@ -95,7 +99,10 @@ class StereoFrameSurface {
         }
     }
 
-    fun submitDataUrl(dataUrl: String) {
+    fun submitDataUrl(
+        dataUrl: String,
+        onPresented: (() -> Unit)? = null,
+    ) {
         if (!framePending.compareAndSet(false, true)) {
             // Real-time rule: keep latency low by dropping a frame rather than
             // queueing old frames behind the one currently being decoded.
@@ -113,7 +120,9 @@ class StereoFrameSurface {
                     val surface = targetSurface ?: return@execute
                     if (!surface.isValid) return@execute
                     if (eglSurface == EGL_NO_SURFACE && !initEgl(surface)) return@execute
-                    drawBitmap(bitmap)
+                    if (drawBitmap(bitmap)) {
+                        onPresented?.invoke()
+                    }
                 } finally {
                     bitmap.recycle()
                 }
@@ -250,9 +259,9 @@ class StereoFrameSurface {
         localEgl.eglSwapBuffers(eglDisplay, eglSurface)
     }
 
-    private fun drawBitmap(bitmap: android.graphics.Bitmap) {
-        val localEgl = egl ?: return
-        if (eglSurface == EGL_NO_SURFACE || program == 0 || texture == 0) return
+    private fun drawBitmap(bitmap: android.graphics.Bitmap): Boolean {
+        val localEgl = egl ?: return false
+        if (eglSurface == EGL_NO_SURFACE || program == 0 || texture == 0) return false
 
         GLES20.glViewport(0, 0, SURFACE_WIDTH, SURFACE_HEIGHT)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
@@ -293,7 +302,11 @@ class StereoFrameSurface {
         GLES20.glDisableVertexAttribArray(uvLocation)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
 
-        localEgl.eglSwapBuffers(eglDisplay, eglSurface)
+        return try {
+            localEgl.eglSwapBuffers(eglDisplay, eglSurface)
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     private fun releaseEglInternal() {
