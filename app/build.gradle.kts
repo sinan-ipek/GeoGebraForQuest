@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.2.1"
+        versionCode = 6
+        versionName = "0.2.2"
     }
 
     buildFeatures {
@@ -58,9 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.2.1: ordinary 2D GeoGebra is the stable launcher again.
-// Stereo 3D transitions to a visually identical Spatial SDK panel and uses
-// native stereo only behind the GeoGebra 3D Graphics viewport.
+// v0.2.2: startup recovery release.
+// Launch and WebView hosting are restored to the proven v0.1.2 implementation.
+// Stereo portal work stays paused until this baseline is confirmed stable on Quest.
 spatial {
     allowUsageDataCollection.set(true)
 }
