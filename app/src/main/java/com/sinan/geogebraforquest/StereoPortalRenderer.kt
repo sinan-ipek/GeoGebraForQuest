@@ -6,9 +6,11 @@ import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.Quaternion
 import com.meta.spatial.core.Vector3
+import com.meta.spatial.runtime.AlphaMode
+import com.meta.spatial.toolkit.Box
 import com.meta.spatial.toolkit.Material
 import com.meta.spatial.toolkit.Mesh
-import com.meta.spatial.toolkit.Scale
+import com.meta.spatial.toolkit.Sphere
 import com.meta.spatial.toolkit.Transform
 import com.meta.spatial.toolkit.TransformParent
 import com.meta.spatial.toolkit.Visible
@@ -18,15 +20,17 @@ import kotlin.math.max
 import kotlin.math.sqrt
 
 /**
- * Lightweight native stereo mirror of the supported GeoGebra 3D objects.
+ * Native stereo mirror shown only inside GeoGebra's existing 3D Graphics rectangle.
  *
- * The WebView stays as ordinary GeoGebra. When Stereo 3D is enabled, JavaScript makes only
- * GeoGebra's WebGL 3D canvas transparent. These native entities sit behind that transparent
- * rectangle, so Horizon/Spatial SDK gives them true binocular stereo while the rest of the
- * GeoGebra interface remains a normal 2D panel.
+ * v0.4.3 uses the same procedural primitive descriptions as Meta's official samples:
+ * Mesh("mesh://sphere") is paired with Sphere(radius), and Mesh("mesh://box") with
+ * Box(min,max). Earlier versions created those meshes with Scale only. That left the
+ * native procedural primitive incompletely described precisely when the headset button
+ * exposed the portal, which is a likely source of the click-time native crash on Quest.
  *
- * v0.3.1 supports points, segments/lines/rays, sampled function polylines,
- * sphere commands, polygon edges and 3-point planes.
+ * There is no Activity launch and no mode transition here. The app is already spatial
+ * from startup only so Horizon can render different pixels to the two eyes. GeoGebra's
+ * interface remains a flat panel; the 3D canvas alone becomes the stereo depth window.
  */
 class StereoPortalRenderer(
     private val panelEntity: Entity,
@@ -50,45 +54,41 @@ class StereoPortalRenderer(
     private var unitScale = 0.04f
 
     fun setStereoEnabled(enabled: Boolean) {
-        if (stereoEnabled == enabled) {
+        if (stereoEnabled == enabled) return
+        stereoEnabled = enabled
+
+        if (!enabled) {
+            portalRoot.setComponent(Visible(false))
+            clearObjects()
             return
         }
-        stereoEnabled = enabled
-        portalRoot.setComponent(Visible(enabled))
-        if (!enabled) {
-            clearObjects()
-        } else {
-            lastSceneJson?.let { rebuild(it) }
-        }
+
+        // Build the complete native scene while the portal is still hidden, then expose it.
+        lastSceneJson?.let(::rebuild)
+        portalRoot.setComponent(Visible(true))
     }
 
     fun updatePortalRect(json: String) {
         try {
             val data = JSONObject(json)
             portalRect = PortalRect(
-                left = data.optDouble("left", 0.0).toFloat(),
-                top = data.optDouble("top", 0.0).toFloat(),
-                width = data.optDouble("width", 1.0).toFloat().coerceAtLeast(1f),
-                height = data.optDouble("height", 1.0).toFloat().coerceAtLeast(1f),
-                viewWidth = data.optDouble("viewWidth", 1080.0).toFloat().coerceAtLeast(1f),
-                viewHeight = data.optDouble("viewHeight", 720.0).toFloat().coerceAtLeast(1f),
+                left = finiteFloat(data.optDouble("left", 0.0), 0f),
+                top = finiteFloat(data.optDouble("top", 0.0), 0f),
+                width = finiteFloat(data.optDouble("width", 1.0), 1f).coerceAtLeast(1f),
+                height = finiteFloat(data.optDouble("height", 1.0), 1f).coerceAtLeast(1f),
+                viewWidth = finiteFloat(data.optDouble("viewWidth", 1080.0), 1080f).coerceAtLeast(1f),
+                viewHeight = finiteFloat(data.optDouble("viewHeight", 720.0), 720f).coerceAtLeast(1f),
             )
             updatePortalTransform()
-            if (stereoEnabled) {
-                lastSceneJson?.let { rebuild(it) }
-            }
+            if (stereoEnabled) lastSceneJson?.let(::rebuild)
         } catch (_: Throwable) {
-            // Keep the previous rectangle. The WebView may send a transient zero-size rect
-            // during a GeoGebra layout change.
+            // Keep the previous rectangle during transient GeoGebra relayouts.
         }
     }
 
     fun updateScene(json: String) {
         lastSceneJson = json
-        if (!stereoEnabled) {
-            return
-        }
-        rebuild(json)
+        if (stereoEnabled) rebuild(json)
     }
 
     fun destroy() {
@@ -107,11 +107,9 @@ class StereoPortalRenderer(
         val meterPerCssPixel = portalWidthMeters / portalRect.width
         unitScale = (camera.scale * meterPerCssPixel).coerceIn(0.012f, 0.085f)
 
-        // GeoGebra's zAngle is rotation around its vertical Z axis. In our panel coordinates
-        // GeoGebra Z maps to +Y, so zAngle maps naturally to a yaw around panel Y.
-        val rotation = Quaternion(
-            -camera.xAngle,
-            -camera.zAngle,
+        val rotation = Quaternion.fromEuler(
+            finiteFloat(-camera.xAngle.toDouble(), 0f),
+            finiteFloat(-camera.zAngle.toDouble(), 0f),
             0f,
         )
 
@@ -128,27 +126,22 @@ class StereoPortalRenderer(
     private fun rebuild(json: String) {
         try {
             val data = JSONObject(json)
-            val cameraJson = data.optJSONObject("camera")
-            if (cameraJson != null) {
+            data.optJSONObject("camera")?.let { cameraJson ->
                 camera = CameraState(
-                    xZero = cameraJson.optDouble("xZero", 0.0).toFloat(),
-                    yZero = cameraJson.optDouble("yZero", 0.0).toFloat(),
-                    zZero = cameraJson.optDouble("zZero", 0.0).toFloat(),
-                    scale = cameraJson.optDouble("scale", 50.0).toFloat().coerceAtLeast(1f),
-                    xAngle = cameraJson.optDouble("xAngle", 20.0).toFloat(),
-                    zAngle = cameraJson.optDouble("zAngle", -60.0).toFloat(),
+                    xZero = finiteFloat(cameraJson.optDouble("xZero", 0.0), 0f),
+                    yZero = finiteFloat(cameraJson.optDouble("yZero", 0.0), 0f),
+                    zZero = finiteFloat(cameraJson.optDouble("zZero", 0.0), 0f),
+                    scale = finiteFloat(cameraJson.optDouble("scale", 50.0), 50f).coerceAtLeast(1f),
+                    xAngle = finiteFloat(cameraJson.optDouble("xAngle", 20.0), 20f),
+                    zAngle = finiteFloat(cameraJson.optDouble("zAngle", -60.0), -60f),
                 )
                 updatePortalTransform()
             }
 
             clearObjects()
-            if (!stereoEnabled) {
-                return
-            }
+            if (!stereoEnabled) return
 
-            if (data.optBoolean("axes", true)) {
-                createAxes()
-            }
+            if (data.optBoolean("axes", true)) createAxes()
 
             val objects = data.optJSONArray("objects") ?: JSONArray()
             for (i in 0 until objects.length()) {
@@ -165,47 +158,43 @@ class StereoPortalRenderer(
                 }
             }
         } catch (_: Throwable) {
-            // A malformed single sync payload must not crash the VR activity.
+            // Keep malformed/transient scene payloads from affecting the host activity.
         }
     }
 
     private fun createAxes() {
         val span = 4.5f
         createLine(
-            Vec3(-span, 0f, 0f),
-            Vec3(span, 0f, 0f),
-            Color4(0.92f, 0.18f, 0.18f, 1f),
-            0.006f,
+            Vec3(-span, 0f, 0f), Vec3(span, 0f, 0f),
+            Color4(0.92f, 0.18f, 0.18f, 1f), 0.006f,
         )
         createLine(
-            Vec3(0f, -span, 0f),
-            Vec3(0f, span, 0f),
-            Color4(0.20f, 0.72f, 0.28f, 1f),
-            0.006f,
+            Vec3(0f, -span, 0f), Vec3(0f, span, 0f),
+            Color4(0.20f, 0.72f, 0.28f, 1f), 0.006f,
         )
         createLine(
-            Vec3(0f, 0f, -span),
-            Vec3(0f, 0f, span),
-            Color4(0.18f, 0.38f, 0.96f, 1f),
-            0.006f,
+            Vec3(0f, 0f, -span), Vec3(0f, 0f, span),
+            Color4(0.18f, 0.38f, 0.96f, 1f), 0.006f,
         )
     }
 
     private fun createPoint(obj: JSONObject) {
         val p = readVec(obj.optJSONObject("p")) ?: return
         val position = mapPoint(p)
-        val size = obj.optDouble("pointSize", 5.0).toFloat()
-        val radius = (0.010f + size * 0.0013f).coerceIn(0.012f, 0.035f)
-        val entity = Entity.create(
+        if (!position.isFiniteVector()) return
+
+        val pointSize = finiteFloat(obj.optDouble("pointSize", 5.0), 5f)
+        val radius = (0.010f + pointSize * 0.0013f).coerceIn(0.012f, 0.035f)
+
+        rendered += Entity.create(
             listOf(
+                Sphere(radius),
                 Mesh(Uri.parse("mesh://sphere")),
                 material(colorOf(obj, 1f)),
                 Transform(Pose(position)),
-                Scale(Vector3(radius * 2f, radius * 2f, radius * 2f)),
                 TransformParent(portalRoot),
             ),
         )
-        rendered += entity
     }
 
     private fun createSegmentLike(obj: JSONObject, mode: SegmentMode) {
@@ -216,7 +205,7 @@ class StereoPortalRenderer(
         val dy = b.y - a.y
         val dz = b.z - a.z
         val len = sqrt(dx * dx + dy * dy + dz * dz)
-        if (len < 1e-5f) return
+        if (!len.isFinite() || len < 1e-5f) return
 
         val ux = dx / len
         val uy = dy / len
@@ -234,7 +223,7 @@ class StereoPortalRenderer(
             SegmentMode.SEGMENT -> Unit
         }
 
-        val thicknessValue = obj.optDouble("thickness", 5.0).toFloat()
+        val thicknessValue = finiteFloat(obj.optDouble("thickness", 5.0), 5f)
         val thickness = (0.0035f + thicknessValue * 0.00045f).coerceIn(0.004f, 0.014f)
         createLine(a, b, colorOf(obj, 1f), thickness)
     }
@@ -250,7 +239,7 @@ class StereoPortalRenderer(
         if (points.size < 2) return
 
         val color = colorOf(obj, 1f)
-        val thicknessValue = obj.optDouble("thickness", 5.0).toFloat()
+        val thicknessValue = finiteFloat(obj.optDouble("thickness", 5.0), 5f)
         val thickness = (0.0035f + thicknessValue * 0.00045f).coerceIn(0.004f, 0.014f)
 
         for (i in 1 until points.size) {
@@ -260,28 +249,30 @@ class StereoPortalRenderer(
 
     private fun createSphere(obj: JSONObject) {
         val center = readVec(obj.optJSONObject("center")) ?: return
-        val radius = obj.optDouble("radius", 0.0).toFloat()
-        if (radius <= 0f) return
+        val radiusGeo = finiteFloat(obj.optDouble("radius", 0.0), 0f)
+        if (radiusGeo <= 0f) return
 
         val mapped = mapPoint(center)
-        val diameter = max(0.012f, radius * unitScale * 2f)
-        val alpha = obj.optDouble("alpha", 0.28).toFloat().coerceIn(0.12f, 1f)
+        if (!mapped.isFiniteVector()) return
 
-        val entity = Entity.create(
+        val radiusMeters = max(0.006f, radiusGeo * unitScale)
+        val alpha = finiteFloat(obj.optDouble("alpha", 0.28), 0.28f).coerceIn(0.12f, 1f)
+
+        rendered += Entity.create(
             listOf(
+                Sphere(radiusMeters),
                 Mesh(Uri.parse("mesh://sphere")),
                 material(colorOf(obj, alpha)),
                 Transform(Pose(mapped)),
-                Scale(Vector3(diameter, diameter, diameter)),
                 TransformParent(portalRoot),
             ),
         )
-        rendered += entity
     }
 
     private fun createPolygon(obj: JSONObject) {
         val pointsJson = obj.optJSONArray("points") ?: return
         if (pointsJson.length() < 3) return
+
         val points = mutableListOf<Vec3>()
         for (i in 0 until pointsJson.length()) {
             readVec(pointsJson.optJSONObject(i))?.let(points::add)
@@ -289,8 +280,9 @@ class StereoPortalRenderer(
         if (points.size < 3) return
 
         val color = colorOf(obj, 1f)
-        val thicknessValue = obj.optDouble("thickness", 5.0).toFloat()
+        val thicknessValue = finiteFloat(obj.optDouble("thickness", 5.0), 5f)
         val thickness = (0.0035f + thicknessValue * 0.00045f).coerceIn(0.004f, 0.014f)
+
         for (i in points.indices) {
             createLine(points[i], points[(i + 1) % points.size], color, thickness)
         }
@@ -299,6 +291,7 @@ class StereoPortalRenderer(
     private fun createPlane(obj: JSONObject) {
         val pointsJson = obj.optJSONArray("points") ?: return
         if (pointsJson.length() < 3) return
+
         val a = readVec(pointsJson.optJSONObject(0)) ?: return
         val b = readVec(pointsJson.optJSONObject(1)) ?: return
         val c = readVec(pointsJson.optJSONObject(2)) ?: return
@@ -306,10 +299,12 @@ class StereoPortalRenderer(
         val pa = mapPoint(a)
         val pb = mapPoint(b)
         val pc = mapPoint(c)
+        if (!pa.isFiniteVector() || !pb.isFiniteVector() || !pc.isFiniteVector()) return
 
         val ab = Vec3(pb.x - pa.x, pb.y - pa.y, pb.z - pa.z)
         val ac = Vec3(pc.x - pa.x, pc.y - pa.y, pc.z - pa.z)
         val normal = cross(ab, ac).normalizedOrNull() ?: return
+
         val center = Vector3(
             (pa.x + pb.x + pc.x) / 3f,
             (pa.y + pb.y + pc.y) / 3f,
@@ -319,19 +314,25 @@ class StereoPortalRenderer(
         val portalPhysicalWidth = panelWidthMeters * portalRect.width / portalRect.viewWidth
         val portalPhysicalHeight = panelHeightMeters * portalRect.height / portalRect.viewHeight
         val size = max(portalPhysicalWidth, portalPhysicalHeight) * 1.35f
-        val alpha = obj.optDouble("alpha", 0.18).toFloat().coerceIn(0.08f, 0.42f)
-        val q = Quaternion.lookRotation(Vector3(normal.x, normal.y, normal.z))
+        if (!size.isFinite() || size <= 0f) return
 
-        val entity = Entity.create(
+        val alpha = finiteFloat(obj.optDouble("alpha", 0.18), 0.18f).coerceIn(0.08f, 0.42f)
+        val q = Quaternion.lookRotation(Vector3(normal.x, normal.y, normal.z))
+        val half = size * 0.5f
+        val halfDepth = 0.003f
+
+        rendered += Entity.create(
             listOf(
+                Box(
+                    Vector3(-half, -half, -halfDepth),
+                    Vector3(half, half, halfDepth),
+                ),
                 Mesh(Uri.parse("mesh://box")),
                 material(colorOf(obj, alpha)),
                 Transform(Pose(center, q)),
-                Scale(Vector3(size, size, 0.006f)),
                 TransformParent(portalRoot),
             ),
         )
-        rendered += entity
     }
 
     private fun createLine(a: Vec3, b: Vec3, color: Color4, thickness: Float) {
@@ -339,55 +340,62 @@ class StereoPortalRenderer(
     }
 
     private fun createLineMapped(a: Vector3, b: Vector3, color: Color4, thickness: Float) {
+        if (!a.isFiniteVector() || !b.isFiniteVector()) return
+
         val dx = b.x - a.x
         val dy = b.y - a.y
         val dz = b.z - a.z
         val length = sqrt(dx * dx + dy * dy + dz * dz)
-        if (length < 1e-5f) return
+        if (!length.isFinite() || length < 1e-5f) return
 
-        val midpoint = Vector3(
-            (a.x + b.x) * 0.5f,
-            (a.y + b.y) * 0.5f,
-            (a.z + b.z) * 0.5f,
-        )
         val direction = Vector3(dx / length, dy / length, dz / length)
-        val rotation = Quaternion.lookRotation(direction)
+        if (!direction.isFiniteVector()) return
 
-        val entity = Entity.create(
+        val rotation = Quaternion.lookRotation(direction)
+        val halfThickness = thickness * 0.5f
+
+        // Same box definition used by Meta's BodyTracking sample: z=0 -> z=length,
+        // with the entity transform placed at the segment start.
+        rendered += Entity.create(
             listOf(
+                Box(
+                    Vector3(-halfThickness, -halfThickness, 0f),
+                    Vector3(halfThickness, halfThickness, length),
+                ),
                 Mesh(Uri.parse("mesh://box")),
                 material(color),
-                Transform(Pose(midpoint, rotation)),
-                Scale(Vector3(thickness, thickness, length)),
+                Transform(Pose(a, rotation)),
                 TransformParent(portalRoot),
             ),
         )
-        rendered += entity
     }
 
     private fun mapPoint(p: Vec3): Vector3 {
-        // GeoGebra coordinates: X right, Y depth, Z up.
-        // Portal-local Spatial coordinates: X right, Y up, Z deeper into the window.
-        val x = (p.x - camera.xZero) * unitScale
-        val y = (p.z - camera.zZero) * unitScale
-        val z = (p.y - camera.yZero) * unitScale
-        return Vector3(x, y, z)
+        return Vector3(
+            (p.x - camera.xZero) * unitScale,
+            (p.z - camera.zZero) * unitScale,
+            (p.y - camera.yZero) * unitScale,
+        )
     }
 
     private fun colorOf(obj: JSONObject, alpha: Float): Color4 {
-        val hex = obj.optString("color", "#4F46E5")
-        val clean = hex.removePrefix("#")
+        val clean = obj.optString("color", "#4F46E5").removePrefix("#")
         val value = clean.toLongOrNull(16) ?: 0x4F46E5
-        val r = ((value shr 16) and 0xFF).toFloat() / 255f
-        val g = ((value shr 8) and 0xFF).toFloat() / 255f
-        val b = (value and 0xFF).toFloat() / 255f
-        return Color4(r, g, b, alpha.coerceIn(0f, 1f))
+        return Color4(
+            ((value shr 16) and 0xFF).toFloat() / 255f,
+            ((value shr 8) and 0xFF).toFloat() / 255f,
+            (value and 0xFF).toFloat() / 255f,
+            alpha.coerceIn(0f, 1f),
+        )
     }
 
     private fun material(color: Color4): Material {
         return Material().apply {
             baseColor = color
             unlit = true
+            if (color.alpha < 0.999f) {
+                alphaMode = AlphaMode.TRANSLUCENT.ordinal
+            }
         }
     }
 
@@ -398,6 +406,14 @@ class StereoPortalRenderer(
         val z = obj.optDouble("z", Double.NaN)
         if (!x.isFinite() || !y.isFinite() || !z.isFinite()) return null
         return Vec3(x.toFloat(), y.toFloat(), z.toFloat())
+    }
+
+    private fun finiteFloat(value: Double, fallback: Float): Float {
+        return if (value.isFinite() && value in -1.0e6..1.0e6) value.toFloat() else fallback
+    }
+
+    private fun Vector3.isFiniteVector(): Boolean {
+        return x.isFinite() && y.isFinite() && z.isFinite()
     }
 
     private fun cross(a: Vec3, b: Vec3): Vec3 {
@@ -439,7 +455,7 @@ class StereoPortalRenderer(
     private data class Vec3(val x: Float, val y: Float, val z: Float) {
         fun normalizedOrNull(): Vec3? {
             val len = sqrt(x * x + y * y + z * z)
-            if (len < 1e-6f) return null
+            if (!len.isFinite() || len < 1e-6f) return null
             return Vec3(x / len, y / len, z / len)
         }
     }
