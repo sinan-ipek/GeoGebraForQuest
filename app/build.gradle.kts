@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 14
-        versionName = "0.3.7"
+        versionCode = 15
+        versionName = "0.4.0"
     }
 
     buildFeatures {
@@ -58,8 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.3.7: match the Quest mixed-reality capability requirements used by Meta's
-// official samples and enable passthrough only after USE_SCENE is granted.
+// v0.4.0: the whole app is one Spatial SDK activity from launch. GeoGebra is
+// one flat WebView panel; only its 3D Graphics rectangle becomes a native stereo
+// portal when the replacement Anaglyph/headset projection control is selected.
 spatial {
     allowUsageDataCollection.set(true)
 }

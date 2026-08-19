@@ -2,11 +2,8 @@ package com.sinan.geogebraforquest
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -28,40 +25,22 @@ private const val LOCAL_APP_URL =
 private const val PROJECTION_PATCH_URL =
     "https://appassets.androidplatform.net/assets/web/quest-projection-patch.js"
 
+/**
+ * JavaScript bridge for the single-activity v0.4.0 architecture.
+ *
+ * There is deliberately no Activity launch here anymore. The application is
+ * already running inside Spatial SDK from startup. Selecting the replacement
+ * Anaglyph/headset control only switches the existing 3D Graphics viewport
+ * between normal flat WebGL and the native spatial stereo portal.
+ */
 private class QuestBridge(
     private val context: Context,
     private val spatialMode: Boolean,
 ) {
-    private val mainHandler = Handler(Looper.getMainLooper())
-
-    @Volatile
-    private var spatialLaunchRequested = false
-
     @JavascriptInterface
     fun setStereoEnabled(enabled: Boolean) {
         if (spatialMode) {
             SpatialBridgeBus.stereoChanged(enabled)
-            return
-        }
-
-        if (!enabled || spatialLaunchRequested) {
-            return
-        }
-
-        spatialLaunchRequested = true
-        mainHandler.post {
-            try {
-                val intent = Intent(context, SpatialGeoGebraActivity::class.java).apply {
-                    action = Intent.ACTION_MAIN
-                    putExtra(SpatialGeoGebraActivity.EXTRA_START_STEREO, true)
-                    // Meta's official HybridSample always starts the immersive
-                    // activity as a NEW_TASK, even when the caller is an Activity.
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-            } catch (_: Throwable) {
-                spatialLaunchRequested = false
-            }
         }
     }
 
@@ -169,7 +148,7 @@ fun configureGeoGebraWebView(
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
         settings.userAgentString =
-            settings.userAgentString + " GeoGebraForQuest/0.3.7"
+            settings.userAgentString + " GeoGebraForQuest/0.4.0"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
