@@ -33,20 +33,12 @@
 
         <uses-native-library android:name="libossdk.oculus.so" android:required="true" />
 
-        <activity
-            android:name=".PancakeActivity"
-            android:exported="true"
-            android:resizeableActivity="true"
-            android:theme="@style/PanelAppTheme">
-            <layout android:defaultHeight="720dp" android:defaultWidth="1080dp" />
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="com.oculus.intent.category.2D" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
+        <!--
+          v0.4.0: single-activity architecture.
+          The app is spatial from launch, but visually presents one flat GeoGebra
+          panel in passthrough. The 3D Graphics rectangle alone becomes spatial
+          stereo when the replacement Anaglyph/headset option is selected.
+        -->
         <activity
             android:name=".SpatialGeoGebraActivity"
             android:exported="true"
@@ -57,8 +49,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="com.oculus.intent.category.VR" />
-                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Kept only as a non-launcher fallback for development/recovery. -->
+        <activity
+            android:name=".PancakeActivity"
+            android:exported="false"
+            android:resizeableActivity="true"
+            android:theme="@style/PanelAppTheme" />
     </application>
 </manifest>
