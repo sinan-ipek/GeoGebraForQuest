@@ -1,32 +1,27 @@
 (function () {
   'use strict';
 
-  if (window.__ggqStereoCaptureV1) return;
-  window.__ggqStereoCaptureV1 = true;
+  if (window.__ggqStereoCaptureV2) return;
+  window.__ggqStereoCaptureV2 = true;
 
-  // GeoGebraForQuest v0.5.0 stereo transport.
+  // GeoGebraForQuest v0.5.2 stereo transport.
   //
-  // GeoGebra's PROJECTION_GLASSES path renders the 3D view twice. It first
-  // selects the left-eye camera, draws, then selects the right-eye camera and
-  // draws again. The stock renderer turns those two passes into an anaglyph by
-  // changing WebGL colorMask().
+  // GeoGebra's PROJECTION_GLASSES path renders the 3D view twice. The important
+  // detail is that GeoGebra also temporarily uses ColorMask.NONE while drawing
+  // hidden/occluded geometry inside EACH eye pass. v0.5.0/v0.5.1 treated every
+  // non-ALL WebGL colorMask as an eye transition, so an internal NONE mask was
+  // incorrectly mistaken for the right-eye pass. The result was exactly what we
+  // saw on Quest: anaglyph filtering was bypassed, but no valid SBS pair reached
+  // the stereo surface.
   //
-  // We hook that final WebGL stage only. While Quest stereo is enabled:
-  //   1. GeoGebra still computes its own left/right eye cameras and geometry.
-  //   2. We replace the red/cyan color masks with an all-channel mask, so each
-  //      eye pass remains a normal full-color render (or GeoGebra's own
-  //      grayscale render if that option is active in the current build).
-  //   3. Just before the right-eye pass starts, readPixels() captures the
-  //      completed left-eye framebuffer.
-  //   4. The right-eye depth clear is upgraded to a color+depth clear so the
-  //      second eye gets a clean framebuffer instead of an anaglyph blend.
-  //   5. When GeoGebra restores colorMask(ALL) at the end of the frame, we
-  //      capture the right eye, pack both views side-by-side, JPEG-compress the
-  //      frame and hand it to Android.
+  // v0.5.2 classifies GeoGebra's real masks explicitly:
+  //   RED              = left-eye filter
+  //   BLUE / GREEN+BLUE= right-eye filter
+  //   NONE             = hidden-surface pass (preserve it unchanged)
+  //   ALL              = end of stereo frame
   //
-  // Android feeds that SBS frame to a Spatial SDK media panel configured with
-  // StereoMode.LeftRight. The compositor then shows the left half only to the
-  // left eye and the right half only to the right eye.
+  // Only the two actual eye filters are bypassed to ALL. NONE remains NONE, so
+  // GeoGebra's depth/occlusion algorithm is left untouched.
 
   const EYE_WIDTH = 640;
   const EYE_HEIGHT = 480;
@@ -124,8 +119,6 @@
     const canvasRect = canvas.getBoundingClientRect();
     let parent = canvas.parentElement;
 
-    // Make only the tight wrappers around GeoGebra's 3D canvas transparent.
-    // Toolbars, Algebra view, menus and every other UI pixel stay untouched.
     for (let i = 0; parent && i < 10; i += 1, parent = parent.parentElement) {
       if (parent === document.body || parent.id === 'ggb-element') break;
       const rect = parent.getBoundingClientRect();
@@ -181,9 +174,6 @@
       return false;
     }
 
-    // The existing Quest icon interception recognizes data-ggq-stereo-target.
-    // Remove that marker only for this nested synthetic click so GeoGebra's own
-    // SelectionTable handler receives the event and really enters Anaglyph.
     const changed = [];
     let node = target;
     for (let i = 0; node && i < 4; i += 1, node = node.parentElement) {
@@ -246,7 +236,6 @@
     const fullOutW = EYE_WIDTH * 2;
 
     for (let y = 0; y < EYE_HEIGHT; y += 1) {
-      // WebGL readPixels is bottom-up; Canvas ImageData is top-down.
       const sy = srcH - 1 - Math.min(srcH - 1, Math.floor(y * srcH / EYE_HEIGHT));
       for (let x = 0; x < EYE_WIDTH; x += 1) {
         const sx = Math.min(srcW - 1, Math.floor(x * srcW / EYE_WIDTH));
@@ -284,6 +273,21 @@
     }
   }
 
+  function classifyMask(red, green, blue, alpha) {
+    const r = !!red;
+    const g = !!green;
+    const b = !!blue;
+    const a = !!alpha;
+
+    if (r && g && b && a) return 'all';
+    if (!r && !g && !b && !a) return 'none';
+    if (r && !g && !b && a) return 'left';
+    if (!r && !g && b && a) return 'right';
+    if (!r && g && b && a) return 'right';
+    if (!r && !g && !b && a) return 'alpha';
+    return 'other';
+  }
+
   function hookContext(gl) {
     if (!gl || hookedContexts.has(gl)) return;
     hookedContexts.add(gl);
@@ -294,30 +298,45 @@
       phase: 'idle',
       captureThisFrame: false,
       left: null,
-      needsRightColorClear: false,
-      lastMaskAt: 0
+      needsRightColorClear: false
     };
+
+    function resetFrameState() {
+      state.phase = 'idle';
+      state.captureThisFrame = false;
+      state.left = null;
+      state.needsRightColorClear = false;
+    }
 
     gl.colorMask = function (red, green, blue, alpha) {
       if (!stereoActive) {
-        state.phase = 'idle';
-        state.left = null;
-        state.needsRightColorClear = false;
+        resetFrameState();
         return originalColorMask(red, green, blue, alpha);
       }
 
-      const all = !!red && !!green && !!blue && !!alpha;
+      const kind = classifyMask(red, green, blue, alpha);
       const now = performance.now();
 
-      if (!all) {
-        if (state.phase === 'idle' || now - state.lastMaskAt > 100) {
-          // First anaglyph color mask = beginning of GeoGebra's left-eye pass.
+      if (kind === 'none' || kind === 'alpha' || kind === 'other') {
+        // Crucial v0.5.2 fix: NONE is used inside both eye renders to draw
+        // occlusion/hiding depth. It is NOT an eye switch and must stay NONE.
+        return originalColorMask(red, green, blue, alpha);
+      }
+
+      if (kind === 'left') {
+        if (state.phase !== 'left') {
           state.phase = 'left';
           state.captureThisFrame = now - lastFrameSentAt >= FRAME_INTERVAL_MS;
           state.left = null;
           state.needsRightColorClear = false;
-        } else if (state.phase === 'left') {
-          // Second anaglyph mask arrives after the left-eye draw has completed.
+        }
+
+        // Bypass only GeoGebra's red eye filter; keep its left-eye camera.
+        return originalColorMask(true, true, true, true);
+      }
+
+      if (kind === 'right') {
+        if (state.phase === 'left') {
           if (state.captureThisFrame) {
             state.left = readFramebuffer(gl);
           }
@@ -325,22 +344,25 @@
           state.needsRightColorClear = true;
         }
 
-        state.lastMaskAt = now;
+        if (state.phase === 'right') {
+          // Bypass only the cyan/blue eye filter; keep its right-eye camera.
+          return originalColorMask(true, true, true, true);
+        }
 
-        // Bypass GeoGebra's red/cyan filter. The eye camera is still GeoGebra's;
-        // only the output-channel restriction is removed.
-        return originalColorMask(true, true, true, true);
+        // A right mask without a preceding left mask is not a complete stereo
+        // frame; do not invent one. Preserve GeoGebra's request for safety.
+        return originalColorMask(red, green, blue, alpha);
       }
 
-      if (state.phase === 'right') {
-        // GeoGebra restores ALL channels immediately after the right-eye draw.
-        if (state.captureThisFrame && state.left) {
-          const right = readFramebuffer(gl);
-          emitStereoFrame(state.left, right);
+      if (kind === 'all') {
+        if (state.phase === 'right') {
+          if (state.captureThisFrame && state.left) {
+            const right = readFramebuffer(gl);
+            emitStereoFrame(state.left, right);
+          }
+          resetFrameState();
         }
-        state.phase = 'idle';
-        state.left = null;
-        state.needsRightColorClear = false;
+        return originalColorMask(red, green, blue, alpha);
       }
 
       return originalColorMask(red, green, blue, alpha);
@@ -354,9 +376,8 @@
         (mask & gl.DEPTH_BUFFER_BIT) !== 0
       ) {
         state.needsRightColorClear = false;
-        // Stock anaglyph keeps the left-eye color buffer and clears only depth.
-        // For two independent eye images the right pass needs a clean color
-        // buffer, so add COLOR_BUFFER_BIT exactly once before the right draw.
+        // Stock anaglyph keeps left-eye color and clears only depth before the
+        // right eye. For independent eye images, clear color exactly once here.
         return originalClear(mask | gl.COLOR_BUFFER_BIT);
       }
       return originalClear(mask);
@@ -392,14 +413,11 @@
     document.documentElement.dataset.ggqStereo = next ? 'on' : 'off';
 
     if (next) {
+      // v0.5.2 does NOT synthesize a second Glasses click here. The projection
+      // patch arms this capture hook at window-capture time and then lets the
+      // user's original click reach GeoGebra. That original event is the sole
+      // source of the PROJECTION_GLASSES transition.
       hookCurrent3DContext();
-      // Make GeoGebra itself select PROJECTION_GLASSES. Its renderer will now
-      // generate the two eye camera passes we capture below.
-      setTimeout(function () {
-        dispatchProjection(2);
-        hookCurrent3DContext();
-      }, 0);
-
       applyPortalTransparency(find3DCanvas());
       sendPortalRect();
       if (!rectTimer) {
@@ -413,9 +431,6 @@
       clearPortalTransparency();
       lastFrameSentAt = 0;
       if (!preserve) {
-        // Toggling the headset off directly returns to Perspective. If the user
-        // selected another projection themselves, the projection patch calls us
-        // with preserveProjection=true so their choice is left untouched.
         setTimeout(function () { dispatchProjection(1); }, 0);
       }
     }
@@ -438,8 +453,6 @@
     return true;
   }
 
-  // The object is created by index.html; page timing differs slightly between
-  // the local bundle and CDN fallback, so keep retrying until it exists.
   apiWrapTimer = setInterval(function () {
     if (wrapGeoGebraApi()) {
       clearInterval(apiWrapTimer);
@@ -453,14 +466,14 @@
   });
 
   window.GeoGebraQuestStereoCapture = {
-    enable: function () { setStereoEnabled(true, false); },
+    enable: function () {
+      // Programmatic enable only arms capture. Normal user activation is driven
+      // by the headset click so GeoGebra itself chooses PROJECTION_GLASSES.
+      setStereoEnabled(true, false);
+    },
     disable: function () { setStereoEnabled(false, false); },
     isEnabled: function () { return stereoActive; },
     hookNow: hookCurrent3DContext,
-    setSwapEyes: function () {
-      // Kept as a compatibility placeholder for a future user-facing L/R swap.
-      // SWAP_EYES is intentionally constant in v0.5.0 for predictable testing.
-      return SWAP_EYES;
-    }
+    setSwapEyes: function () { return SWAP_EYES; }
   };
 })();
