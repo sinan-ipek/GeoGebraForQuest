@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 20
-        versionName = "0.5.1"
+        versionCode = 21
+        versionName = "0.5.2"
     }
 
     buildFeatures {
@@ -58,10 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.5.1 uses GeoGebra's own two eye renders. The user's original Glasses
-// projection click is now allowed to reach GeoGebra directly, while the WebGL
-// hook bypasses only the anaglyph color masks. The stereo panel stays hidden
-// until a real SBS frame is presented successfully.
+// v0.5.2 captures GeoGebra's real two-eye PROJECTION_GLASSES renders by
+// distinguishing its RED / BLUE(+GREEN) eye masks from the internal NONE mask
+// used while drawing hidden geometry. Only the eye filters are bypassed.
 spatial {
     allowUsageDataCollection.set(true)
 }
