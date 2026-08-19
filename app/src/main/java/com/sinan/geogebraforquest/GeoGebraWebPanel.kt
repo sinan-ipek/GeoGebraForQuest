@@ -25,6 +25,8 @@ import org.json.JSONObject
 
 private const val LOCAL_APP_URL =
     "https://appassets.androidplatform.net/assets/web/index.html"
+private const val PROJECTION_PATCH_URL =
+    "https://appassets.androidplatform.net/assets/web/quest-projection-patch.js"
 
 /**
  * Bridge between the local GeoGebra web app and Android/Spatial SDK.
@@ -101,6 +103,28 @@ private class QuestBridge(
     }
 }
 
+private fun injectProjectionPatch(view: WebView) {
+    val patchUrl = JSONObject.quote(PROJECTION_PATCH_URL)
+    view.evaluateJavascript(
+        """
+        (function () {
+          if (window.__ggqProjectionPatchInjected) return;
+          window.__ggqProjectionPatchInjected = true;
+          var script = document.createElement('script');
+          script.id = 'ggq-projection-patch';
+          script.src = $patchUrl;
+          script.async = false;
+          script.onerror = function () {
+            window.__ggqProjectionPatchInjected = false;
+            console.error('[GeoGebraForQuest] projection patch could not be loaded');
+          };
+          (document.head || document.documentElement).appendChild(script);
+        })();
+        """.trimIndent(),
+        null,
+    )
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun GeoGebraWebPanel(
@@ -128,7 +152,7 @@ fun GeoGebraWebPanel(
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.userAgentString =
-                    settings.userAgentString + " GeoGebraForQuest/0.3.3"
+                    settings.userAgentString + " GeoGebraForQuest/0.3.4"
 
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -152,6 +176,12 @@ fun GeoGebraWebPanel(
 
                     override fun onPageFinished(view: WebView, url: String) {
                         super.onPageFinished(view, url)
+
+                        // GeoGebra's current web UI paints projection icons as CSS
+                        // background images. v0.3.4 injects a dedicated patch that
+                        // identifies the real four-item projection table and replaces
+                        // only the Anaglyph/Glasses item with the Quest headset icon.
+                        injectProjectionPatch(view)
 
                         val state = GeoGebraSession.load(context)
                         if (!state.isNullOrBlank()) {

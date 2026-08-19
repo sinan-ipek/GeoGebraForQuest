@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 10
-        versionName = "0.3.3"
+        versionCode = 11
+        versionName = "0.3.4"
     }
 
     buildFeatures {
@@ -58,9 +58,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.3.3: safe hybrid launcher.
-// Start as the proven 2D GeoGebra panel, then use a transparent Spatial SDK
-// Compose panel only after the replacement Anaglyph/Stereo control is selected.
+// v0.3.4: reliable in-place projection-menu replacement.
+// GeoGebra paints the four projection icons as CSS background images, so the
+// dedicated Quest patch identifies that exact table and replaces only the
+// third (Glasses/Anaglyph) option with the Stereo 3D headset control.
 spatial {
     allowUsageDataCollection.set(true)
 }
