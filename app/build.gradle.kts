@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 8
-        versionName = "0.3.1"
+        versionCode = 9
+        versionName = "0.3.2"
     }
 
     buildFeatures {
@@ -58,9 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.3.1: one mixed-reality spatial host, one Activity-backed GeoGebra panel.
-// GeoGebra's original Anaglyph projection control is replaced in-place with the
-// Quest Stereo 3D control; sampled function graphs are also mirrored natively.
+// v0.3.2: Activity-backed GeoGebra panel runtime fix.
+// The embedded panel is explicitly allowed by the Android manifest, matching
+// Meta Spatial SDK ActivityPanelRegistration samples.
 spatial {
     allowUsageDataCollection.set(true)
 }

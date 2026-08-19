@@ -17,20 +17,23 @@
     <application
         android:allowBackup="false"
         android:label="GeoGebraForQuest"
+        android:largeHeap="true"
         android:usesCleartextTraffic="false">
 
         <meta-data
             android:name="com.oculus.supportedDevices"
             android:value="quest3|questpro|quest2" />
         <meta-data android:name="com.oculus.vr.focusaware" android:value="true" />
+        <meta-data
+            android:name="com.oculus.ossplash.background"
+            android:value="passthrough-contextual" />
 
         <uses-native-library android:name="libossdk.oculus.so" android:required="true" />
 
         <!--
-          v0.3 enters Spatial SDK once at launch. The user still sees one ordinary
-          GeoGebra window in passthrough; true stereo is revealed only inside the
-          existing 3D Graphics viewport. No second Activity/window is opened when
-          the headset projection button is pressed.
+          v0.3.x enters Spatial SDK once at launch. The user sees one GeoGebra
+          panel in passthrough; true stereo is revealed only inside the existing
+          3D Graphics viewport.
         -->
         <activity
             android:name=".SpatialGeoGebraActivity"
@@ -47,9 +50,13 @@
             </intent-filter>
         </activity>
 
-        <!-- This exact Activity is embedded as the visible Spatial SDK panel. -->
+        <!--
+          ActivityPanelRegistration embeds this Activity into the Spatial SDK
+          surface. Horizon OS requires allowEmbedded=true for this mode.
+        -->
         <activity
             android:name=".PancakeActivity"
+            android:allowEmbedded="true"
             android:exported="false"
             android:resizeableActivity="true"
             android:theme="@style/PanelAppThemeTransparent" />
