@@ -1,9 +1,7 @@
 package com.sinan.geogebraforquest
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.webkit.CookieManager
@@ -24,50 +22,46 @@ import org.json.JSONObject
 private const val LOCAL_APP_URL =
     "https://appassets.androidplatform.net/assets/web/index.html"
 
-/** Messages from the embedded GeoGebra page to Android. */
+/**
+ * Bridge used by the embedded, local GeoGebra web app.
+ *
+ * v0.2 has no "open a second VR activity" call. The application already runs in
+ * Spatial SDK from the beginning; the replacement headset icon simply turns the
+ * current GeoGebra 3D viewport into a transparent stereo portal.
+ */
 private class QuestBridge(
     private val context: Context,
-    private val spatialMode: Boolean,
-    private val onPortalChanged: (Boolean) -> Unit,
+    private val onStereoChanged: (Boolean) -> Unit,
+    private val onPortalRect: (String) -> Unit,
+    private val onSceneChanged: (String) -> Unit,
 ) {
     @JavascriptInterface
-    fun enterSpatial(base64: String) {
-        GeoGebraSession.save(context, base64)
-        if (!spatialMode) {
-            val intent = Intent(context, SpatialGeoGebraActivity::class.java).apply {
-                action = Intent.ACTION_MAIN
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } else {
-            onPortalChanged(true)
-        }
+    fun setStereoEnabled(enabled: Boolean) {
+        onStereoChanged(enabled)
     }
 
     @JavascriptInterface
-    fun setPortalEnabled(enabled: Boolean) {
-        onPortalChanged(enabled)
+    fun updatePortalRect(json: String) {
+        onPortalRect(json)
+    }
+
+    @JavascriptInterface
+    fun updateScene(json: String) {
+        onSceneChanged(json)
     }
 
     @JavascriptInterface
     fun saveConstruction(base64: String) {
         GeoGebraSession.save(context, base64)
     }
-
-    @JavascriptInterface
-    fun returnToPanel(base64: String) {
-        GeoGebraSession.save(context, base64)
-        if (spatialMode) {
-            (context as? Activity)?.finish()
-        }
-    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun GeoGebraWebPanel(
-    spatialMode: Boolean,
-    onPortalChanged: (Boolean) -> Unit = {},
+    onStereoChanged: (Boolean) -> Unit = {},
+    onPortalRect: (String) -> Unit = {},
+    onSceneChanged: (String) -> Unit = {},
 ) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
@@ -80,10 +74,10 @@ fun GeoGebraWebPanel(
                 .build()
 
             WebView(context).apply {
-                // Deliberately opaque for v0.1.2. Once startup and immersive
-                // transition are stable we will re-enable transparency only
-                // for the 3D portal region.
-                setBackgroundColor(Color.WHITE)
+                // The Spatial SDK panel itself supports transparency. GeoGebra still paints
+                // its ordinary UI opaque; only the 3D WebGL canvas is made transparent by JS
+                // while Stereo 3D is enabled.
+                setBackgroundColor(Color.TRANSPARENT)
 
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
@@ -93,7 +87,7 @@ fun GeoGebraWebPanel(
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.userAgentString =
-                    settings.userAgentString + " GeoGebraForQuest/0.1.2"
+                    settings.userAgentString + " GeoGebraForQuest/0.2.0"
 
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -126,22 +120,19 @@ fun GeoGebraWebPanel(
                                 null,
                             )
                         }
-
-                        view.evaluateJavascript(
-                            "window.GeoGebraForQuest && window.GeoGebraForQuest.setSpatialMode(${if (spatialMode) "true" else "false"});",
-                            null,
-                        )
                     }
                 }
 
                 addJavascriptInterface(
-                    QuestBridge(context, spatialMode, onPortalChanged),
+                    QuestBridge(
+                        context = context,
+                        onStereoChanged = onStereoChanged,
+                        onPortalRect = onPortalRect,
+                        onSceneChanged = onSceneChanged,
+                    ),
                     "QuestBridge",
                 )
 
-                // Android's recommended WebViewAssetLoader gives bundled files an
-                // HTTPS-like origin, which avoids the file:// same-origin problems
-                // that can break large JS applications such as GeoGebra.
                 loadUrl(LOCAL_APP_URL)
             }
         },
