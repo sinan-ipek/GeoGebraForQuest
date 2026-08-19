@@ -148,7 +148,7 @@ fun configureGeoGebraWebView(
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
         settings.userAgentString =
-            settings.userAgentString + " GeoGebraForQuest/0.4.1"
+            settings.userAgentString + " GeoGebraForQuest/0.4.2"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
