@@ -1,5 +1,7 @@
 package com.sinan.geogebraforquest
 
+import android.os.Handler
+import android.os.Looper
 import com.meta.spatial.compose.ComposeFeature
 import com.meta.spatial.compose.composePanel
 import com.meta.spatial.core.Entity
@@ -14,14 +16,15 @@ import com.meta.spatial.toolkit.Panel
 import com.meta.spatial.toolkit.PanelDimensions
 import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.Transform
+import com.meta.spatial.toolkit.Visible
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.2
+ * Spatial host used only after the user requests Stereo 3D.
  *
- * The whole app runs inside Spatial SDK from launch, but it intentionally presents just one
- * ordinary GeoGebra panel. This lets us keep the original 2D GeoGebra interface while using
- * a true stereo Spatial SDK layer only behind the 3D graphics viewport.
+ * Visually this is still the same GeoGebra panel. Only the rectangle occupied
+ * by GeoGebra's 3D Graphics canvas is allowed to reveal native Spatial SDK
+ * geometry, which Quest renders independently for the two eyes.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -35,9 +38,19 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var panelEntity: Entity? = null
     private var portalRenderer: StereoPortalRenderer? = null
 
-    private var pendingStereo = false
+    private var pendingStereo = true
     private var pendingPortalRect: String? = null
     private var pendingScene: String? = null
+    private var webReady = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val startupWatchdog = Runnable {
+        // Never strand the user in an empty spatial session. If the embedded
+        // GeoGebra panel did not report ready, return to the still-running 2D panel.
+        if (!webReady && !isFinishing) {
+            finish()
+        }
+    }
 
     override fun registerFeatures(): List<SpatialFeature> {
         return listOf(
@@ -61,6 +74,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 composePanel {
                     setContent {
                         GeoGebraWebPanel(
+                            spatialMode = true,
                             onStereoChanged = { enabled ->
                                 runOnUiThread {
                                     pendingStereo = enabled
@@ -79,6 +93,12 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                                     portalRenderer?.updateScene(json)
                                 }
                             },
+                            onReady = {
+                                runOnUiThread {
+                                    webReady = true
+                                    mainHandler.removeCallbacks(startupWatchdog)
+                                }
+                            },
                         )
                     }
                 }
@@ -90,18 +110,26 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         super.onSceneReady()
 
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
-
-        // No black "second VR room": the user keeps seeing the real world while GeoGebra
-        // floats in front of them. Hole punching is used only for the 3D viewport.
         scene.enablePassthrough(true)
         scene.enableHolePunching(true)
-        scene.setViewOrigin(0f, 0f, 0f, 0f)
 
-        val panel = Entity.create(
+        // Match Meta's HybridSample convention: the user's view starts two metres
+        // from the origin, facing back toward the spatial UI placed near z=0.
+        scene.setViewOrigin(0f, 0f, 2.0f, 180f)
+    }
+
+    override fun onVRReady() {
+        super.onVRReady()
+
+        // Dynamic panels are safest after VR is ready. Use the registered entity
+        // ID instead of creating an unrelated anonymous entity.
+        val panel = Entity(R.id.geogebra_panel)
+        panel.setComponents(
             listOf(
-                PanelDimensions(Vector2(PANEL_WIDTH_METERS, PANEL_HEIGHT_METERS)),
                 Panel(R.id.geogebra_panel),
-                Transform(Pose(Vector3(0f, 1.30f, 2.0f))),
+                PanelDimensions(Vector2(PANEL_WIDTH_METERS, PANEL_HEIGHT_METERS)),
+                Transform(Pose(Vector3(0f, 1.30f, 0f))),
+                Visible(true),
             ),
         )
         panelEntity = panel
@@ -115,9 +143,12 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             pendingScene?.let(renderer::updateScene)
             renderer.setStereoEnabled(pendingStereo)
         }
+
+        mainHandler.postDelayed(startupWatchdog, 20_000L)
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(startupWatchdog)
         portalRenderer?.destroy()
         portalRenderer = null
         panelEntity = null
