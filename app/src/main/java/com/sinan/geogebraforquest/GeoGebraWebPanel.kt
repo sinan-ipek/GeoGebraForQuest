@@ -1,9 +1,7 @@
 package com.sinan.geogebraforquest
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.webkit.CookieManager
@@ -24,51 +22,47 @@ import org.json.JSONObject
 private const val LOCAL_APP_URL =
     "https://appassets.androidplatform.net/assets/web/index.html"
 
-/** Messages from the embedded GeoGebra page to Android. */
+/**
+ * Messages from the embedded GeoGebra page to the Spatial SDK host.
+ *
+ * v0.3 deliberately keeps the exact Activity/WebView hosting path that already
+ * rendered GeoGebra correctly on Quest. The Activity itself is embedded as a
+ * Spatial SDK panel; therefore selecting Stereo 3D never launches another window.
+ */
 private class QuestBridge(
     private val context: Context,
-    private val spatialMode: Boolean,
-    private val onPortalChanged: (Boolean) -> Unit,
 ) {
     @JavascriptInterface
-    fun enterSpatial(base64: String) {
-        GeoGebraSession.save(context, base64)
-        if (!spatialMode) {
-            val intent = Intent(context, SpatialGeoGebraActivity::class.java).apply {
-                action = Intent.ACTION_MAIN
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } else {
-            onPortalChanged(true)
-        }
+    fun setStereoEnabled(enabled: Boolean) {
+        SpatialBridgeBus.stereoChanged(enabled)
     }
 
     @JavascriptInterface
-    fun setPortalEnabled(enabled: Boolean) {
-        onPortalChanged(enabled)
+    fun updatePortalRect(json: String) {
+        SpatialBridgeBus.portalRect(json)
+    }
+
+    @JavascriptInterface
+    fun updateScene(json: String) {
+        SpatialBridgeBus.sceneChanged(json)
     }
 
     @JavascriptInterface
     fun saveConstruction(base64: String) {
-        GeoGebraSession.save(context, base64)
+        if (base64.isNotBlank()) {
+            GeoGebraSession.save(context, base64)
+        }
     }
 
     @JavascriptInterface
-    fun returnToPanel(base64: String) {
-        GeoGebraSession.save(context, base64)
-        if (spatialMode) {
-            (context as? Activity)?.finish()
-        }
+    fun panelReady() {
+        SpatialBridgeBus.panelReady()
     }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun GeoGebraWebPanel(
-    spatialMode: Boolean,
-    onPortalChanged: (Boolean) -> Unit = {},
-) {
+fun GeoGebraWebPanel() {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
@@ -80,8 +74,10 @@ fun GeoGebraWebPanel(
                 .build()
 
             WebView(context).apply {
-                // Keep startup completely opaque and identical to the proven v0.1.2 path.
-                setBackgroundColor(Color.WHITE)
+                // The HTML page is opaque white in normal mode. Keeping the Android
+                // backing surface transparent lets the 3D canvas become a real hole
+                // only when JavaScript explicitly makes that viewport transparent.
+                setBackgroundColor(Color.TRANSPARENT)
 
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
@@ -91,7 +87,7 @@ fun GeoGebraWebPanel(
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.userAgentString =
-                    settings.userAgentString + " GeoGebraForQuest/0.2.2"
+                    settings.userAgentString + " GeoGebraForQuest/0.3.0"
 
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -124,16 +120,11 @@ fun GeoGebraWebPanel(
                                 null,
                             )
                         }
-
-                        view.evaluateJavascript(
-                            "window.GeoGebraForQuest && window.GeoGebraForQuest.setSpatialMode(${if (spatialMode) "true" else "false"});",
-                            null,
-                        )
                     }
                 }
 
                 addJavascriptInterface(
-                    QuestBridge(context, spatialMode, onPortalChanged),
+                    QuestBridge(context),
                     "QuestBridge",
                 )
 
