@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 11
-        versionName = "0.3.4"
+        versionCode = 12
+        versionName = "0.3.5"
     }
 
     buildFeatures {
@@ -58,10 +58,8 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.3.4: reliable in-place projection-menu replacement.
-// GeoGebra paints the four projection icons as CSS background images, so the
-// dedicated Quest patch identifies that exact table and replaces only the
-// third (Glasses/Anaglyph) option with the Stereo 3D headset control.
+// v0.3.5: use Meta's supported ActivityPanelRegistration for the spatial
+// GeoGebra WebView instead of embedding AndroidView/WebView in a Compose panel.
 spatial {
     allowUsageDataCollection.set(true)
 }
