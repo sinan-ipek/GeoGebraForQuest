@@ -25,8 +25,8 @@ import kotlin.math.sqrt
  * rectangle, so Horizon/Spatial SDK gives them true binocular stereo while the rest of the
  * GeoGebra interface remains a normal 2D panel.
  *
- * v0.2 supports the common primitives needed to validate the architecture:
- * points, segments/lines/rays, sphere commands, polygon edges and 3-point planes.
+ * v0.3.1 supports points, segments/lines/rays, sampled function polylines,
+ * sphere commands, polygon edges and 3-point planes.
  */
 class StereoPortalRenderer(
     private val panelEntity: Entity,
@@ -158,6 +158,7 @@ class StereoPortalRenderer(
                     "segment" -> createSegmentLike(obj, SegmentMode.SEGMENT)
                     "line" -> createSegmentLike(obj, SegmentMode.LINE)
                     "ray" -> createSegmentLike(obj, SegmentMode.RAY)
+                    "polyline" -> createPolyline(obj)
                     "sphere" -> createSphere(obj)
                     "polygon" -> createPolygon(obj)
                     "plane" -> createPlane(obj)
@@ -236,6 +237,25 @@ class StereoPortalRenderer(
         val thicknessValue = obj.optDouble("thickness", 5.0).toFloat()
         val thickness = (0.0035f + thicknessValue * 0.00045f).coerceIn(0.004f, 0.014f)
         createLine(a, b, colorOf(obj, 1f), thickness)
+    }
+
+    private fun createPolyline(obj: JSONObject) {
+        val pointsJson = obj.optJSONArray("points") ?: return
+        if (pointsJson.length() < 2) return
+
+        val points = mutableListOf<Vec3>()
+        for (i in 0 until pointsJson.length()) {
+            readVec(pointsJson.optJSONObject(i))?.let(points::add)
+        }
+        if (points.size < 2) return
+
+        val color = colorOf(obj, 1f)
+        val thicknessValue = obj.optDouble("thickness", 5.0).toFloat()
+        val thickness = (0.0035f + thicknessValue * 0.00045f).coerceIn(0.004f, 0.014f)
+
+        for (i in 1 until points.size) {
+            createLine(points[i - 1], points[i], color, thickness)
+        }
     }
 
     private fun createSphere(obj: JSONObject) {
