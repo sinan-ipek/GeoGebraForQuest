@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.3.2"
+        versionCode = 10
+        versionName = "0.3.3"
     }
 
     buildFeatures {
@@ -58,9 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.3.2: Activity-backed GeoGebra panel runtime fix.
-// The embedded panel is explicitly allowed by the Android manifest, matching
-// Meta Spatial SDK ActivityPanelRegistration samples.
+// v0.3.3: safe hybrid launcher.
+// Start as the proven 2D GeoGebra panel, then use a transparent Spatial SDK
+// Compose panel only after the replacement Anaglyph/Stereo control is selected.
 spatial {
     allowUsageDataCollection.set(true)
 }
