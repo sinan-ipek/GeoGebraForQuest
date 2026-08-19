@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -31,9 +32,9 @@ private const val PROJECTION_PATCH_URL =
 /**
  * Bridge between the local GeoGebra web app and Android/Spatial SDK.
  *
- * In normal panel mode a Stereo request starts the immersive host using the same
- * transition pattern as Meta's official HybridSample. In the immersive host the
- * exact same JavaScript calls are routed to the native stereo portal renderer.
+ * In normal panel mode a Stereo request starts the immersive host using Meta's
+ * HybridSample transition pattern. In spatial mode the same JavaScript calls are
+ * routed to the native stereo portal renderer.
  */
 private class QuestBridge(
     private val context: Context,
@@ -67,8 +68,6 @@ private class QuestBridge(
                 }
                 context.startActivity(intent)
             } catch (_: Throwable) {
-                // Keep the 2D GeoGebra panel alive even if Horizon rejects the
-                // immersive transition for any reason. A later tap can retry.
                 spatialLaunchRequested = false
             }
         }
@@ -125,7 +124,115 @@ private fun injectProjectionPatch(view: WebView) {
     )
 }
 
+private fun bootStereoWhenReady(view: WebView) {
+    view.evaluateJavascript(
+        """
+        (function () {
+          if (window.__ggqStereoBootTimer) {
+            clearInterval(window.__ggqStereoBootTimer);
+          }
+          var attempts = 0;
+          window.__ggqStereoBootTimer = setInterval(function () {
+            attempts++;
+            try {
+              if (window.GeoGebraForQuest &&
+                  typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
+                window.GeoGebraForQuest.setStereoEnabled(true);
+              }
+              if (document.documentElement.dataset.ggqStereo === 'on' || attempts > 100) {
+                clearInterval(window.__ggqStereoBootTimer);
+                window.__ggqStereoBootTimer = null;
+              }
+            } catch (e) {}
+          }, 250);
+        })();
+        """.trimIndent(),
+        null,
+    )
+}
+
+/**
+ * Configures a raw WebView with the exact GeoGebra environment used by the normal
+ * 2D panel. This function is also used by Spatial SDK's LayoutXMLPanelRegistration,
+ * avoiding Compose/Activity nesting around WebView in immersive mode.
+ */
 @SuppressLint("SetJavaScriptEnabled")
+fun configureGeoGebraWebView(
+    webView: WebView,
+    spatialMode: Boolean,
+    startStereo: Boolean,
+) {
+    val context = webView.context
+    val assetLoader = WebViewAssetLoader.Builder()
+        .addPathHandler(
+            "/assets/",
+            WebViewAssetLoader.AssetsPathHandler(context),
+        )
+        .build()
+
+    webView.apply {
+        setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        setBackgroundColor(if (spatialMode) Color.TRANSPARENT else Color.WHITE)
+
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        settings.databaseEnabled = true
+        settings.allowFileAccess = false
+        settings.allowContentAccess = false
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        settings.mediaPlaybackRequiresUserGesture = false
+        settings.userAgentString =
+            settings.userAgentString + " GeoGebraForQuest/0.3.6"
+
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
+        webChromeClient = WebChromeClient()
+        webViewClient = object : WebViewClientCompat() {
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest,
+            ): WebResourceResponse? {
+                return assetLoader.shouldInterceptRequest(request.url)
+            }
+
+            @Suppress("DEPRECATION")
+            override fun shouldInterceptRequest(
+                view: WebView,
+                url: String,
+            ): WebResourceResponse? {
+                return assetLoader.shouldInterceptRequest(Uri.parse(url))
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                super.onPageFinished(view, url)
+
+                injectProjectionPatch(view)
+
+                val state = GeoGebraSession.load(context)
+                if (!state.isNullOrBlank()) {
+                    val quoted = JSONObject.quote(state)
+                    view.evaluateJavascript(
+                        "window.GeoGebraForQuest && window.GeoGebraForQuest.importBase64($quoted);",
+                        null,
+                    )
+                }
+
+                if (spatialMode && startStereo) {
+                    bootStereoWhenReady(view)
+                }
+            }
+        }
+
+        addJavascriptInterface(
+            QuestBridge(context, spatialMode),
+            "QuestBridge",
+        )
+
+        loadUrl(LOCAL_APP_URL)
+    }
+}
+
 @Composable
 fun GeoGebraWebPanel(
     spatialMode: Boolean,
@@ -134,102 +241,12 @@ fun GeoGebraWebPanel(
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
-            val assetLoader = WebViewAssetLoader.Builder()
-                .addPathHandler(
-                    "/assets/",
-                    WebViewAssetLoader.AssetsPathHandler(context),
+            WebView(context).also { webView ->
+                configureGeoGebraWebView(
+                    webView = webView,
+                    spatialMode = spatialMode,
+                    startStereo = startStereo,
                 )
-                .build()
-
-            WebView(context).apply {
-                setBackgroundColor(if (spatialMode) Color.TRANSPARENT else Color.WHITE)
-
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.databaseEnabled = true
-                settings.allowFileAccess = false
-                settings.allowContentAccess = false
-                settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                settings.mediaPlaybackRequiresUserGesture = false
-                settings.userAgentString =
-                    settings.userAgentString + " GeoGebraForQuest/0.3.4"
-
-                CookieManager.getInstance().setAcceptCookie(true)
-                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-
-                webChromeClient = WebChromeClient()
-                webViewClient = object : WebViewClientCompat() {
-                    override fun shouldInterceptRequest(
-                        view: WebView,
-                        request: WebResourceRequest,
-                    ): WebResourceResponse? {
-                        return assetLoader.shouldInterceptRequest(request.url)
-                    }
-
-                    @Suppress("DEPRECATION")
-                    override fun shouldInterceptRequest(
-                        view: WebView,
-                        url: String,
-                    ): WebResourceResponse? {
-                        return assetLoader.shouldInterceptRequest(Uri.parse(url))
-                    }
-
-                    override fun onPageFinished(view: WebView, url: String) {
-                        super.onPageFinished(view, url)
-
-                        // GeoGebra's current web UI paints projection icons as CSS
-                        // background images. v0.3.4 injects a dedicated patch that
-                        // identifies the real four-item projection table and replaces
-                        // only the Anaglyph/Glasses item with the Quest headset icon.
-                        injectProjectionPatch(view)
-
-                        val state = GeoGebraSession.load(context)
-                        if (!state.isNullOrBlank()) {
-                            val quoted = JSONObject.quote(state)
-                            view.evaluateJavascript(
-                                "window.GeoGebraForQuest && window.GeoGebraForQuest.importBase64($quoted);",
-                                null,
-                            )
-                        }
-
-                        if (spatialMode && startStereo) {
-                            // onPageFinished occurs before GeoGebra's applet necessarily has a
-                            // visible 3D WebGL canvas. Retry inside the page until the existing
-                            // 3D Graphics viewport exists, then enable only that stereo portal.
-                            view.evaluateJavascript(
-                                """
-                                (function () {
-                                  if (window.__ggqStereoBootTimer) {
-                                    clearInterval(window.__ggqStereoBootTimer);
-                                  }
-                                  var attempts = 0;
-                                  window.__ggqStereoBootTimer = setInterval(function () {
-                                    attempts++;
-                                    try {
-                                      if (window.GeoGebraForQuest &&
-                                          typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
-                                        window.GeoGebraForQuest.setStereoEnabled(true);
-                                      }
-                                      if (document.documentElement.dataset.ggqStereo === 'on' || attempts > 80) {
-                                        clearInterval(window.__ggqStereoBootTimer);
-                                        window.__ggqStereoBootTimer = null;
-                                      }
-                                    } catch (e) {}
-                                  }, 250);
-                                })();
-                                """.trimIndent(),
-                                null,
-                            )
-                        }
-                    }
-                }
-
-                addJavascriptInterface(
-                    QuestBridge(context, spatialMode),
-                    "QuestBridge",
-                )
-
-                loadUrl(LOCAL_APP_URL)
             }
         },
     )

@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 12
-        versionName = "0.3.5"
+        versionCode = 13
+        versionName = "0.3.6"
     }
 
     buildFeatures {
@@ -58,8 +58,8 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.3.5: use Meta's supported ActivityPanelRegistration for the spatial
-// GeoGebra WebView instead of embedding AndroidView/WebView in a Compose panel.
+// v0.3.6: use Meta's native LayoutXMLPanelRegistration + WebView pattern in
+// immersive mode, avoiding both Compose-embedded and Activity-embedded WebViews.
 spatial {
     allowUsageDataCollection.set(true)
 }

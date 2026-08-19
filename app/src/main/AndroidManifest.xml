@@ -16,6 +16,7 @@
 
     <application
         android:allowBackup="false"
+        android:hardwareAccelerated="true"
         android:label="GeoGebraForQuest"
         android:largeHeap="true"
         android:usesCleartextTraffic="false">
@@ -59,17 +60,5 @@
                 <category android:name="com.oculus.intent.category.VR" />
             </intent-filter>
         </activity>
-
-        <!--
-          Dedicated Activity-backed UI surface for Spatial SDK. This matches Meta's
-          supported ActivityPanelRegistration pattern: the Activity is not launched
-          by the user; Spatial SDK embeds it as the visible GeoGebra panel.
-        -->
-        <activity
-            android:name=".SpatialPanelActivity"
-            android:allowEmbedded="true"
-            android:exported="false"
-            android:resizeableActivity="true"
-            android:theme="@style/PanelAppThemeTransparent" />
     </application>
 </manifest>
