@@ -26,32 +26,27 @@
 
         <uses-native-library android:name="libossdk.oculus.so" android:required="true" />
 
-        <!--
-          v0.2 starts in Spatial SDK immediately. This is intentional: a normal Horizon 2D
-          panel cannot send different images to the left and right eyes. The app still looks
-          like normal GeoGebra; the spatial runtime is used only to let the 3D graphics viewport
-          become a true stereo "window" without launching a second activity.
-        -->
+        <!-- Always start as the normal, known-good Horizon OS 2D panel. -->
         <activity
-            android:name=".SpatialGeoGebraActivity"
+            android:name=".PancakeActivity"
             android:exported="true"
-            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
-            android:launchMode="singleTask"
-            android:excludeFromRecents="false"
-            android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode">
+            android:resizeableActivity="true"
+            android:theme="@style/PanelAppTheme">
+            <layout android:defaultHeight="720dp" android:defaultWidth="1080dp" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="com.oculus.intent.category.VR" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="com.oculus.intent.category.2D" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Kept only as a non-launcher fallback while v0.2 stabilizes. -->
+        <!-- Entered only when GeoGebra's replacement Stereo 3D projection is chosen. -->
         <activity
-            android:name=".PancakeActivity"
+            android:name=".SpatialGeoGebraActivity"
             android:exported="false"
-            android:resizeableActivity="true"
-            android:theme="@style/PanelAppThemeTransparent" />
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:launchMode="singleTask"
+            android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode" />
     </application>
 </manifest>
