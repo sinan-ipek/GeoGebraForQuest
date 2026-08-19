@@ -1,12 +1,12 @@
 package com.sinan.geogebraforquest
 
 /**
- * Lightweight in-process event bridge between the Activity-backed GeoGebra panel
- * and the Spatial SDK host.
+ * In-process bridge between the GeoGebra WebView panel and the Spatial SDK host.
  *
- * The GeoGebra WebView lives in PancakeActivity because that exact Android Activity
- * path is already proven to render correctly on Quest. SpatialGeoGebraActivity embeds
- * that Activity as a Spatial SDK panel and listens here for stereo/scene updates.
+ * v0.5.0 no longer mirrors GeoGebra objects as native meshes. GeoGebra renders
+ * both stereo eye passes itself; JavaScript packs those two eye images into one
+ * side-by-side frame and sends it through this bridge to a StereoMode.LeftRight
+ * media surface.
  */
 object SpatialBridgeBus {
     @Volatile
@@ -16,7 +16,7 @@ object SpatialBridgeBus {
     var onPortalRect: ((String) -> Unit)? = null
 
     @Volatile
-    var onSceneChanged: ((String) -> Unit)? = null
+    var onStereoFrame: ((String, Int, Int) -> Unit)? = null
 
     @Volatile
     var onPanelReady: (() -> Unit)? = null
@@ -29,8 +29,8 @@ object SpatialBridgeBus {
         onPortalRect?.invoke(json)
     }
 
-    fun sceneChanged(json: String) {
-        onSceneChanged?.invoke(json)
+    fun stereoFrame(dataUrl: String, eyeWidth: Int, eyeHeight: Int) {
+        onStereoFrame?.invoke(dataUrl, eyeWidth, eyeHeight)
     }
 
     fun panelReady() {
@@ -40,7 +40,7 @@ object SpatialBridgeBus {
     fun clear() {
         onStereoChanged = null
         onPortalRect = null
-        onSceneChanged = null
+        onStereoFrame = null
         onPanelReady = null
     }
 }
