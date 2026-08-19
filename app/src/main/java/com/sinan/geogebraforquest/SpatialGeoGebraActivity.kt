@@ -21,21 +21,21 @@ import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.4.1
+ * GeoGebraForQuest v0.4.2
  *
  * Single-window mixed-reality architecture:
- * - The app starts once as a Spatial SDK activity.
- * - One Android/WebView GeoGebra panel is placed in front of the user.
- * - Stereo starts OFF, so GeoGebra initially looks like an ordinary flat app.
- * - Selecting the replacement Anaglyph/headset option does NOT launch a second
- *   Activity or window. Only the existing 3D Graphics rectangle becomes a native
- *   stereo depth portal inside the same GeoGebra panel.
+ * - The app starts once as one Spatial SDK activity.
+ * - GeoGebra is one normal flat Android/WebView panel in passthrough.
+ * - Stereo starts OFF.
+ * - Selecting the replacement Anaglyph/headset option does not launch another
+ *   Activity or window; only the existing 3D Graphics rectangle becomes the
+ *   native stereo depth portal inside the same GeoGebra panel.
  *
- * v0.4.0 could show only passthrough because panel creation silently swallowed a
- * failure while adding components that LayoutXMLPanelRegistration does not need.
- * v0.4.1 follows Meta's Object3DSampleIsdk pattern exactly: create the registered
- * panel entity with Panel + Transform + Grabbable only. The registration itself
- * owns the panel's physical/display dimensions.
+ * Important v0.4.2 correction:
+ * registered Spatial SDK panels are positioned/activated in onVRReady(), after
+ * the VR runtime and panel registrations are ready. This follows Meta's current
+ * SpatialVideoSample pattern. v0.4.1 tried to create the registered panel in
+ * onSceneReady(), which can leave the user looking only at passthrough.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -57,6 +57,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var pendingScene: String? = null
     private var geoGebraPanelReady = false
     private var sceneReady = false
+    private var vrReady = false
 
     override fun registerFeatures(): List<SpatialFeature> {
         return listOf(VRFeature(this))
@@ -102,9 +103,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         SpatialBridgeBus.onStereoChanged = { enabled ->
             runOnUiThread {
                 pendingStereo = enabled
-                if (geoGebraPanelReady) {
-                    ensurePortalRenderer()
-                }
+                ensurePortalRenderer()
                 portalRenderer?.setStereoEnabled(enabled)
             }
         }
@@ -170,27 +169,36 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
         scene.enableHolePunching(true)
 
-        // Same coordinate convention as Meta's HybridSample: the viewer begins
-        // around z=2 and faces the content placed around z=0.
-        scene.setViewOrigin(0f, 0f, 2.0f, 180f)
+        // Match the coordinate convention used by Meta's current Spatial SDK
+        // samples: origin at the user, forward content at positive Z.
+        scene.setViewOrigin(0f, 0f, 0f, 0f)
         enablePassthroughWhenSafe()
+    }
 
-        // IMPORTANT: LayoutXMLPanelRegistration already owns width/height/display
-        // configuration. Meta's official Object3DSampleIsdk creates a registered
-        // XML panel entity using these three components only. v0.4.0 added
-        // PanelDimensions/Visible and then swallowed any exception, which could
-        // leave panelEntity null and produce exactly the "room only" symptom.
-        panelEntity = Entity.create(
+    override fun onVRReady() {
+        super.onVRReady()
+        if (vrReady) return
+        vrReady = true
+
+        // Meta's current samples configure registered UI panels here, after all
+        // panel registrations and the VR runtime are ready. Entity(id) references
+        // the registered panel; it should not be recreated as a fresh anonymous
+        // Entity in onSceneReady().
+        val panel = Entity(R.id.geogebra_panel)
+        panel.setComponents(
             listOf(
                 Panel(R.id.geogebra_panel),
-                Transform(Pose(Vector3(0f, 1.30f, 0f))),
+                Transform(Pose(Vector3(0f, 1.25f, 1.50f))),
                 Grabbable(),
             ),
         )
+        panelEntity = panel
+
+        ensurePortalRenderer()
     }
 
     private fun ensurePortalRenderer() {
-        if (portalRenderer != null || !geoGebraPanelReady) {
+        if (portalRenderer != null || !geoGebraPanelReady || !vrReady) {
             return
         }
 

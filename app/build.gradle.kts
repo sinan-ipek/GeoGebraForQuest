@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 16
-        versionName = "0.4.1"
+        versionCode = 17
+        versionName = "0.4.2"
     }
 
     buildFeatures {
@@ -58,10 +58,8 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.4.1: keep the single-window integrated portal architecture, but create the
-// registered LayoutXML GeoGebra panel exactly like Meta's working sample: the
-// registration owns its dimensions, while the scene entity contains only
-// Panel + Transform + Grabbable.
+// v0.4.2: keep the single-window integrated portal architecture and activate
+// the registered GeoGebra panel in onVRReady(), matching Meta's current samples.
 spatial {
     allowUsageDataCollection.set(true)
 }
