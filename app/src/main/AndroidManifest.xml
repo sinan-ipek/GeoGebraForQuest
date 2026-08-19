@@ -31,9 +31,27 @@
         <uses-native-library android:name="libossdk.oculus.so" android:required="true" />
 
         <!--
-          v0.3.x enters Spatial SDK once at launch. The user sees one GeoGebra
-          panel in passthrough; true stereo is revealed only inside the existing
-          3D Graphics viewport.
+          Start exactly like the Meta HybridSample: a normal Horizon OS 2D panel.
+          This is the path already proven to launch GeoGebra correctly on Quest.
+        -->
+        <activity
+            android:name=".PancakeActivity"
+            android:exported="true"
+            android:resizeableActivity="true"
+            android:theme="@style/PanelAppTheme">
+            <layout android:defaultHeight="720dp" android:defaultWidth="1080dp" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="com.oculus.intent.category.2D" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Entered only after the replacement Anaglyph/Quest Stereo control is selected.
+          It visually recreates the same GeoGebra panel in passthrough and reveals native
+          stereo only through the existing 3D Graphics viewport.
         -->
         <activity
             android:name=".SpatialGeoGebraActivity"
@@ -46,19 +64,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="com.oculus.intent.category.VR" />
-                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!--
-          ActivityPanelRegistration embeds this Activity into the Spatial SDK
-          surface. Horizon OS requires allowEmbedded=true for this mode.
-        -->
-        <activity
-            android:name=".PancakeActivity"
-            android:allowEmbedded="true"
-            android:exported="false"
-            android:resizeableActivity="true"
-            android:theme="@style/PanelAppThemeTransparent" />
     </application>
 </manifest>
