@@ -3,8 +3,10 @@
     xmlns:horizonos="http://schemas.horizonos/sdk">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.oculus.permission.USE_SCENE" />
 
     <uses-feature android:name="android.hardware.vr.headtracking" android:required="true" />
+    <uses-feature android:name="com.oculus.feature.BOUNDARYLESS_APP" android:required="true" />
     <uses-feature android:name="com.oculus.feature.PASSTHROUGH" android:required="false" />
     <uses-feature android:name="com.oculus.feature.VIRTUAL_KEYBOARD" android:required="false" />
     <uses-feature android:name="oculus.software.overlay_keyboard" android:required="false" />
@@ -31,7 +33,6 @@
 
         <uses-native-library android:name="libossdk.oculus.so" android:required="true" />
 
-        <!-- Normal Horizon OS 2D launcher. -->
         <activity
             android:name=".PancakeActivity"
             android:exported="true"
@@ -46,7 +47,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Spatial host entered only after the replacement Anaglyph/Quest button. -->
         <activity
             android:name=".SpatialGeoGebraActivity"
             android:exported="true"
@@ -56,8 +56,8 @@
             android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="com.oculus.intent.category.VR" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>
