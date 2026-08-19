@@ -30,16 +30,16 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.5.0
+ * GeoGebraForQuest v0.5.1
  *
  * One Spatial activity, one ordinary GeoGebra panel, one eye-selective media
  * surface exactly over GeoGebra's 3D Graphics rectangle.
  *
  * The headset button does NOT launch another activity or immersive mode. It
- * only makes GeoGebra's 3D canvas transparent and shows the stereo media panel
- * in the same rectangle. GeoGebra itself renders both eye views; Spatial SDK's
- * StereoMode.LeftRight sends the SBS left half to the left eye and the right
- * half to the right eye.
+ * arms capture of GeoGebra's own PROJECTION_GLASSES left/right renders. The
+ * stereo media panel remains hidden until the first SBS frame has actually
+ * reached its Surface and eglSwapBuffers() succeeds. Therefore a capture miss
+ * cannot blank the working GeoGebra 3D view.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -125,9 +125,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         SpatialBridgeBus.onStereoChanged = { enabled ->
             pendingStereo = enabled
-            runOnMainThread {
-                stereoPortalEntity?.setComponent(Visible(enabled))
+            if (!enabled) {
+                runOnMainThread {
+                    stereoPortalEntity?.setComponent(Visible(false))
+                }
             }
+            // When enabling, deliberately keep the portal hidden. The original
+            // GeoGebra canvas remains visible until onStereoFrame has actually
+            // presented a valid SBS frame to the Spatial SDK surface.
         }
 
         SpatialBridgeBus.onPortalRect = { json ->
@@ -138,12 +143,20 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         }
 
         SpatialBridgeBus.onStereoFrame = { dataUrl, _, _ ->
-            stereoFrameSurface.submitDataUrl(dataUrl)
+            if (pendingStereo) {
+                stereoFrameSurface.submitDataUrl(dataUrl) {
+                    runOnMainThread {
+                        if (pendingStereo) {
+                            stereoPortalEntity?.setComponent(Visible(true))
+                        }
+                    }
+                }
+            }
         }
 
         SpatialBridgeBus.onPanelReady = {
-            // No native object mirror is created in v0.5.0. The panel-ready
-            // signal is intentionally kept only for lifecycle compatibility.
+            // Every visible 3D pixel comes from GeoGebra's renderer; no native
+            // object-by-object mirror is created.
         }
 
         requestScenePermissionIfNeeded()
@@ -209,7 +222,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 TransformParent(geoPanel),
                 Transform(Pose(Vector3(0f, 0f, -0.006f))),
                 Scale(Vector3(0.01f, 0.01f, 1f)),
-                Visible(pendingStereo),
+                Visible(false),
             ),
         )
         stereoPortalEntity = stereoPanel
