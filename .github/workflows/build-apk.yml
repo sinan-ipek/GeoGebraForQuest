@@ -53,13 +53,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.1.1-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.1.1-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.1.2-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.1.2-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.1.1-debug-apk
-          path: dist/GeoGebraForQuest-v0.1.1-debug.apk
+          name: GeoGebraForQuest-v0.1.2-debug-apk
+          path: dist/GeoGebraForQuest-v0.1.2-debug.apk
           if-no-files-found: error
           retention-days: 30
