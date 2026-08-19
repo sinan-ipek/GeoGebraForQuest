@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 15
-        versionName = "0.4.0"
+        versionCode = 16
+        versionName = "0.4.1"
     }
 
     buildFeatures {
@@ -58,9 +58,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.4.0: the whole app is one Spatial SDK activity from launch. GeoGebra is
-// one flat WebView panel; only its 3D Graphics rectangle becomes a native stereo
-// portal when the replacement Anaglyph/headset projection control is selected.
+// v0.4.1: keep the single-window integrated portal architecture, but create the
+// registered LayoutXML GeoGebra panel exactly like Meta's working sample: the
+// registration owns its dimensions, while the scene entity contains only
+// Panel + Transform + Grabbable.
 spatial {
     allowUsageDataCollection.set(true)
 }

@@ -6,34 +6,36 @@ import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
-import com.meta.spatial.core.Vector2
 import com.meta.spatial.core.Vector3
 import com.meta.spatial.runtime.ReferenceSpace
 import com.meta.spatial.toolkit.AppSystemActivity
 import com.meta.spatial.toolkit.DpDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
-import com.meta.spatial.toolkit.GrabbableType
 import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
 import com.meta.spatial.toolkit.Panel
-import com.meta.spatial.toolkit.PanelDimensions
 import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
 import com.meta.spatial.toolkit.QuadShapeOptions
 import com.meta.spatial.toolkit.Transform
 import com.meta.spatial.toolkit.UIPanelSettings
-import com.meta.spatial.toolkit.Visible
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.4.0
+ * GeoGebraForQuest v0.4.1
  *
- * One activity, one GeoGebra panel, one mixed-reality scene.
+ * Single-window mixed-reality architecture:
+ * - The app starts once as a Spatial SDK activity.
+ * - One Android/WebView GeoGebra panel is placed in front of the user.
+ * - Stereo starts OFF, so GeoGebra initially looks like an ordinary flat app.
+ * - Selecting the replacement Anaglyph/headset option does NOT launch a second
+ *   Activity or window. Only the existing 3D Graphics rectangle becomes a native
+ *   stereo depth portal inside the same GeoGebra panel.
  *
- * The application starts spatially in passthrough, but GeoGebra itself remains a
- * normal flat Android/WebView panel. The replacement Anaglyph/headset projection
- * option does NOT launch another activity or another window. It only makes the
- * existing GeoGebra 3D Graphics rectangle transparent and reveals native spatial
- * stereo geometry behind that exact rectangle via hole punching.
+ * v0.4.0 could show only passthrough because panel creation silently swallowed a
+ * failure while adding components that LayoutXMLPanelRegistration does not need.
+ * v0.4.1 follows Meta's Object3DSampleIsdk pattern exactly: create the registered
+ * panel entity with Panel + Transform + Grabbable only. The registration itself
+ * owns the panel's physical/display dimensions.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -95,8 +97,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Stereo starts OFF. GeoGebra initially behaves exactly like its normal
-        // 3D view. The headset option toggles only the integrated portal later.
         pendingStereo = false
 
         SpatialBridgeBus.onStereoChanged = { enabled ->
@@ -105,21 +105,21 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 if (geoGebraPanelReady) {
                     ensurePortalRenderer()
                 }
-                runCatching { portalRenderer?.setStereoEnabled(enabled) }
+                portalRenderer?.setStereoEnabled(enabled)
             }
         }
 
         SpatialBridgeBus.onPortalRect = { json ->
             runOnUiThread {
                 pendingPortalRect = json
-                runCatching { portalRenderer?.updatePortalRect(json) }
+                portalRenderer?.updatePortalRect(json)
             }
         }
 
         SpatialBridgeBus.onSceneChanged = { json ->
             runOnUiThread {
                 pendingScene = json
-                runCatching { portalRenderer?.updateScene(json) }
+                portalRenderer?.updateScene(json)
             }
         }
 
@@ -145,7 +145,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private fun enablePassthroughWhenSafe() {
         if (!sceneReady) return
         if (checkSelfPermission(PERMISSION_USE_SCENE) != PackageManager.PERMISSION_GRANTED) return
-        runCatching { scene.enablePassthrough(true) }
+        scene.enablePassthrough(true)
     }
 
     override fun onRequestPermissionsResult(
@@ -154,7 +154,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_USE_SCENE &&
+        if (
+            requestCode == REQUEST_USE_SCENE &&
             grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
@@ -167,27 +168,25 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         sceneReady = true
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
+        scene.enableHolePunching(true)
 
-        // Hole punching stays enabled underneath the panel. Nothing appears
-        // spatial until JavaScript makes only the 3D Graphics viewport transparent.
-        runCatching { scene.enableHolePunching(true) }
-
-        // Put the user about two metres in front of the GeoGebra panel, matching
-        // Meta's Spatial SDK sample coordinate convention.
+        // Same coordinate convention as Meta's HybridSample: the viewer begins
+        // around z=2 and faces the content placed around z=0.
         scene.setViewOrigin(0f, 0f, 2.0f, 180f)
         enablePassthroughWhenSafe()
 
-        panelEntity = runCatching {
-            Entity.create(
-                listOf(
-                    Grabbable(type = GrabbableType.PIVOT_Y),
-                    Panel(R.id.geogebra_panel),
-                    PanelDimensions(Vector2(PANEL_WIDTH_METERS, PANEL_HEIGHT_METERS)),
-                    Transform(Pose(Vector3(0f, 1.30f, 0f))),
-                    Visible(true),
-                ),
-            )
-        }.getOrNull()
+        // IMPORTANT: LayoutXMLPanelRegistration already owns width/height/display
+        // configuration. Meta's official Object3DSampleIsdk creates a registered
+        // XML panel entity using these three components only. v0.4.0 added
+        // PanelDimensions/Visible and then swallowed any exception, which could
+        // leave panelEntity null and produce exactly the "room only" symptom.
+        panelEntity = Entity.create(
+            listOf(
+                Panel(R.id.geogebra_panel),
+                Transform(Pose(Vector3(0f, 1.30f, 0f))),
+                Grabbable(),
+            ),
+        )
     }
 
     private fun ensurePortalRenderer() {
@@ -196,23 +195,21 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         }
 
         val panel = panelEntity ?: return
-        val renderer = runCatching {
-            StereoPortalRenderer(
-                panelEntity = panel,
-                panelWidthMeters = PANEL_WIDTH_METERS,
-                panelHeightMeters = PANEL_HEIGHT_METERS,
-            )
-        }.getOrNull() ?: return
+        val renderer = StereoPortalRenderer(
+            panelEntity = panel,
+            panelWidthMeters = PANEL_WIDTH_METERS,
+            panelHeightMeters = PANEL_HEIGHT_METERS,
+        )
 
         portalRenderer = renderer
-        pendingPortalRect?.let { runCatching { renderer.updatePortalRect(it) } }
-        pendingScene?.let { runCatching { renderer.updateScene(it) } }
-        runCatching { renderer.setStereoEnabled(pendingStereo) }
+        pendingPortalRect?.let(renderer::updatePortalRect)
+        pendingScene?.let(renderer::updateScene)
+        renderer.setStereoEnabled(pendingStereo)
     }
 
     override fun onDestroy() {
         SpatialBridgeBus.clear()
-        runCatching { portalRenderer?.destroy() }
+        portalRenderer?.destroy()
         portalRenderer = null
         panelEntity = null
         super.onDestroy()

@@ -26,10 +26,10 @@ private const val PROJECTION_PATCH_URL =
     "https://appassets.androidplatform.net/assets/web/quest-projection-patch.js"
 
 /**
- * JavaScript bridge for the single-activity v0.4.0 architecture.
+ * JavaScript bridge for the single-activity integrated portal architecture.
  *
- * There is deliberately no Activity launch here anymore. The application is
- * already running inside Spatial SDK from startup. Selecting the replacement
+ * There is deliberately no Activity launch here. The application is already
+ * running inside Spatial SDK from startup. Selecting the replacement
  * Anaglyph/headset control only switches the existing 3D Graphics viewport
  * between normal flat WebGL and the native spatial stereo portal.
  */
@@ -148,7 +148,7 @@ fun configureGeoGebraWebView(
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
         settings.userAgentString =
-            settings.userAgentString + " GeoGebraForQuest/0.4.0"
+            settings.userAgentString + " GeoGebraForQuest/0.4.1"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
