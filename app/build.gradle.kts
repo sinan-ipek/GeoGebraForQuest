@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
     }
 
     buildFeatures {
@@ -50,16 +50,20 @@ dependencies {
     implementation(libs.androidx.material3)
     debugImplementation(libs.androidx.ui.tooling)
 
+    // Serves bundled GeoGebra files to WebView through
+    // https://appassets.androidplatform.net instead of file://.
+    implementation("androidx.webkit:webkit:1.12.1")
+
     implementation(libs.meta.spatial.sdk.base)
     implementation(libs.meta.spatial.sdk.vr)
     implementation(libs.meta.spatial.sdk.compose)
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.1.1 güvenli test sürümü:
-// 1) GeoGebra tamamen yerel paket içinden açılır.
-// 2) 2D -> immersive geçişte yalnızca GeoGebra paneli oluşturulur.
-// 3) Native stereo sphere/axis demo, geçiş kararlı hale gelene kadar kapalıdır.
+// v0.1.2 diagnostic/stability build:
+// - local GeoGebra is hosted with WebViewAssetLoader over HTTPS-like URLs;
+// - the ordinary 2D panel is opaque and is the only launcher entry point;
+// - immersive mode uses an opaque, official-style Spatial SDK panel registration.
 spatial {
     allowUsageDataCollection.set(true)
 }
