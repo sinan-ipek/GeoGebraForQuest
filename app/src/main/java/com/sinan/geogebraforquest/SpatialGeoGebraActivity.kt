@@ -1,5 +1,6 @@
 package com.sinan.geogebraforquest
 
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
@@ -26,13 +27,10 @@ import com.meta.spatial.vr.VRFeature
 /**
  * Spatial half of GeoGebraForQuest.
  *
- * v0.3.6 uses Spatial SDK's native LayoutXMLPanelRegistration for WebView, the
- * same supported pattern demonstrated by Meta's MediaPlayerSample. This avoids
- * both unstable paths we tried before: WebView inside a Spatial Compose panel and
- * a nested ActivityPanel hosting the WebView.
- *
- * The spatial host recreates the same GeoGebra panel and reveals native stereo
- * only through the existing 3D Graphics viewport.
+ * v0.3.7 keeps the native LayoutXML WebView panel from v0.3.6, but corrects two
+ * concrete differences from Meta's working mixed-reality samples:
+ * 1) USE_SCENE permission + BOUNDARYLESS_APP capability are declared in manifest.
+ * 2) passthrough is enabled only after USE_SCENE is actually granted.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -42,6 +40,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         const val PANEL_HEIGHT_METERS = 1.00f
         const val PANEL_WIDTH_DP = 1080f
         const val PANEL_HEIGHT_DP = 720f
+
+        private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
+        private const val REQUEST_USE_SCENE = 701
     }
 
     private var panelEntity: Entity? = null
@@ -51,6 +52,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var pendingPortalRect: String? = null
     private var pendingScene: String? = null
     private var geoGebraPanelReady = false
+    private var sceneReady = false
 
     override fun registerFeatures(): List<SpatialFeature> {
         return listOf(VRFeature(this))
@@ -123,18 +125,48 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 ensurePortalRenderer()
             }
         }
+
+        requestScenePermissionIfNeeded()
+    }
+
+    private fun requestScenePermissionIfNeeded() {
+        if (checkSelfPermission(PERMISSION_USE_SCENE) == PackageManager.PERMISSION_GRANTED) {
+            enablePassthroughWhenSafe()
+            return
+        }
+
+        requestPermissions(arrayOf(PERMISSION_USE_SCENE), REQUEST_USE_SCENE)
+    }
+
+    private fun enablePassthroughWhenSafe() {
+        if (!sceneReady) return
+        if (checkSelfPermission(PERMISSION_USE_SCENE) != PackageManager.PERMISSION_GRANTED) return
+        runCatching { scene.enablePassthrough(true) }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_USE_SCENE &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            enablePassthroughWhenSafe()
+        }
     }
 
     override fun onSceneReady() {
         super.onSceneReady()
 
+        sceneReady = true
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
         runCatching { scene.enableHolePunching(true) }
-        runCatching { scene.enablePassthrough(true) }
         scene.setViewOrigin(0f, 0f, 2.0f, 180f)
+        enablePassthroughWhenSafe()
 
-        // Create the Android/WebView panel using the same stage at which Meta's
-        // official immersive samples initialize their entities.
         panelEntity = runCatching {
             Entity.create(
                 listOf(
