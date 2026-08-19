@@ -1,9 +1,13 @@
 package com.sinan.geogebraforquest
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -23,28 +27,63 @@ private const val LOCAL_APP_URL =
     "https://appassets.androidplatform.net/assets/web/index.html"
 
 /**
- * Messages from the embedded GeoGebra page to the Spatial SDK host.
+ * Bridge between the local GeoGebra web app and Android/Spatial SDK.
  *
- * v0.3 deliberately keeps the exact Activity/WebView hosting path that already
- * rendered GeoGebra correctly on Quest. The Activity itself is embedded as a
- * Spatial SDK panel; therefore selecting Stereo 3D never launches another window.
+ * In normal panel mode a Stereo request starts the immersive host using the same
+ * transition pattern as Meta's official HybridSample. In the immersive host the
+ * exact same JavaScript calls are routed to the native stereo portal renderer.
  */
 private class QuestBridge(
     private val context: Context,
+    private val spatialMode: Boolean,
 ) {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var spatialLaunchRequested = false
+
     @JavascriptInterface
     fun setStereoEnabled(enabled: Boolean) {
-        SpatialBridgeBus.stereoChanged(enabled)
+        if (spatialMode) {
+            SpatialBridgeBus.stereoChanged(enabled)
+            return
+        }
+
+        if (!enabled || spatialLaunchRequested) {
+            return
+        }
+
+        spatialLaunchRequested = true
+        mainHandler.post {
+            try {
+                val intent = Intent(context, SpatialGeoGebraActivity::class.java).apply {
+                    action = Intent.ACTION_MAIN
+                    putExtra(SpatialGeoGebraActivity.EXTRA_START_STEREO, true)
+                    if (context !is Activity) {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                }
+                context.startActivity(intent)
+            } catch (_: Throwable) {
+                // Keep the 2D GeoGebra panel alive even if Horizon rejects the
+                // immersive transition for any reason. A later tap can retry.
+                spatialLaunchRequested = false
+            }
+        }
     }
 
     @JavascriptInterface
     fun updatePortalRect(json: String) {
-        SpatialBridgeBus.portalRect(json)
+        if (spatialMode) {
+            SpatialBridgeBus.portalRect(json)
+        }
     }
 
     @JavascriptInterface
     fun updateScene(json: String) {
-        SpatialBridgeBus.sceneChanged(json)
+        if (spatialMode) {
+            SpatialBridgeBus.sceneChanged(json)
+        }
     }
 
     @JavascriptInterface
@@ -56,13 +95,18 @@ private class QuestBridge(
 
     @JavascriptInterface
     fun panelReady() {
-        SpatialBridgeBus.panelReady()
+        if (spatialMode) {
+            SpatialBridgeBus.panelReady()
+        }
     }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun GeoGebraWebPanel() {
+fun GeoGebraWebPanel(
+    spatialMode: Boolean,
+    startStereo: Boolean,
+) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
@@ -74,10 +118,7 @@ fun GeoGebraWebPanel() {
                 .build()
 
             WebView(context).apply {
-                // The HTML page is opaque white in normal mode. Keeping the Android
-                // backing surface transparent lets the 3D canvas become a real hole
-                // only when JavaScript explicitly makes that viewport transparent.
-                setBackgroundColor(Color.TRANSPARENT)
+                setBackgroundColor(if (spatialMode) Color.TRANSPARENT else Color.WHITE)
 
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
@@ -87,7 +128,7 @@ fun GeoGebraWebPanel() {
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.userAgentString =
-                    settings.userAgentString + " GeoGebraForQuest/0.3.0"
+                    settings.userAgentString + " GeoGebraForQuest/0.3.3"
 
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -120,11 +161,41 @@ fun GeoGebraWebPanel() {
                                 null,
                             )
                         }
+
+                        if (spatialMode && startStereo) {
+                            // onPageFinished occurs before GeoGebra's applet necessarily has a
+                            // visible 3D WebGL canvas. Retry inside the page until the existing
+                            // 3D Graphics viewport exists, then enable only that stereo portal.
+                            view.evaluateJavascript(
+                                """
+                                (function () {
+                                  if (window.__ggqStereoBootTimer) {
+                                    clearInterval(window.__ggqStereoBootTimer);
+                                  }
+                                  var attempts = 0;
+                                  window.__ggqStereoBootTimer = setInterval(function () {
+                                    attempts++;
+                                    try {
+                                      if (window.GeoGebraForQuest &&
+                                          typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
+                                        window.GeoGebraForQuest.setStereoEnabled(true);
+                                      }
+                                      if (document.documentElement.dataset.ggqStereo === 'on' || attempts > 80) {
+                                        clearInterval(window.__ggqStereoBootTimer);
+                                        window.__ggqStereoBootTimer = null;
+                                      }
+                                    } catch (e) {}
+                                  }, 250);
+                                })();
+                                """.trimIndent(),
+                                null,
+                            )
+                        }
                     }
                 }
 
                 addJavascriptInterface(
-                    QuestBridge(context),
+                    QuestBridge(context, spatialMode),
                     "QuestBridge",
                 )
 
