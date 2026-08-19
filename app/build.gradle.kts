@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 13
-        versionName = "0.3.6"
+        versionCode = 14
+        versionName = "0.3.7"
     }
 
     buildFeatures {
@@ -58,8 +58,8 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.3.6: use Meta's native LayoutXMLPanelRegistration + WebView pattern in
-// immersive mode, avoiding both Compose-embedded and Activity-embedded WebViews.
+// v0.3.7: match the Quest mixed-reality capability requirements used by Meta's
+// official samples and enable passthrough only after USE_SCENE is granted.
 spatial {
     allowUsageDataCollection.set(true)
 }
