@@ -25,17 +25,19 @@ import com.meta.spatial.toolkit.Visible
 import com.meta.spatial.vr.VRFeature
 
 /**
- * Spatial half of GeoGebraForQuest.
+ * GeoGebraForQuest v0.4.0
  *
- * v0.3.7 keeps the native LayoutXML WebView panel from v0.3.6, but corrects two
- * concrete differences from Meta's working mixed-reality samples:
- * 1) USE_SCENE permission + BOUNDARYLESS_APP capability are declared in manifest.
- * 2) passthrough is enabled only after USE_SCENE is actually granted.
+ * One activity, one GeoGebra panel, one mixed-reality scene.
+ *
+ * The application starts spatially in passthrough, but GeoGebra itself remains a
+ * normal flat Android/WebView panel. The replacement Anaglyph/headset projection
+ * option does NOT launch another activity or another window. It only makes the
+ * existing GeoGebra 3D Graphics rectangle transparent and reveals native spatial
+ * stereo geometry behind that exact rectangle via hole punching.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
     companion object {
-        const val EXTRA_START_STEREO = "start_stereo"
         const val PANEL_WIDTH_METERS = 1.50f
         const val PANEL_HEIGHT_METERS = 1.00f
         const val PANEL_WIDTH_DP = 1080f
@@ -83,7 +85,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     configureGeoGebraWebView(
                         webView = webView,
                         spatialMode = true,
-                        startStereo = true,
+                        startStereo = false,
                     )
                 },
             ),
@@ -93,7 +95,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        pendingStereo = intent?.getBooleanExtra(EXTRA_START_STEREO, false) == true
+        // Stereo starts OFF. GeoGebra initially behaves exactly like its normal
+        // 3D view. The headset option toggles only the integrated portal later.
+        pendingStereo = false
 
         SpatialBridgeBus.onStereoChanged = { enabled ->
             runOnUiThread {
@@ -163,7 +167,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         sceneReady = true
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
+
+        // Hole punching stays enabled underneath the panel. Nothing appears
+        // spatial until JavaScript makes only the 3D Graphics viewport transparent.
         runCatching { scene.enableHolePunching(true) }
+
+        // Put the user about two metres in front of the GeoGebra panel, matching
+        // Meta's Spatial SDK sample coordinate convention.
         scene.setViewOrigin(0f, 0f, 2.0f, 180f)
         enablePassthroughWhenSafe()
 
