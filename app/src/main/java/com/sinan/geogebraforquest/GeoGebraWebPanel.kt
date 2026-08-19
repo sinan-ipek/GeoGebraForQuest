@@ -5,19 +5,26 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewClientCompat
 import org.json.JSONObject
 
-/** Messages from the embedded local GeoGebra page to Android. */
+private const val LOCAL_APP_URL =
+    "https://appassets.androidplatform.net/assets/web/index.html"
+
+/** Messages from the embedded GeoGebra page to Android. */
 private class QuestBridge(
     private val context: Context,
     private val spatialMode: Boolean,
@@ -65,24 +72,52 @@ fun GeoGebraWebPanel(
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
+            val assetLoader = WebViewAssetLoader.Builder()
+                .addPathHandler(
+                    "/assets/",
+                    WebViewAssetLoader.AssetsPathHandler(context),
+                )
+                .build()
+
             WebView(context).apply {
-                setBackgroundColor(Color.TRANSPARENT)
+                // Deliberately opaque for v0.1.2. Once startup and immersive
+                // transition are stable we will re-enable transparency only
+                // for the 3D portal region.
+                setBackgroundColor(Color.WHITE)
 
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.databaseEnabled = true
-                settings.allowFileAccess = true
-                settings.allowContentAccess = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                 settings.mediaPlaybackRequiresUserGesture = false
-                settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.1"
+                settings.userAgentString =
+                    settings.userAgentString + " GeoGebraForQuest/0.1.2"
 
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
                 webChromeClient = WebChromeClient()
-                webViewClient = object : WebViewClient() {
+                webViewClient = object : WebViewClientCompat() {
+                    override fun shouldInterceptRequest(
+                        view: WebView,
+                        request: WebResourceRequest,
+                    ): WebResourceResponse? {
+                        return assetLoader.shouldInterceptRequest(request.url)
+                    }
+
+                    @Suppress("DEPRECATION")
+                    override fun shouldInterceptRequest(
+                        view: WebView,
+                        url: String,
+                    ): WebResourceResponse? {
+                        return assetLoader.shouldInterceptRequest(Uri.parse(url))
+                    }
+
                     override fun onPageFinished(view: WebView, url: String) {
+                        super.onPageFinished(view, url)
+
                         val state = GeoGebraSession.load(context)
                         if (!state.isNullOrBlank()) {
                             val quoted = JSONObject.quote(state)
@@ -91,6 +126,7 @@ fun GeoGebraWebPanel(
                                 null,
                             )
                         }
+
                         view.evaluateJavascript(
                             "window.GeoGebraForQuest && window.GeoGebraForQuest.setSpatialMode(${if (spatialMode) "true" else "false"});",
                             null,
@@ -103,9 +139,10 @@ fun GeoGebraWebPanel(
                     "QuestBridge",
                 )
 
-                // The HTML shell is always local. It prefers a local Math Apps Bundle
-                // when present and falls back to GeoGebra's official CDN otherwise.
-                loadUrl("file:///android_asset/web/index.html")
+                // Android's recommended WebViewAssetLoader gives bundled files an
+                // HTTPS-like origin, which avoids the file:// same-origin problems
+                // that can break large JS applications such as GeoGebra.
+                loadUrl(LOCAL_APP_URL)
             }
         },
     )
