@@ -30,10 +30,7 @@
 
         <uses-native-library android:name="libossdk.oculus.so" android:required="true" />
 
-        <!--
-          Start exactly like the Meta HybridSample: a normal Horizon OS 2D panel.
-          This is the path already proven to launch GeoGebra correctly on Quest.
-        -->
+        <!-- Normal Horizon OS 2D launcher. -->
         <activity
             android:name=".PancakeActivity"
             android:exported="true"
@@ -48,11 +45,7 @@
             </intent-filter>
         </activity>
 
-        <!--
-          Entered only after the replacement Anaglyph/Quest Stereo control is selected.
-          It visually recreates the same GeoGebra panel in passthrough and reveals native
-          stereo only through the existing 3D Graphics viewport.
-        -->
+        <!-- Spatial host entered only after the replacement Anaglyph/Quest button. -->
         <activity
             android:name=".SpatialGeoGebraActivity"
             android:exported="true"
@@ -66,5 +59,17 @@
                 <category android:name="com.oculus.intent.category.VR" />
             </intent-filter>
         </activity>
+
+        <!--
+          Dedicated Activity-backed UI surface for Spatial SDK. This matches Meta's
+          supported ActivityPanelRegistration pattern: the Activity is not launched
+          by the user; Spatial SDK embeds it as the visible GeoGebra panel.
+        -->
+        <activity
+            android:name=".SpatialPanelActivity"
+            android:allowEmbedded="true"
+            android:exported="false"
+            android:resizeableActivity="true"
+            android:theme="@style/PanelAppThemeTransparent" />
     </application>
 </manifest>
