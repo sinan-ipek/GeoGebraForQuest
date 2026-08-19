@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 6
-        versionName = "0.2.2"
+        versionCode = 7
+        versionName = "0.3.0"
     }
 
     buildFeatures {
@@ -58,9 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.2.2: startup recovery release.
-// Launch and WebView hosting are restored to the proven v0.1.2 implementation.
-// Stereo portal work stays paused until this baseline is confirmed stable on Quest.
+// v0.3.0: one mixed-reality spatial host, one Activity-backed GeoGebra panel.
+// GeoGebra's original Anaglyph projection control is replaced in-place with the
+// Quest Stereo 3D control; native stereo is revealed only through the 3D viewport.
 spatial {
     allowUsageDataCollection.set(true)
 }
