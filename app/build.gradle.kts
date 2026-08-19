@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 18
-        versionName = "0.4.3"
+        versionCode = 19
+        versionName = "0.5.0"
     }
 
     buildFeatures {
@@ -58,10 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.4.3 keeps one integrated GeoGebra panel. Clicking the headset never launches
-// another Activity or mode; it only reveals native stereo geometry through the
-// existing 3D Graphics rectangle. Procedural primitives now use Meta's complete
-// Box/Sphere + Mesh component pattern.
+// v0.5.0 uses GeoGebra's own two eye renders. The stock anaglyph color masks
+// are intercepted in WebGL, the full eye frames are packed SBS, and Spatial
+// SDK StereoMode.LeftRight routes the two halves to the correct Quest eyes.
 spatial {
     allowUsageDataCollection.set(true)
 }
