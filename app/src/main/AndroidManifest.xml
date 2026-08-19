@@ -26,12 +26,12 @@
 
         <uses-native-library android:name="libossdk.oculus.so" android:required="true" />
 
-        <!-- Normal Horizon OS 2D-panel entry point. -->
+        <!-- The app icon always opens the ordinary 2D GeoGebra panel. -->
         <activity
             android:name=".PancakeActivity"
             android:exported="true"
             android:resizeableActivity="true"
-            android:theme="@style/PanelAppThemeTransparent">
+            android:theme="@style/PanelAppTheme">
             <layout android:defaultHeight="720dp" android:defaultWidth="1080dp" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -41,18 +41,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Spatial mode. The same 2D GeoGebra panel remains usable here. -->
+        <!-- Immersive mode is entered explicitly by the headset button. -->
         <activity
             android:name=".SpatialGeoGebraActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:launchMode="singleTask"
-            android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="com.oculus.intent.category.VR" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+            android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode" />
     </application>
 </manifest>
