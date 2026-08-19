@@ -1,7 +1,6 @@
 package com.sinan.geogebraforquest
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -29,13 +28,6 @@ private const val LOCAL_APP_URL =
 private const val PROJECTION_PATCH_URL =
     "https://appassets.androidplatform.net/assets/web/quest-projection-patch.js"
 
-/**
- * Bridge between the local GeoGebra web app and Android/Spatial SDK.
- *
- * In normal panel mode a Stereo request starts the immersive host using Meta's
- * HybridSample transition pattern. In spatial mode the same JavaScript calls are
- * routed to the native stereo portal renderer.
- */
 private class QuestBridge(
     private val context: Context,
     private val spatialMode: Boolean,
@@ -62,9 +54,9 @@ private class QuestBridge(
                 val intent = Intent(context, SpatialGeoGebraActivity::class.java).apply {
                     action = Intent.ACTION_MAIN
                     putExtra(SpatialGeoGebraActivity.EXTRA_START_STEREO, true)
-                    if (context !is Activity) {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
+                    // Meta's official HybridSample always starts the immersive
+                    // activity as a NEW_TASK, even when the caller is an Activity.
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(intent)
             } catch (_: Throwable) {
@@ -151,11 +143,6 @@ private fun bootStereoWhenReady(view: WebView) {
     )
 }
 
-/**
- * Configures a raw WebView with the exact GeoGebra environment used by the normal
- * 2D panel. This function is also used by Spatial SDK's LayoutXMLPanelRegistration,
- * avoiding Compose/Activity nesting around WebView in immersive mode.
- */
 @SuppressLint("SetJavaScriptEnabled")
 fun configureGeoGebraWebView(
     webView: WebView,
@@ -182,7 +169,7 @@ fun configureGeoGebraWebView(
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
         settings.userAgentString =
-            settings.userAgentString + " GeoGebraForQuest/0.3.6"
+            settings.userAgentString + " GeoGebraForQuest/0.3.7"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
