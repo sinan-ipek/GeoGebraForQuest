@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.2.0"
+        versionCode = 5
+        versionName = "0.2.1"
     }
 
     buildFeatures {
@@ -58,8 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.2.0: the app is spatial from launch, but visually remains ordinary GeoGebra.
-// Only the GeoGebra 3D graphics canvas can become a transparent stereo portal.
+// v0.2.1: ordinary 2D GeoGebra is the stable launcher again.
+// Stereo 3D transitions to a visually identical Spatial SDK panel and uses
+// native stereo only behind the GeoGebra 3D Graphics viewport.
 spatial {
     allowUsageDataCollection.set(true)
 }
