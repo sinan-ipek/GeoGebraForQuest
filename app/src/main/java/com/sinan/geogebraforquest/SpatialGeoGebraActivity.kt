@@ -1,32 +1,36 @@
 package com.sinan.geogebraforquest
 
 import android.os.Bundle
-import com.meta.spatial.compose.ComposeFeature
-import com.meta.spatial.compose.composePanel
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector2
 import com.meta.spatial.core.Vector3
-import com.meta.spatial.runtime.LayerConfig
 import com.meta.spatial.runtime.ReferenceSpace
+import com.meta.spatial.toolkit.ActivityPanelRegistration
 import com.meta.spatial.toolkit.AppSystemActivity
+import com.meta.spatial.toolkit.DpPerMeterDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
 import com.meta.spatial.toolkit.GrabbableType
 import com.meta.spatial.toolkit.Panel
 import com.meta.spatial.toolkit.PanelDimensions
 import com.meta.spatial.toolkit.PanelRegistration
+import com.meta.spatial.toolkit.PanelStyleOptions
+import com.meta.spatial.toolkit.QuadShapeOptions
 import com.meta.spatial.toolkit.Transform
+import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.toolkit.Visible
 import com.meta.spatial.vr.VRFeature
 
 /**
- * Spatial half of the safe hybrid architecture.
+ * Spatial half of GeoGebraForQuest.
  *
- * The app does NOT launch here. It first opens the known-good normal 2D GeoGebra
- * panel. Only when the user selects the headset icon in GeoGebra's projection menu
- * do we enter this Activity. The visible UI is then recreated as one transparent
- * Spatial SDK Compose panel; native stereo is revealed only through the 3D viewport.
+ * v0.3.5 deliberately follows Meta's supported ActivityPanelRegistration path
+ * for Android UI. The normal app starts as the proven 2D GeoGebra panel. Only
+ * after the user chooses the headset icon do we start this spatial host.
+ *
+ * The spatial host then shows the same GeoGebra UI through SpatialPanelActivity,
+ * while the native stereo scene is revealed only through the 3D Graphics area.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -34,6 +38,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         const val EXTRA_START_STEREO = "start_stereo"
         const val PANEL_WIDTH_METERS = 1.50f
         const val PANEL_HEIGHT_METERS = 1.00f
+        const val PANEL_DP_PER_METER = 720f
     }
 
     private var panelEntity: Entity? = null
@@ -44,62 +49,64 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var pendingScene: String? = null
 
     override fun registerFeatures(): List<SpatialFeature> {
-        return listOf(
-            VRFeature(this),
-            ComposeFeature(),
-        )
+        // ActivityPanelRegistration does not need ComposeFeature. Keeping the
+        // feature list minimal removes the unsupported WebView-in-Compose-panel
+        // path that caused v0.3.4 to terminate when entering stereo mode.
+        return listOf(VRFeature(this))
     }
 
     override fun registerPanels(): List<PanelRegistration> {
         return listOf(
-            PanelRegistration(R.id.geogebra_panel) {
-                config {
-                    themeResourceId = R.style.PanelAppThemeTransparent
-                    layoutWidthInDp = 1080f
-                    layoutHeightInDp = 720f
-                    layerConfig = LayerConfig()
-                    enableTransparent = true
-                    includeGlass = false
-                }
-                composePanel {
-                    setContent {
-                        GeoGebraWebPanel(
-                            spatialMode = true,
-                            startStereo = true,
-                        )
-                    }
-                }
-            },
+            ActivityPanelRegistration(
+                R.id.geogebra_panel,
+                classIdCreator = { SpatialPanelActivity::class.java },
+                settingsCreator = {
+                    UIPanelSettings(
+                        shape = QuadShapeOptions(
+                            width = PANEL_WIDTH_METERS,
+                            height = PANEL_HEIGHT_METERS,
+                        ),
+                        display = DpPerMeterDisplayOptions(
+                            dpPerMeter = PANEL_DP_PER_METER,
+                        ),
+                        style = PanelStyleOptions(
+                            themeResourceId = R.style.PanelAppThemeTransparent,
+                        ),
+                    )
+                },
+            ),
         )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        pendingStereo = intent?.getBooleanExtra(EXTRA_START_STEREO, false) == true
+
         SpatialBridgeBus.onStereoChanged = { enabled ->
             runOnUiThread {
                 pendingStereo = enabled
-                portalRenderer?.setStereoEnabled(enabled)
+                runCatching { portalRenderer?.setStereoEnabled(enabled) }
             }
         }
 
         SpatialBridgeBus.onPortalRect = { json ->
             runOnUiThread {
                 pendingPortalRect = json
-                portalRenderer?.updatePortalRect(json)
+                runCatching { portalRenderer?.updatePortalRect(json) }
             }
         }
 
         SpatialBridgeBus.onSceneChanged = { json ->
             runOnUiThread {
                 pendingScene = json
-                portalRenderer?.updateScene(json)
+                runCatching { portalRenderer?.updateScene(json) }
             }
         }
 
         SpatialBridgeBus.onPanelReady = {
-            // The page itself drives the initial Stereo ON request after its 3D
-            // WebGL viewport exists. Nothing has to be created from this callback.
+            // The embedded GeoGebra page drives the stereo request once its 3D
+            // Graphics canvas exists.
         }
     }
 
@@ -108,10 +115,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
 
-        // These calls are intentionally guarded: a Horizon runtime difference must
-        // never be able to crash the whole app at startup again.
-        runCatching { scene.enablePassthrough(true) }
+        // Hole punching is the official Spatial SDK mechanism that lets native
+        // spatial content appear through a transparent panel region.
         runCatching { scene.enableHolePunching(true) }
+
+        // Passthrough is optional on some runtime configurations. Failure here
+        // must not terminate the application.
+        runCatching { scene.enablePassthrough(true) }
 
         scene.setViewOrigin(0f, 0f, 2.0f, 180f)
     }
@@ -119,31 +129,41 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     override fun onVRReady() {
         super.onVRReady()
 
-        val panel = Entity.create(
-            listOf(
-                Grabbable(type = GrabbableType.PIVOT_Y),
-                Panel(R.id.geogebra_panel),
-                PanelDimensions(Vector2(PANEL_WIDTH_METERS, PANEL_HEIGHT_METERS)),
-                Transform(Pose(Vector3(0f, 1.30f, 0f))),
-                Visible(true),
-            ),
-        )
+        // Build only the supported panel first. If the native mirror has a
+        // problem, GeoGebra itself must remain visible rather than killing the
+        // whole spatial session.
+        val panel = runCatching {
+            Entity.create(
+                listOf(
+                    Grabbable(type = GrabbableType.PIVOT_Y),
+                    Panel(R.id.geogebra_panel),
+                    PanelDimensions(Vector2(PANEL_WIDTH_METERS, PANEL_HEIGHT_METERS)),
+                    Transform(Pose(Vector3(0f, 1.30f, 0f))),
+                    Visible(true),
+                ),
+            )
+        }.getOrNull() ?: return
+
         panelEntity = panel
 
-        portalRenderer = StereoPortalRenderer(
-            panelEntity = panel,
-            panelWidthMeters = PANEL_WIDTH_METERS,
-            panelHeightMeters = PANEL_HEIGHT_METERS,
-        ).also { renderer ->
-            pendingPortalRect?.let(renderer::updatePortalRect)
-            pendingScene?.let(renderer::updateScene)
-            renderer.setStereoEnabled(pendingStereo)
+        portalRenderer = runCatching {
+            StereoPortalRenderer(
+                panelEntity = panel,
+                panelWidthMeters = PANEL_WIDTH_METERS,
+                panelHeightMeters = PANEL_HEIGHT_METERS,
+            )
+        }.getOrNull()
+
+        portalRenderer?.let { renderer ->
+            pendingPortalRect?.let { runCatching { renderer.updatePortalRect(it) } }
+            pendingScene?.let { runCatching { renderer.updateScene(it) } }
+            runCatching { renderer.setStereoEnabled(pendingStereo) }
         }
     }
 
     override fun onDestroy() {
         SpatialBridgeBus.clear()
-        portalRenderer?.destroy()
+        runCatching { portalRenderer?.destroy() }
         portalRenderer = null
         panelEntity = null
         super.onDestroy()
