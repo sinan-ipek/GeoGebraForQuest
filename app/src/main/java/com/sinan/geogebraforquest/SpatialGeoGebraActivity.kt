@@ -8,34 +8,38 @@ import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector3
 import com.meta.spatial.runtime.ReferenceSpace
+import com.meta.spatial.runtime.StereoMode
 import com.meta.spatial.toolkit.AppSystemActivity
 import com.meta.spatial.toolkit.DpDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
 import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
+import com.meta.spatial.toolkit.MediaPanelRenderOptions
+import com.meta.spatial.toolkit.MediaPanelSettings
 import com.meta.spatial.toolkit.Panel
 import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
+import com.meta.spatial.toolkit.PixelDisplayOptions
 import com.meta.spatial.toolkit.QuadShapeOptions
+import com.meta.spatial.toolkit.Scale
 import com.meta.spatial.toolkit.Transform
+import com.meta.spatial.toolkit.TransformParent
 import com.meta.spatial.toolkit.UIPanelSettings
+import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
+import com.meta.spatial.toolkit.Visible
 import com.meta.spatial.vr.VRFeature
+import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.4.2
+ * GeoGebraForQuest v0.5.0
  *
- * Single-window mixed-reality architecture:
- * - The app starts once as one Spatial SDK activity.
- * - GeoGebra is one normal flat Android/WebView panel in passthrough.
- * - Stereo starts OFF.
- * - Selecting the replacement Anaglyph/headset option does not launch another
- *   Activity or window; only the existing 3D Graphics rectangle becomes the
- *   native stereo depth portal inside the same GeoGebra panel.
+ * One Spatial activity, one ordinary GeoGebra panel, one eye-selective media
+ * surface exactly over GeoGebra's 3D Graphics rectangle.
  *
- * Important v0.4.2 correction:
- * registered Spatial SDK panels are positioned/activated in onVRReady(), after
- * the VR runtime and panel registrations are ready. This follows Meta's current
- * SpatialVideoSample pattern. v0.4.1 tried to create the registered panel in
- * onSceneReady(), which can leave the user looking only at passthrough.
+ * The headset button does NOT launch another activity or immersive mode. It
+ * only makes GeoGebra's 3D canvas transparent and shows the stereo media panel
+ * in the same rectangle. GeoGebra itself renders both eye views; Spatial SDK's
+ * StereoMode.LeftRight sends the SBS left half to the left eye and the right
+ * half to the right eye.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -49,13 +53,12 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val REQUEST_USE_SCENE = 701
     }
 
-    private var panelEntity: Entity? = null
-    private var portalRenderer: StereoPortalRenderer? = null
+    private val stereoFrameSurface = StereoFrameSurface()
 
+    private var geoGebraPanelEntity: Entity? = null
+    private var stereoPortalEntity: Entity? = null
     private var pendingStereo = false
     private var pendingPortalRect: String? = null
-    private var pendingScene: String? = null
-    private var geoGebraPanelReady = false
     private var sceneReady = false
     private var vrReady = false
 
@@ -92,41 +95,55 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     )
                 },
             ),
+            VideoSurfacePanelRegistration(
+                R.id.stereo_portal_panel,
+                surfaceConsumer = { _, surface ->
+                    stereoFrameSurface.attach(surface)
+                },
+                settingsCreator = {
+                    MediaPanelSettings(
+                        shape = QuadShapeOptions(width = 1f, height = 1f),
+                        display = PixelDisplayOptions(
+                            width = StereoFrameSurface.SURFACE_WIDTH,
+                            height = StereoFrameSurface.SURFACE_HEIGHT,
+                        ),
+                        rendering = MediaPanelRenderOptions(
+                            stereoMode = StereoMode.LeftRight,
+                            zIndex = 1,
+                        ),
+                        style = PanelStyleOptions(
+                            themeResourceId = R.style.PanelAppThemeTransparent,
+                        ),
+                    )
+                },
+            ),
         )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        pendingStereo = false
-
         SpatialBridgeBus.onStereoChanged = { enabled ->
-            runOnUiThread {
-                pendingStereo = enabled
-                ensurePortalRenderer()
-                portalRenderer?.setStereoEnabled(enabled)
+            pendingStereo = enabled
+            runOnMainThread {
+                stereoPortalEntity?.setComponent(Visible(enabled))
             }
         }
 
         SpatialBridgeBus.onPortalRect = { json ->
-            runOnUiThread {
-                pendingPortalRect = json
-                portalRenderer?.updatePortalRect(json)
+            pendingPortalRect = json
+            runOnMainThread {
+                updateStereoPortalTransform(json)
             }
         }
 
-        SpatialBridgeBus.onSceneChanged = { json ->
-            runOnUiThread {
-                pendingScene = json
-                portalRenderer?.updateScene(json)
-            }
+        SpatialBridgeBus.onStereoFrame = { dataUrl, _, _ ->
+            stereoFrameSurface.submitDataUrl(dataUrl)
         }
 
         SpatialBridgeBus.onPanelReady = {
-            runOnUiThread {
-                geoGebraPanelReady = true
-                ensurePortalRenderer()
-            }
+            // No native object mirror is created in v0.5.0. The panel-ready
+            // signal is intentionally kept only for lifecycle compatibility.
         }
 
         requestScenePermissionIfNeeded()
@@ -137,7 +154,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             enablePassthroughWhenSafe()
             return
         }
-
         requestPermissions(arrayOf(PERMISSION_USE_SCENE), REQUEST_USE_SCENE)
     }
 
@@ -164,13 +180,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
     override fun onSceneReady() {
         super.onSceneReady()
-
         sceneReady = true
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
         scene.enableHolePunching(true)
-
-        // Match the coordinate convention used by Meta's current Spatial SDK
-        // samples: origin at the user, forward content at positive Z.
         scene.setViewOrigin(0f, 0f, 0f, 0f)
         enablePassthroughWhenSafe()
     }
@@ -180,46 +192,76 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         if (vrReady) return
         vrReady = true
 
-        // Meta's current samples configure registered UI panels here, after all
-        // panel registrations and the VR runtime are ready. Entity(id) references
-        // the registered panel; it should not be recreated as a fresh anonymous
-        // Entity in onSceneReady().
-        val panel = Entity(R.id.geogebra_panel)
-        panel.setComponents(
+        val geoPanel = Entity(R.id.geogebra_panel)
+        geoPanel.setComponents(
             listOf(
                 Panel(R.id.geogebra_panel),
                 Transform(Pose(Vector3(0f, 1.25f, 1.50f))),
                 Grabbable(),
             ),
         )
-        panelEntity = panel
+        geoGebraPanelEntity = geoPanel
 
-        ensurePortalRenderer()
+        val stereoPanel = Entity(R.id.stereo_portal_panel)
+        stereoPanel.setComponents(
+            listOf(
+                Panel(R.id.stereo_portal_panel),
+                TransformParent(geoPanel),
+                Transform(Pose(Vector3(0f, 0f, -0.006f))),
+                Scale(Vector3(0.01f, 0.01f, 1f)),
+                Visible(pendingStereo),
+            ),
+        )
+        stereoPortalEntity = stereoPanel
+
+        pendingPortalRect?.let(::updateStereoPortalTransform)
     }
 
-    private fun ensurePortalRenderer() {
-        if (portalRenderer != null || !geoGebraPanelReady || !vrReady) {
-            return
+    private fun updateStereoPortalTransform(json: String) {
+        val portal = stereoPortalEntity ?: return
+
+        try {
+            val data = JSONObject(json)
+            val left = data.optDouble("left", 0.0).toFloat()
+            val top = data.optDouble("top", 0.0).toFloat()
+            val width = data.optDouble("width", 1.0).toFloat().coerceAtLeast(1f)
+            val height = data.optDouble("height", 1.0).toFloat().coerceAtLeast(1f)
+            val viewWidth = data.optDouble("viewWidth", PANEL_WIDTH_DP.toDouble())
+                .toFloat()
+                .coerceAtLeast(1f)
+            val viewHeight = data.optDouble("viewHeight", PANEL_HEIGHT_DP.toDouble())
+                .toFloat()
+                .coerceAtLeast(1f)
+
+            val centerXRatio = (left + width * 0.5f) / viewWidth
+            val centerYRatio = (top + height * 0.5f) / viewHeight
+            val centerX = (centerXRatio - 0.5f) * PANEL_WIDTH_METERS
+            val centerY = (0.5f - centerYRatio) * PANEL_HEIGHT_METERS
+            val widthMeters = PANEL_WIDTH_METERS * width / viewWidth
+            val heightMeters = PANEL_HEIGHT_METERS * height / viewHeight
+
+            if (
+                !centerX.isFinite() || !centerY.isFinite() ||
+                !widthMeters.isFinite() || !heightMeters.isFinite() ||
+                widthMeters <= 0f || heightMeters <= 0f
+            ) {
+                return
+            }
+
+            portal.setComponents(
+                Transform(Pose(Vector3(centerX, centerY, -0.006f))),
+                Scale(Vector3(widthMeters, heightMeters, 1f)),
+            )
+        } catch (_: Throwable) {
+            // A transient GeoGebra layout rectangle must never crash Spatial SDK.
         }
-
-        val panel = panelEntity ?: return
-        val renderer = StereoPortalRenderer(
-            panelEntity = panel,
-            panelWidthMeters = PANEL_WIDTH_METERS,
-            panelHeightMeters = PANEL_HEIGHT_METERS,
-        )
-
-        portalRenderer = renderer
-        pendingPortalRect?.let(renderer::updatePortalRect)
-        pendingScene?.let(renderer::updateScene)
-        renderer.setStereoEnabled(pendingStereo)
     }
 
     override fun onDestroy() {
         SpatialBridgeBus.clear()
-        portalRenderer?.destroy()
-        portalRenderer = null
-        panelEntity = null
+        stereoFrameSurface.release()
+        stereoPortalEntity = null
+        geoGebraPanelEntity = null
         super.onDestroy()
     }
 }
