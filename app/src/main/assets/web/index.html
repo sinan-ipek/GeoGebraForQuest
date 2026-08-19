@@ -151,8 +151,10 @@
       spatialMode = !!enabled;
       document.body.classList.toggle('spatial', spatialMode);
 
+      // v0.1.1 safe mode keeps the GeoGebra canvas visible in immersive mode.
+      // Native stereoscopic geometry will be re-enabled after the transition is stable.
       if (spatialMode) {
-        setPortal(true);
+        setPortal(false);
       }
     },
 
