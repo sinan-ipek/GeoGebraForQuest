@@ -30,10 +30,10 @@ private const val STEREO_CAPTURE_URL =
 /**
  * JavaScript bridge for the single integrated GeoGebra panel.
  *
- * v0.5.0 transports GeoGebra's own left/right eye renders. It does not create
- * native replacements for GeoGebra objects. JavaScript packs GeoGebra's two
- * eye passes side-by-side and this bridge forwards that frame to a Spatial SDK
- * StereoMode.LeftRight media surface.
+ * v0.5.1 still transports GeoGebra's own left/right eye renders. It does not
+ * create native replacements for GeoGebra objects. JavaScript packs GeoGebra's
+ * two eye passes side-by-side and this bridge forwards that frame to a Spatial
+ * SDK StereoMode.LeftRight media surface.
  */
 private class QuestBridge(
     private val context: Context,
@@ -61,7 +61,7 @@ private class QuestBridge(
     }
 
     /**
-     * Kept because the older bootstrap still emits scene JSON. v0.5.0 ignores
+     * Kept because the older bootstrap still emits scene JSON. v0.5.1 ignores
      * it: every visible 3D pixel now comes from GeoGebra's own renderer.
      */
     @JavascriptInterface
@@ -104,7 +104,29 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
     )
 }
 
+private fun injectStereoOverlaySafety(view: WebView) {
+    view.evaluateJavascript(
+        """
+        (function () {
+          if (document.getElementById('ggq-stereo-overlay-safety')) return;
+          var style = document.createElement('style');
+          style.id = 'ggq-stereo-overlay-safety';
+          style.textContent =
+            '.ggq-stereo-canvas{opacity:1!important;}' +
+            'html[data-ggq-stereo="on"] #ggb-element{background:#fff!important;}';
+          (document.head || document.documentElement).appendChild(style);
+        })();
+        """.trimIndent(),
+        null,
+    )
+}
+
 private fun injectQuestScripts(view: WebView) {
+    // v0.5.1 keeps the original GeoGebra 3D canvas visible until the native
+    // stereo surface has actually received a frame. The stereo panel is drawn
+    // a few millimetres in front of the WebView, so once it becomes visible it
+    // naturally covers the flat 3D canvas without exposing a black rectangle.
+    injectStereoOverlaySafety(view)
     injectAssetScript(view, "ggq-projection-patch", PROJECTION_PATCH_URL)
     injectAssetScript(view, "ggq-stereo-capture", STEREO_CAPTURE_URL)
 }
@@ -163,7 +185,7 @@ fun configureGeoGebraWebView(
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
         settings.userAgentString =
-            settings.userAgentString + " GeoGebraForQuest/0.5.0"
+            settings.userAgentString + " GeoGebraForQuest/0.5.1"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -188,8 +210,8 @@ fun configureGeoGebraWebView(
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
 
-                // Keep the known-good GeoGebra startup untouched. The Quest
-                // behavior is injected as two small scripts after page load.
+                // Keep the known-good GeoGebra startup untouched. Quest stereo
+                // behavior is injected after the normal page has loaded.
                 injectQuestScripts(view)
 
                 val state = GeoGebraSession.load(context)
