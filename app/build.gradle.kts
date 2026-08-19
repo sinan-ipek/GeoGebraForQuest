@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 17
-        versionName = "0.4.2"
+        versionCode = 18
+        versionName = "0.4.3"
     }
 
     buildFeatures {
@@ -58,8 +58,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.4.2: keep the single-window integrated portal architecture and activate
-// the registered GeoGebra panel in onVRReady(), matching Meta's current samples.
+// v0.4.3 keeps one integrated GeoGebra panel. Clicking the headset never launches
+// another Activity or mode; it only reveals native stereo geometry through the
+// existing 3D Graphics rectangle. Procedural primitives now use Meta's complete
+// Box/Sphere + Mesh component pattern.
 spatial {
     allowUsageDataCollection.set(true)
 }
