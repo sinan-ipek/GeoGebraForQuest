@@ -1,17 +1,18 @@
 package com.sinan.geogebraforquest
 
 import android.os.Bundle
+import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector2
 import com.meta.spatial.core.Vector3
 import com.meta.spatial.runtime.ReferenceSpace
-import com.meta.spatial.toolkit.ActivityPanelRegistration
 import com.meta.spatial.toolkit.AppSystemActivity
-import com.meta.spatial.toolkit.DpPerMeterDisplayOptions
+import com.meta.spatial.toolkit.DpDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
 import com.meta.spatial.toolkit.GrabbableType
+import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
 import com.meta.spatial.toolkit.Panel
 import com.meta.spatial.toolkit.PanelDimensions
 import com.meta.spatial.toolkit.PanelRegistration
@@ -25,12 +26,13 @@ import com.meta.spatial.vr.VRFeature
 /**
  * Spatial half of GeoGebraForQuest.
  *
- * v0.3.5 deliberately follows Meta's supported ActivityPanelRegistration path
- * for Android UI. The normal app starts as the proven 2D GeoGebra panel. Only
- * after the user chooses the headset icon do we start this spatial host.
+ * v0.3.6 uses Spatial SDK's native LayoutXMLPanelRegistration for WebView, the
+ * same supported pattern demonstrated by Meta's MediaPlayerSample. This avoids
+ * both unstable paths we tried before: WebView inside a Spatial Compose panel and
+ * a nested ActivityPanel hosting the WebView.
  *
- * The spatial host then shows the same GeoGebra UI through SpatialPanelActivity,
- * while the native stereo scene is revealed only through the 3D Graphics area.
+ * The spatial host recreates the same GeoGebra panel and reveals native stereo
+ * only through the existing 3D Graphics viewport.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -38,7 +40,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         const val EXTRA_START_STEREO = "start_stereo"
         const val PANEL_WIDTH_METERS = 1.50f
         const val PANEL_HEIGHT_METERS = 1.00f
-        const val PANEL_DP_PER_METER = 720f
+        const val PANEL_WIDTH_DP = 1080f
+        const val PANEL_HEIGHT_DP = 720f
     }
 
     private var panelEntity: Entity? = null
@@ -47,31 +50,38 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var pendingStereo = false
     private var pendingPortalRect: String? = null
     private var pendingScene: String? = null
+    private var geoGebraPanelReady = false
 
     override fun registerFeatures(): List<SpatialFeature> {
-        // ActivityPanelRegistration does not need ComposeFeature. Keeping the
-        // feature list minimal removes the unsupported WebView-in-Compose-panel
-        // path that caused v0.3.4 to terminate when entering stereo mode.
         return listOf(VRFeature(this))
     }
 
     override fun registerPanels(): List<PanelRegistration> {
         return listOf(
-            ActivityPanelRegistration(
+            LayoutXMLPanelRegistration(
                 R.id.geogebra_panel,
-                classIdCreator = { SpatialPanelActivity::class.java },
+                layoutIdCreator = { R.layout.spatial_geogebra_panel },
                 settingsCreator = {
                     UIPanelSettings(
                         shape = QuadShapeOptions(
                             width = PANEL_WIDTH_METERS,
                             height = PANEL_HEIGHT_METERS,
                         ),
-                        display = DpPerMeterDisplayOptions(
-                            dpPerMeter = PANEL_DP_PER_METER,
+                        display = DpDisplayOptions(
+                            width = PANEL_WIDTH_DP,
+                            height = PANEL_HEIGHT_DP,
                         ),
                         style = PanelStyleOptions(
                             themeResourceId = R.style.PanelAppThemeTransparent,
                         ),
+                    )
+                },
+                panelSetupWithRootView = { rootView, _, _ ->
+                    val webView = rootView.findViewById<WebView>(R.id.geogebra_webview)
+                    configureGeoGebraWebView(
+                        webView = webView,
+                        spatialMode = true,
+                        startStereo = true,
                     )
                 },
             ),
@@ -86,6 +96,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         SpatialBridgeBus.onStereoChanged = { enabled ->
             runOnUiThread {
                 pendingStereo = enabled
+                if (geoGebraPanelReady) {
+                    ensurePortalRenderer()
+                }
                 runCatching { portalRenderer?.setStereoEnabled(enabled) }
             }
         }
@@ -105,8 +118,10 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         }
 
         SpatialBridgeBus.onPanelReady = {
-            // The embedded GeoGebra page drives the stereo request once its 3D
-            // Graphics canvas exists.
+            runOnUiThread {
+                geoGebraPanelReady = true
+                ensurePortalRenderer()
+            }
         }
     }
 
@@ -114,25 +129,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         super.onSceneReady()
 
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
-
-        // Hole punching is the official Spatial SDK mechanism that lets native
-        // spatial content appear through a transparent panel region.
         runCatching { scene.enableHolePunching(true) }
-
-        // Passthrough is optional on some runtime configurations. Failure here
-        // must not terminate the application.
         runCatching { scene.enablePassthrough(true) }
-
         scene.setViewOrigin(0f, 0f, 2.0f, 180f)
-    }
 
-    override fun onVRReady() {
-        super.onVRReady()
-
-        // Build only the supported panel first. If the native mirror has a
-        // problem, GeoGebra itself must remain visible rather than killing the
-        // whole spatial session.
-        val panel = runCatching {
+        // Create the Android/WebView panel using the same stage at which Meta's
+        // official immersive samples initialize their entities.
+        panelEntity = runCatching {
             Entity.create(
                 listOf(
                     Grabbable(type = GrabbableType.PIVOT_Y),
@@ -142,23 +145,27 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     Visible(true),
                 ),
             )
-        }.getOrNull() ?: return
+        }.getOrNull()
+    }
 
-        panelEntity = panel
+    private fun ensurePortalRenderer() {
+        if (portalRenderer != null || !geoGebraPanelReady) {
+            return
+        }
 
-        portalRenderer = runCatching {
+        val panel = panelEntity ?: return
+        val renderer = runCatching {
             StereoPortalRenderer(
                 panelEntity = panel,
                 panelWidthMeters = PANEL_WIDTH_METERS,
                 panelHeightMeters = PANEL_HEIGHT_METERS,
             )
-        }.getOrNull()
+        }.getOrNull() ?: return
 
-        portalRenderer?.let { renderer ->
-            pendingPortalRect?.let { runCatching { renderer.updatePortalRect(it) } }
-            pendingScene?.let { runCatching { renderer.updateScene(it) } }
-            runCatching { renderer.setStereoEnabled(pendingStereo) }
-        }
+        portalRenderer = renderer
+        pendingPortalRect?.let { runCatching { renderer.updatePortalRect(it) } }
+        pendingScene?.let { runCatching { renderer.updateScene(it) } }
+        runCatching { renderer.setStereoEnabled(pendingStereo) }
     }
 
     override fun onDestroy() {
