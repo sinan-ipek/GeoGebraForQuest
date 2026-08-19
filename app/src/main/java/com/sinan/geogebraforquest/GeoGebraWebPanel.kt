@@ -24,14 +24,16 @@ private const val LOCAL_APP_URL =
     "https://appassets.androidplatform.net/assets/web/index.html"
 private const val PROJECTION_PATCH_URL =
     "https://appassets.androidplatform.net/assets/web/quest-projection-patch.js"
+private const val STEREO_CAPTURE_URL =
+    "https://appassets.androidplatform.net/assets/web/quest-stereo-capture.js"
 
 /**
- * JavaScript bridge for the single-activity integrated portal architecture.
+ * JavaScript bridge for the single integrated GeoGebra panel.
  *
- * There is deliberately no Activity launch here. The application is already
- * running inside Spatial SDK from startup. Selecting the replacement
- * Anaglyph/headset control only switches the existing 3D Graphics viewport
- * between normal flat WebGL and the native spatial stereo portal.
+ * v0.5.0 transports GeoGebra's own left/right eye renders. It does not create
+ * native replacements for GeoGebra objects. JavaScript packs GeoGebra's two
+ * eye passes side-by-side and this bridge forwards that frame to a Spatial SDK
+ * StereoMode.LeftRight media surface.
  */
 private class QuestBridge(
     private val context: Context,
@@ -52,11 +54,18 @@ private class QuestBridge(
     }
 
     @JavascriptInterface
-    fun updateScene(json: String) {
-        if (spatialMode) {
-            SpatialBridgeBus.sceneChanged(json)
+    fun submitStereoFrame(dataUrl: String, eyeWidth: Int, eyeHeight: Int) {
+        if (spatialMode && dataUrl.isNotBlank()) {
+            SpatialBridgeBus.stereoFrame(dataUrl, eyeWidth, eyeHeight)
         }
     }
+
+    /**
+     * Kept because the older bootstrap still emits scene JSON. v0.5.0 ignores
+     * it: every visible 3D pixel now comes from GeoGebra's own renderer.
+     */
+    @JavascriptInterface
+    fun updateScene(@Suppress("UNUSED_PARAMETER") json: String) = Unit
 
     @JavascriptInterface
     fun saveConstruction(base64: String) {
@@ -73,20 +82,20 @@ private class QuestBridge(
     }
 }
 
-private fun injectProjectionPatch(view: WebView) {
-    val patchUrl = JSONObject.quote(PROJECTION_PATCH_URL)
+private fun injectAssetScript(view: WebView, id: String, url: String) {
+    val quotedId = JSONObject.quote(id)
+    val quotedUrl = JSONObject.quote(url)
     view.evaluateJavascript(
         """
         (function () {
-          if (window.__ggqProjectionPatchInjected) return;
-          window.__ggqProjectionPatchInjected = true;
+          if (document.getElementById($quotedId)) return;
           var script = document.createElement('script');
-          script.id = 'ggq-projection-patch';
-          script.src = $patchUrl;
+          script.id = $quotedId;
+          script.src = $quotedUrl;
           script.async = false;
           script.onerror = function () {
-            window.__ggqProjectionPatchInjected = false;
-            console.error('[GeoGebraForQuest] projection patch could not be loaded');
+            try { script.remove(); } catch (e) {}
+            console.error('[GeoGebraForQuest] could not load ' + $quotedUrl);
           };
           (document.head || document.documentElement).appendChild(script);
         })();
@@ -95,19 +104,25 @@ private fun injectProjectionPatch(view: WebView) {
     )
 }
 
+private fun injectQuestScripts(view: WebView) {
+    injectAssetScript(view, "ggq-projection-patch", PROJECTION_PATCH_URL)
+    injectAssetScript(view, "ggq-stereo-capture", STEREO_CAPTURE_URL)
+}
+
 private fun bootStereoWhenReady(view: WebView) {
     view.evaluateJavascript(
         """
         (function () {
-          if (window.__ggqStereoBootTimer) {
-            clearInterval(window.__ggqStereoBootTimer);
-          }
+          if (window.__ggqStereoBootTimer) clearInterval(window.__ggqStereoBootTimer);
           var attempts = 0;
           window.__ggqStereoBootTimer = setInterval(function () {
             attempts++;
             try {
-              if (window.GeoGebraForQuest &&
-                  typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
+              if (window.GeoGebraQuestStereoCapture &&
+                  typeof window.GeoGebraQuestStereoCapture.enable === 'function') {
+                window.GeoGebraQuestStereoCapture.enable();
+              } else if (window.GeoGebraForQuest &&
+                         typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
                 window.GeoGebraForQuest.setStereoEnabled(true);
               }
               if (document.documentElement.dataset.ggqStereo === 'on' || attempts > 100) {
@@ -148,7 +163,7 @@ fun configureGeoGebraWebView(
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
         settings.userAgentString =
-            settings.userAgentString + " GeoGebraForQuest/0.4.3"
+            settings.userAgentString + " GeoGebraForQuest/0.5.0"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -173,7 +188,9 @@ fun configureGeoGebraWebView(
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
 
-                injectProjectionPatch(view)
+                // Keep the known-good GeoGebra startup untouched. The Quest
+                // behavior is injected as two small scripts after page load.
+                injectQuestScripts(view)
 
                 val state = GeoGebraSession.load(context)
                 if (!state.isNullOrBlank()) {
