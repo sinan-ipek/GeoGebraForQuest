@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqAuto3DV071) return;
-  window.__ggqAuto3DV071 = true;
+  if (window.__ggqAuto3DV072) return;
+  window.__ggqAuto3DV072 = true;
 
   const SIG = {
     orthographic: 'M2117.4l-.86.6M3.6220.44L220M194.77l2.55',
@@ -20,11 +20,12 @@
   let lastLog = '';
   let cachedProjection = null;
   let projectionRetryAt = 0;
+  let markedHoleNodes = [];
 
   function log(message) {
     if (message === lastLog) return;
     lastLog = message;
-    console.log('[GGQ Auto3D v0.7.1] ' + message);
+    console.log('[GGQ Auto3D v0.7.2] ' + message);
   }
 
   function cssBackground(element) {
@@ -66,16 +67,15 @@
     return '';
   }
 
-  function elementIsVisible(element) {
+  function visible(element) {
     if (!element || !element.isConnected) return false;
     try {
       const style = getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.display !== 'none' && style.visibility !== 'hidden' &&
-        rect.width > 2 && rect.height > 2 && rect.bottom > 0 && rect.right > 0;
-    } catch (_) {
-      return false;
-    }
+        Number(style.opacity || 1) > 0 && rect.width > 2 && rect.height > 2 &&
+        rect.bottom > 0 && rect.right > 0 && rect.left < innerWidth && rect.top < innerHeight;
+    } catch (_) { return false; }
   }
 
   function visibleWebGlCanvas() {
@@ -101,8 +101,8 @@
   function projectionTableInfo() {
     if (cachedProjection && cachedProjection.table && cachedProjection.table.isConnected &&
         cachedProjection.glasses && cachedProjection.glasses.isConnected) return cachedProjection;
-
     cachedProjection = null;
+
     for (const table of Array.from(document.querySelectorAll('.SelectionTable'))) {
       const icons = Array.from(table.querySelectorAll('.stylebarButton'))
         .filter(function (element) { return !!cssBackground(element); });
@@ -123,9 +123,7 @@
     ));
     for (const element of candidates) {
       if (element.closest && element.closest('.SelectionTable')) continue;
-      const kind = kindOf(element);
-      if (!kind) continue;
-      if (!elementIsVisible(element)) continue;
+      if (!kindOf(element) || !visible(element)) continue;
       return element;
     }
     return null;
@@ -145,22 +143,16 @@
       if (typeof target.click === 'function') target.click();
       else mouse('click');
       return true;
-    } catch (error) {
-      console.warn('[GGQ Auto3D v0.7.1] synthetic activation failed', error);
-      return false;
-    }
+    } catch (_) { return false; }
   }
 
   function concealProjectionUi(info) {
     if (info && info.table) {
-      // Keep the popup technically laid out so GeoGebra/GWT event handlers stay valid,
-      // but make it completely invisible and non-interactive to the user.
       info.table.style.setProperty('opacity', '0', 'important');
       info.table.style.setProperty('pointer-events', 'none', 'important');
       info.table.style.setProperty('visibility', 'hidden', 'important');
       info.table.setAttribute('aria-hidden', 'true');
     }
-
     const launcher = projectionLauncher();
     if (launcher) {
       launcher.style.setProperty('display', 'none', 'important');
@@ -196,7 +188,7 @@
         }
       }
     } catch (error) {
-      console.error('[GGQ Auto3D v0.7.1 stereo]', error);
+      console.error('[GGQ Auto3D v0.7.2 stereo]', error);
     }
     return false;
   }
@@ -204,11 +196,9 @@
   function ensureProjectionPopup() {
     const info = projectionTableInfo();
     if (info) return info;
-
     const now = performance.now();
     if (now < projectionRetryAt) return null;
     projectionRetryAt = now + 220;
-
     const launcher = projectionLauncher();
     if (launcher && synthesizeActivation(launcher)) {
       projectionPopupRequested = true;
@@ -219,12 +209,8 @@
 
   function forceGlassesProjection(info) {
     if (!info || !info.glasses) return false;
-
-    // Start capture before Glasses is selected so the very first left/right pass
-    // is eligible for capture. Do not depend on a user gesture.
     if (!captureEnabled()) setStereo(true);
 
-    // Temporarily keep the table visible to layout/event code while activating.
     const table = info.table;
     const oldVisibility = table.style.visibility;
     const oldOpacity = table.style.opacity;
@@ -232,9 +218,7 @@
     table.style.visibility = 'visible';
     table.style.opacity = '0';
     table.style.pointerEvents = 'none';
-
     const ok = synthesizeActivation(info.glasses);
-
     table.style.visibility = oldVisibility;
     table.style.opacity = oldOpacity;
     table.style.pointerEvents = oldPointerEvents;
@@ -249,50 +233,49 @@
     return false;
   }
 
-  function canvasHost(canvas) {
-    if (!canvas) return null;
-    let host = canvas;
-    const r = canvas.getBoundingClientRect();
-    let node = canvas.parentElement;
-    for (let i = 0; node && i < 6; i += 1, node = node.parentElement) {
-      try {
-        const nr = node.getBoundingClientRect();
-        if (nr.width <= r.width * 1.35 && nr.height <= r.height * 1.35) host = node;
-        else break;
-      } catch (_) { break; }
+  function clearStereoHole() {
+    if (activeCanvas) activeCanvas.classList.remove('ggq-stereo-canvas');
+    for (const node of markedHoleNodes) {
+      try { node.classList.remove('ggq-stereo-hole'); } catch (_) {}
     }
-    return host;
+    markedHoleNodes = [];
   }
 
-  function canvasIsExposed(canvas) {
-    if (!canvas || !elementIsVisible(canvas)) return false;
+  function markStereoHole(canvas) {
+    clearStereoHole();
+    if (!canvas) return;
+    canvas.classList.add('ggq-stereo-canvas');
     const rect = canvas.getBoundingClientRect();
-    const host = canvasHost(canvas) || canvas;
-    const points = [
-      [rect.left + rect.width * 0.50, rect.top + rect.height * 0.50],
-      [rect.left + rect.width * 0.25, rect.top + rect.height * 0.25],
-      [rect.left + rect.width * 0.75, rect.top + rect.height * 0.25],
-      [rect.left + rect.width * 0.25, rect.top + rect.height * 0.75],
-      [rect.left + rect.width * 0.75, rect.top + rect.height * 0.75]
-    ];
-
-    let exposed = 0;
-    for (const pair of points) {
-      const x = Math.max(0, Math.min(innerWidth - 1, pair[0]));
-      const y = Math.max(0, Math.min(innerHeight - 1, pair[1]));
-      let stack = [];
-      try { stack = document.elementsFromPoint(x, y); } catch (_) {}
-      let top = null;
-      for (const element of stack) {
-        if (!element || element.id === 'ggq-debug-overlay-v071') continue;
-        if (element.closest && element.closest('#ggq-debug-overlay-v071')) continue;
-        top = element;
-        break;
-      }
-      if (!top) continue;
-      if (top === canvas || host.contains(top) || top.contains(host)) exposed += 1;
+    let node = canvas.parentElement;
+    for (let i = 0; node && i < 8; i += 1, node = node.parentElement) {
+      try {
+        const r = node.getBoundingClientRect();
+        const closeWidth = r.width <= rect.width * 1.08 && r.width >= rect.width * 0.92;
+        const closeHeight = r.height <= rect.height * 1.08 && r.height >= rect.height * 0.92;
+        if (!closeWidth || !closeHeight) break;
+        node.classList.add('ggq-stereo-hole');
+        markedHoleNodes.push(node);
+      } catch (_) { break; }
     }
-    return exposed >= 3;
+  }
+
+  function blockingLayerVisible() {
+    const selectors = [
+      '[role="dialog"]', '.Dialog', '.dialog', '.modalDialog', '.modal',
+      '.PropertiesViewW', '.sideSheet', '.popupPanel', '.menuView', '.menuPanel',
+      '.openFileView', '.fileView', '.loginDialog', '.signin', '.signIn',
+      '.virtualKeyboard', '.keyboard', '.TabbedKeyboard', '.KeyBoard',
+      '.examDialog', '.shareDialog', '.saveDialog'
+    ];
+    for (const selector of selectors) {
+      for (const element of Array.from(document.querySelectorAll(selector))) {
+        if (!visible(element)) continue;
+        if (element.id && element.id.indexOf('ggq-debug') >= 0) continue;
+        if (element.closest && element.closest('.SelectionTable')) continue;
+        return true;
+      }
+    }
+    return false;
   }
 
   function scan() {
@@ -301,6 +284,7 @@
     if (!canvas) {
       missingTicks += 1;
       if (missingTicks >= 3) {
+        clearStereoHole();
         activeCanvas = null;
         projectionArmed = false;
         projectionPopupRequested = false;
@@ -312,6 +296,7 @@
 
     missingTicks = 0;
     if (activeCanvas !== canvas) {
+      clearStereoHole();
       activeCanvas = canvas;
       projectionArmed = false;
       projectionPopupRequested = false;
@@ -329,12 +314,12 @@
     const info = projectionTableInfo();
     if (info) concealProjectionUi(info);
 
-    const exposed = canvasIsExposed(canvas);
-    if (!exposed) {
+    if (blockingLayerVisible()) {
+      clearStereoHole();
       if (!portalSuppressed) {
         portalSuppressed = true;
         if (captureEnabled() || stereoRequested) setStereo(false);
-        log('3D covered by another GeoGebra layer -> stereo portal hidden');
+        log('GeoGebra dialog/menu visible -> stereo underlay hidden');
       }
       return;
     }
@@ -342,21 +327,26 @@
     if (portalSuppressed) {
       portalSuppressed = false;
       setStereo(true);
-      log('3D visible again -> stereo portal restored');
+      markStereoHole(canvas);
+      log('3D workspace restored -> stereo underlay visible');
       return;
     }
 
+    markStereoHole(canvas);
     if (!captureEnabled()) setStereo(true);
   }
 
   window.GeoGebraQuestAuto3D = {
     isInstalled: function () { return true; },
     is3DVisible: function () { return !!visibleWebGlCanvas(); },
-    is3DExposed: function () { return !!(activeCanvas && canvasIsExposed(activeCanvas)); },
+    is3DExposed: function () { return !!(activeCanvas && !blockingLayerVisible()); },
     isProjectionArmed: function () { return projectionArmed; },
     isProjectionPopupRequested: function () { return projectionPopupRequested; },
     isStereoRequested: function () { return stereoRequested; },
     isPortalSuppressed: function () { return portalSuppressed; },
+    isUnderlayHoleActive: function () {
+      return !!(activeCanvas && activeCanvas.classList.contains('ggq-stereo-canvas'));
+    },
     scanNow: scan
   };
 
@@ -365,7 +355,7 @@
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['class', 'style', 'aria-hidden']
+    attributeFilter: ['class', 'style', 'aria-hidden', 'aria-expanded']
   });
 
   scan();
