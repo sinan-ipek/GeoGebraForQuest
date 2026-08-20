@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqProjectionPatchV5) return;
-  window.__ggqProjectionPatchV5 = true;
+  if (window.__ggqProjectionPatchV6) return;
+  window.__ggqProjectionPatchV6 = true;
 
   const HEADSET_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M4.2 7.5h15.6c1.2 0 2.2 1 2.2 2.2v6.1c0 1.2-1 2.2-2.2 2.2h-4.3l-2.1-2.6h-2.8L8.5 18H4.2C3 18 2 17 2 15.8V9.7c0-1.2 1-2.2 2.2-2.2zm.3 2v6.5h3.1l2.1-2.6h4.6l2.1 2.6h3.1V9.5H4.5z"/><path d="M7 11.2h3v2H7zm7 0h3v2h-3z"/></svg>';
   const HEADSET_BG = 'url("data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(HEADSET_SVG) + '")';
@@ -139,7 +139,8 @@
 
   function stereoTargetInEvent(event) {
     return eventPath(event).some(function (node) {
-      return node && node.nodeType === 1 && node.dataset && node.dataset.ggqStereoTarget === '1';
+      return node && node.nodeType === 1 && node.dataset &&
+        (node.dataset.ggqStereoTarget === '1' || node.dataset.ggqStereoIcon === '1');
     });
   }
 
@@ -169,15 +170,23 @@
   }
 
   /**
-   * v0.6.3: let GeoGebra receive the REAL headset-button gesture.
+   * v0.6.6: let GeoGebra receive the REAL Glasses button gesture.
    *
-   * index.html has old capture-phase handlers for pointer/mouse/touch events.
-   * They used to see data-ggq-stereo-target and stop propagation, which meant
-   * GeoGebra never actually selected its Glasses/Anaglyph projection. v0.6.1
-   * proved the Quest SBS output, and v0.6.2 proved that no GeoGebra stereo frame
-   * was reaching Android. This pass-through removes the marker only for the
-   * duration of each real input event. The old interceptors therefore ignore it,
-   * while GeoGebra's own SelectionTable receives the original event unchanged.
+   * There are two old marker checks in index.html:
+   *   data-ggq-stereo-target
+   *   data-ggq-stereo-icon
+   *
+   * Earlier versions temporarily removed only the first marker. The old
+   * capture-phase handler could therefore still recognize the headset button
+   * through data-ggq-stereo-icon and stop propagation before GeoGebra's own
+   * SelectionTable received the click. That left GeoGebra in a normal flat
+   * projection, so the RED/RIGHT Glasses eye passes never started.
+   *
+   * During each real headset input event we now temporarily remove BOTH markers
+   * from every element in the event path. No default action or propagation is
+   * cancelled. GeoGebra therefore receives the original user gesture and can
+   * genuinely enter PROJECTION_GLASSES. Markers are restored immediately after
+   * the event dispatch finishes.
    */
   function passHeadsetEventThrough(event) {
     if (!stereoTargetInEvent(event)) return;
@@ -188,18 +197,30 @@
 
     const changed = [];
     for (const node of eventPath(event)) {
-      if (node && node.nodeType === 1 && node.dataset &&
-          node.dataset.ggqStereoTarget === '1') {
-        changed.push(node);
-        delete node.dataset.ggqStereoTarget;
-      }
+      if (!node || node.nodeType !== 1 || !node.dataset) continue;
+
+      const hadTarget = node.dataset.ggqStereoTarget === '1';
+      const hadIcon = node.dataset.ggqStereoIcon === '1';
+      if (!hadTarget && !hadIcon) continue;
+
+      changed.push({
+        node: node,
+        target: hadTarget,
+        icon: hadIcon
+      });
+
+      if (hadTarget) delete node.dataset.ggqStereoTarget;
+      if (hadIcon) delete node.dataset.ggqStereoIcon;
     }
 
-    // Do not preventDefault and do not stop propagation. That is the whole point:
-    // GeoGebra must see the original user gesture and select PROJECTION_GLASSES.
+    // Intentionally do NOT call preventDefault(), stopPropagation(), or
+    // stopImmediatePropagation(). GeoGebra must receive this exact gesture.
     setTimeout(function () {
-      for (const node of changed) {
-        if (node && node.dataset) node.dataset.ggqStereoTarget = '1';
+      for (const item of changed) {
+        const node = item.node;
+        if (!node || !node.dataset) continue;
+        if (item.target) node.dataset.ggqStereoTarget = '1';
+        if (item.icon) node.dataset.ggqStereoIcon = '1';
       }
       patchNow();
     }, 0);
