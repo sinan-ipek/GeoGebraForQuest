@@ -2,6 +2,8 @@ package com.sinan.geogebraforquest
 
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
@@ -32,12 +34,12 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.7.1.
+ * GeoGebraForQuest v0.7.2.
  *
- * The regular GeoGebra WebView remains the interactive panel. A transparent,
- * non-hittable StereoMode.LeftRight media surface is positioned over only the
- * 3D canvas. Its only job is visual stereo presentation; controller rays should
- * continue through it to the WebView underneath.
+ * The WebView is the front, interactive panel. The stereo media surface is a
+ * visual underlay behind it. JavaScript punches transparency only through the
+ * active 3D canvas pixels, so rays always meet the real WebView first and any
+ * GeoGebra dialog/menu naturally paints over the stereo image.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -49,10 +51,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
-        private const val PORTAL_Z = -0.006f
+
+        // Positive local Z puts the stereo surface a few millimetres behind the
+        // GeoGebra panel; v0.7.1 used -Z and therefore made it an overlay.
+        private const val PORTAL_Z = 0.008f
     }
 
     private val stereoFrameSurface = StereoFrameSurface()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var geoGebraPanelEntity: Entity? = null
     private var stereoPortalEntity: Entity? = null
@@ -61,9 +67,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var sceneReady = false
     private var vrReady = false
 
-    override fun registerFeatures(): List<SpatialFeature> {
-        return listOf(VRFeature(this))
-    }
+    override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
     override fun registerPanels(): List<PanelRegistration> {
         return listOf(
@@ -109,7 +113,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         ),
                         rendering = MediaPanelRenderOptions(
                             stereoMode = StereoMode.LeftRight,
-                            zIndex = 1,
+                            zIndex = -1,
                         ),
                         style = PanelStyleOptions(
                             themeResourceId = R.style.PanelAppThemeTransparent,
@@ -167,22 +171,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         }
                     }
                 },
-                onFinished = {
-                    StereoDebugState.onFrameFinished()
-                },
+                onFinished = { StereoDebugState.onFrameFinished() },
             )
 
-            if (accepted) {
-                StereoDebugState.onFrameAccepted()
-            } else {
-                StereoDebugState.onFrameDroppedBusy()
-            }
+            if (accepted) StereoDebugState.onFrameAccepted()
+            else StereoDebugState.onFrameDroppedBusy()
         }
 
-        SpatialBridgeBus.onPanelReady = {
-            // No native GeoGebra geometry mirror is used.
-        }
-
+        SpatialBridgeBus.onPanelReady = { }
         requestScenePermissionIfNeeded()
     }
 
@@ -204,53 +200,35 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 !viewWidth.isFinite() || !viewHeight.isFinite() ||
                 width <= 0.0 || height <= 0.0 ||
                 viewWidth <= 0.0 || viewHeight <= 0.0
-            ) {
-                return
-            }
+            ) return
 
             val centerXPixels = left + width / 2.0
             val centerYPixels = top + height / 2.0
-
-            val centerX = (
-                centerXPixels / viewWidth - 0.5
-            ).toFloat() * PANEL_WIDTH_METERS
-
-            val centerY = (
-                0.5 - centerYPixels / viewHeight
-            ).toFloat() * PANEL_HEIGHT_METERS
-
-            val widthMeters = (
-                width / viewWidth
-            ).toFloat() * PANEL_WIDTH_METERS
-
-            val heightMeters = (
-                height / viewHeight
-            ).toFloat() * PANEL_HEIGHT_METERS
+            val centerX = (centerXPixels / viewWidth - 0.5).toFloat() * PANEL_WIDTH_METERS
+            val centerY = (0.5 - centerYPixels / viewHeight).toFloat() * PANEL_HEIGHT_METERS
+            val widthMeters = (width / viewWidth).toFloat() * PANEL_WIDTH_METERS
+            val heightMeters = (height / viewHeight).toFloat() * PANEL_HEIGHT_METERS
 
             runOnMainThread {
                 entity.setComponent(
-                    Transform(
-                        Pose(
-                            Vector3(
-                                centerX,
-                                centerY,
-                                PORTAL_Z,
-                            ),
-                        ),
-                    ),
+                    Transform(Pose(Vector3(centerX, centerY, PORTAL_Z))),
                 )
                 entity.setComponent(
-                    Scale(
-                        Vector3(
-                            widthMeters,
-                            heightMeters,
-                            1f,
-                        ),
-                    ),
+                    Scale(Vector3(widthMeters, heightMeters, 1f)),
                 )
             }
         } catch (_: Throwable) {
-            // Ignore one malformed or transient DOM rectangle.
+            // Ignore one malformed/transient DOM rectangle.
+        }
+    }
+
+    private fun makePortalNonHittable(entity: Entity) {
+        try {
+            val mesh = entity.getComponent<Mesh>()
+            mesh.hittable = MeshCollision.NoCollision
+            entity.setComponent(mesh)
+        } catch (_: Throwable) {
+            // VideoSurfacePanelRegistration may attach its mesh slightly later.
         }
     }
 
@@ -278,9 +256,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             requestCode == REQUEST_USE_SCENE &&
             grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
-        ) {
-            enablePassthroughWhenSafe()
-        }
+        ) enablePassthroughWhenSafe()
     }
 
     override fun onSceneReady() {
@@ -317,27 +293,21 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
 
-        // VideoSurfacePanelRegistration creates a panel mesh. Make that mesh
-        // non-hittable so controller/hand rays keep reaching the interactive
-        // GeoGebra WebView panel underneath instead of being consumed by the
-        // visual stereo overlay.
-        try {
-            val portalMesh = stereoPanel.getComponent<Mesh>()
-            portalMesh.hittable = MeshCollision.NoCollision
-            stereoPanel.setComponent(portalMesh)
-        } catch (_: Throwable) {
-            // Some SDK/runtime revisions may attach the mesh one frame later.
-            // The panel still works visually; diagnostics/test will reveal if a
-            // delayed retry is needed for that runtime.
+        // Retry because the runtime may create the media-panel mesh after the
+        // entity itself. Underlay positioning is the primary input fix; this is
+        // an additional guard against the media panel ever becoming a ray target.
+        makePortalNonHittable(stereoPanel)
+        listOf(50L, 150L, 400L, 1000L).forEach { delay ->
+            mainHandler.postDelayed({ makePortalNonHittable(stereoPanel) }, delay)
         }
 
         stereoPortalEntity = stereoPanel
         StereoDebugState.onPortalEntityReady()
-
         pendingPortalRect?.let { applyPortalRect(it) }
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
         SpatialBridgeBus.clear()
         stereoFrameSurface.release()
         stereoPortalEntity = null
