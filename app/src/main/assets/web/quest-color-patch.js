@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqColorPatchV072) return;
-  window.__ggqColorPatchV072 = true;
+  if (window.__ggqColorPatchV073) return;
+  window.__ggqColorPatchV073 = true;
 
   const MAX_CONFIG_MS = 9000;
   const TICK_MS = 100;
@@ -16,7 +16,7 @@
   let failed = false;
 
   function log(message) {
-    console.log('[GGQ Color v0.7.2] ' + message);
+    console.log('[GGQ Color v0.7.3] ' + message);
   }
 
   function normalize(value) {
@@ -36,7 +36,9 @@
       return style.display !== 'none' && style.visibility !== 'hidden' &&
         rect.width > 2 && rect.height > 2 && rect.bottom > 0 && rect.right > 0 &&
         rect.left < innerWidth && rect.top < innerHeight;
-    } catch (_) { return false; }
+    } catch (_) {
+      return false;
+    }
   }
 
   function stringsOf(element) {
@@ -66,10 +68,14 @@
         return true;
       }
       element.dispatchEvent(new MouseEvent('click', {
-        bubbles: true, cancelable: true, view: window
+        bubbles: true,
+        cancelable: true,
+        view: window
       }));
       return true;
-    } catch (_) { return false; }
+    } catch (_) {
+      return false;
+    }
   }
 
   function clickableCandidates(root) {
@@ -81,7 +87,7 @@
   function settingsPanel() {
     const panels = Array.from(document.querySelectorAll('.PropertiesViewW,.sideSheet'));
     for (const panel of panels) {
-      if (automationVisible(panel) && !panel.closest('#ggq-debug-overlay-v072')) return panel;
+      if (automationVisible(panel) && !panel.closest('#ggq-debug-overlay-v073')) return panel;
     }
     return null;
   }
@@ -89,42 +95,42 @@
   function findMenuLauncher() {
     const needles = ['menu', 'menuyu ac', 'ana menu', 'main menu', 'open menu']
       .map(normalize);
+
     for (const element of clickableCandidates(document)) {
       if (element.closest && element.closest('.SelectionTable')) continue;
       if (hasAnyText(element, needles)) return element;
     }
 
-    // GeoGebra hamburger buttons are not always labelled. Prefer compact header
-    // buttons whose class name explicitly contains menu but not menu item.
     for (const element of clickableCandidates(document)) {
       const cls = normalize(element.className);
       if (cls.indexOf('menu') >= 0 && cls.indexOf('item') < 0) return element;
     }
+
     return null;
   }
 
   function findSettingsAction() {
     const needles = ['ayarlar', 'settings', 'einstellungen', 'parametres', 'ajustes', 'impostazioni']
       .map(normalize);
+
     for (const element of clickableCandidates(document)) {
       if (hasAnyText(element, needles)) return element;
     }
+
     return null;
   }
 
   function findProjectionSection(panel) {
     if (!panel) return null;
+
     const needles = ['izdusum', 'projection', 'projektion', 'proyeccion', 'proiezione']
       .map(normalize);
 
-    // Current GeoGebra properties UI uses ComponentExpandableList.
     for (const list of Array.from(panel.querySelectorAll('.expandableList'))) {
       const title = list.querySelector('.title') || list;
       if (hasAnyText(title, needles)) return list;
     }
 
-    // Fallback for a future UI where the projection collection is rendered by a
-    // different wrapper: locate its title and climb to a reasonably small block.
     const candidates = Array.from(panel.querySelectorAll('.title,label,div,span'));
     for (const element of candidates) {
       if (!hasAnyText(element, needles)) continue;
@@ -135,18 +141,23 @@
         if (node.classList && node.classList.contains('expandableList')) return node;
       }
     }
+
     return null;
   }
 
   function ensureProjectionExpanded(section) {
     if (!section) return false;
-    if (section.getAttribute('aria-expanded') === 'true' || section.classList.contains('extended')) return true;
+    if (section.getAttribute('aria-expanded') === 'true' || section.classList.contains('extended')) {
+      return true;
+    }
+
     const header = section.querySelector('.header') || section;
     if (clickElement(header)) {
       projectionExpandedByUs = true;
       state = 'expanding-projection';
       return false;
     }
+
     return false;
   }
 
@@ -159,6 +170,7 @@
 
   function findGrayScaleCheckbox(section) {
     if (!section) return null;
+
     const boxes = Array.from(section.querySelectorAll('.checkboxPanel,[role="checkbox"]'))
       .filter(automationVisible);
     const grayWords = ['gray', 'grey', 'grayscale', 'gray scale', 'gri', 'grau', 'gris', 'grigio']
@@ -168,29 +180,49 @@
       if (hasAnyText(box, grayWords)) return box;
     }
 
-    // In ProjectionPropertyCollection the order is projection selector, eye
-    // distances, GrayScale, OmitGreen. With Glasses active the default state is
-    // GrayScale=true and OmitGreen=false, so the first checked checkbox inside
-    // this section is a safe structural fallback independent of localization.
+    // ProjectionPropertyCollection places GrayScale before OmitGreen. In Glasses
+    // mode GrayScale defaults to true, so the first checked checkbox is a safe
+    // locale-independent fallback.
     for (const box of boxes) {
       if (checkboxChecked(box)) return box;
     }
+
     return null;
   }
 
   function closeSettings() {
     const panel = settingsPanel();
     if (!panel) return;
+
+    // GeoGebra's current PropertiesViewW builds a SheetTitlePanel whose real
+    // close control is an IconButton with class "closeBtn". v0.7.2 searched by
+    // translated text and therefore left Settings open forever. Use the stable
+    // structural class first.
+    const structuralClose = panel.querySelector('.titlePanel .closeBtn, .closeBtn') ||
+      document.querySelector('.PropertiesViewW .titlePanel .closeBtn, .sideSheet .titlePanel .closeBtn');
+    if (structuralClose && clickElement(structuralClose)) {
+      log('Settings closed with SheetTitlePanel.closeBtn');
+      return;
+    }
+
     try {
       panel.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
-        bubbles: true, cancelable: true
+        key: 'Escape',
+        code: 'Escape',
+        keyCode: 27,
+        which: 27,
+        bubbles: true,
+        cancelable: true
       }));
     } catch (_) {}
 
     setTimeout(function () {
       const stillOpen = settingsPanel();
       if (!stillOpen) return;
+
+      const retryClose = stillOpen.querySelector('.titlePanel .closeBtn, .closeBtn');
+      if (retryClose && clickElement(retryClose)) return;
+
       const needles = ['close', 'kapat', 'back', 'geri', 'schliessen', 'schließen', 'fermer']
         .map(normalize);
       for (const element of clickableCandidates(stillOpen)) {
@@ -199,7 +231,7 @@
           return;
         }
       }
-    }, 100);
+    }, 120);
   }
 
   function finish(success, message) {
@@ -207,7 +239,13 @@
     failed = !success;
     state = success ? 'done' : 'failed';
     document.documentElement.dataset.ggqColorConfig = success ? 'done' : 'failed';
-    if (settingsOpenedByUs) closeSettings();
+
+    if (settingsOpenedByUs) {
+      closeSettings();
+      setTimeout(closeSettings, 250);
+      setTimeout(closeSettings, 600);
+    }
+
     log(message);
   }
 
@@ -215,7 +253,9 @@
     try {
       const auto = window.GeoGebraQuestAuto3D;
       return !!(auto && auto.isProjectionArmed && auto.isProjectionArmed());
-    } catch (_) { return false; }
+    } catch (_) {
+      return false;
+    }
   }
 
   function tick() {
@@ -241,6 +281,7 @@
     const panel = settingsPanel();
     if (panel) {
       settingsOpenedByUs = true;
+
       const section = findProjectionSection(panel);
       if (!section) {
         state = 'searching-projection';
@@ -258,6 +299,7 @@
       if (checkboxChecked(checkbox)) {
         state = 'disabling-grayscale';
         clickElement(checkbox);
+
         setTimeout(function () {
           const p = settingsPanel();
           const s = p && findProjectionSection(p);
@@ -269,6 +311,7 @@
       } else {
         finish(true, 'GeoGebra GrayScale already OFF');
       }
+
       return;
     }
 
