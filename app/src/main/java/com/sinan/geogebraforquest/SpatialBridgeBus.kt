@@ -3,10 +3,10 @@ package com.sinan.geogebraforquest
 /**
  * In-process bridge between the GeoGebra WebView panel and the Spatial SDK host.
  *
- * v0.5.0 no longer mirrors GeoGebra objects as native meshes. GeoGebra renders
- * both stereo eye passes itself; JavaScript packs those two eye images into one
- * side-by-side frame and sends it through this bridge to a StereoMode.LeftRight
- * media surface.
+ * v0.6.0 sends a decoded SBS image of only the 3D viewport plus its rectangle.
+ * Android captures the ordinary full WebView once, composites the left 3D half
+ * into one complete panel image and the right 3D half into another, then sends
+ * the resulting full-panel SBS frame to a StereoMode.LeftRight media surface.
  */
 object SpatialBridgeBus {
     @Volatile
