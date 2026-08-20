@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqProjectionPatchV6) return;
-  window.__ggqProjectionPatchV6 = true;
+  if (window.__ggqProjectionPatchV68) return;
+  window.__ggqProjectionPatchV68 = true;
 
   const HEADSET_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M4.2 7.5h15.6c1.2 0 2.2 1 2.2 2.2v6.1c0 1.2-1 2.2-2.2 2.2h-4.3l-2.1-2.6h-2.8L8.5 18H4.2C3 18 2 17 2 15.8V9.7c0-1.2 1-2.2 2.2-2.2zm.3 2v6.5h3.1l2.1-2.6h4.6l2.1 2.6h3.1V9.5H4.5z"/><path d="M7 11.2h3v2H7zm7 0h3v2h-3z"/></svg>';
   const HEADSET_BG = 'url("data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(HEADSET_SVG) + '")';
@@ -16,6 +16,14 @@
 
   let patchQueued = false;
   let lastArmAt = 0;
+
+  // v0.6.8: the headset event must remain identifiable even while its temporary
+  // DOM markers are removed. v0.6.7 proved that removing those markers let the
+  // real GeoGebra Glasses click through, but our own later document click handler
+  // then saw the same event with no marker and treated it as an "other projection"
+  // click, switching Quest stereo OFF immediately after it had been armed.
+  // Remembering the Event object itself fixes that race without blocking GeoGebra.
+  const headsetEvents = new WeakSet();
 
   function cssBackground(element) {
     if (!element || element.nodeType !== 1) return '';
@@ -138,6 +146,7 @@
   }
 
   function stereoTargetInEvent(event) {
+    if (event && headsetEvents.has(event)) return true;
     return eventPath(event).some(function (node) {
       return node && node.nodeType === 1 && node.dataset &&
         (node.dataset.ggqStereoTarget === '1' || node.dataset.ggqStereoIcon === '1');
@@ -170,26 +179,24 @@
   }
 
   /**
-   * v0.6.6: let GeoGebra receive the REAL Glasses button gesture.
+   * v0.6.8: let GeoGebra receive the REAL Glasses button gesture, while keeping
+   * the same event recognizable to our own later handlers.
    *
-   * There are two old marker checks in index.html:
+   * The legacy index.html capture code recognizes two DOM markers:
    *   data-ggq-stereo-target
    *   data-ggq-stereo-icon
    *
-   * Earlier versions temporarily removed only the first marker. The old
-   * capture-phase handler could therefore still recognize the headset button
-   * through data-ggq-stereo-icon and stop propagation before GeoGebra's own
-   * SelectionTable received the click. That left GeoGebra in a normal flat
-   * projection, so the RED/RIGHT Glasses eye passes never started.
-   *
-   * During each real headset input event we now temporarily remove BOTH markers
-   * from every element in the event path. No default action or propagation is
-   * cancelled. GeoGebra therefore receives the original user gesture and can
-   * genuinely enter PROJECTION_GLASSES. Markers are restored immediately after
-   * the event dispatch finishes.
+   * Both markers are temporarily removed from the real event path so the old
+   * capture listeners ignore the gesture and GeoGebra's SelectionTable receives
+   * it unchanged. The Event object is stored in headsetEvents before that removal.
+   * Therefore the later "other projection" handler still knows this was the
+   * headset click and will NOT disable stereo merely because the DOM markers are
+   * momentarily absent.
    */
   function passHeadsetEventThrough(event) {
     if (!stereoTargetInEvent(event)) return;
+
+    headsetEvents.add(event);
 
     if (event.type === 'pointerup' || event.type === 'touchend' || event.type === 'click') {
       armStereoCapture();
@@ -231,9 +238,9 @@
       window.addEventListener(type, passHeadsetEventThrough, true);
     });
 
-  // Let other projection buttons behave normally. After GeoGebra has processed
-  // the user's choice, only hide Quest stereo output; preserve the newly chosen
-  // GeoGebra projection.
+  // Let the other three projection buttons behave normally. v0.6.8's key fix
+  // is that stereoTargetInEvent(event) also checks headsetEvents, so the real
+  // headset click cannot fall through here while its DOM markers are removed.
   document.addEventListener('click', function (event) {
     const table = projectionTableInEvent(event);
     if (!table || stereoTargetInEvent(event)) return;
