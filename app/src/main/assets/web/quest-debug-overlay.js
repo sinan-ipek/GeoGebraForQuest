@@ -1,21 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqDebugOverlayV071) return;
-  window.__ggqDebugOverlayV071 = true;
-
-  // Development builds load the full-colour helper here. It remains a separate
-  // asset so the grayscale workaround can later be promoted into the normal
-  // bootstrap without coupling it to the debug UI.
-  try {
-    if (!document.getElementById('ggq-color-patch-v071')) {
-      const colorScript = document.createElement('script');
-      colorScript.id = 'ggq-color-patch-v071';
-      colorScript.src = 'https://appassets.androidplatform.net/assets/web/quest-color-patch.js';
-      colorScript.async = false;
-      (document.head || document.documentElement).appendChild(colorScript);
-    }
-  } catch (_) {}
+  if (window.__ggqDebugOverlayV072) return;
+  window.__ggqDebugOverlayV072 = true;
 
   const recentLogs = [];
   let panel = null;
@@ -49,16 +36,16 @@
   function ensurePanel() {
     if (panel && panel.isConnected) return;
     panel = document.createElement('div');
-    panel.id = 'ggq-debug-overlay-v071';
+    panel.id = 'ggq-debug-overlay-v072';
     panel.style.cssText = [
       'position:fixed','right:10px','top:10px','z-index:2147483647',
-      'width:355px','max-width:46vw','box-sizing:border-box','padding:9px 10px',
+      'width:360px','max-width:47vw','box-sizing:border-box','padding:9px 10px',
       'border-radius:8px','background:rgba(0,0,0,.82)','color:#b8ffbd',
       'font:11px/1.35 monospace','white-space:pre-wrap','pointer-events:none',
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
     ].join(';');
     const title = document.createElement('div');
-    title.textContent = 'GGQ v0.7.1 AUTO-3D DEBUG';
+    title.textContent = 'GGQ v0.7.2 UNDERLAY DEBUG';
     title.style.cssText = 'font-weight:bold;color:#fff;margin-bottom:5px;font-size:12px';
     panel.appendChild(title);
     body = document.createElement('div');
@@ -114,6 +101,7 @@
     let popupRequested = false;
     let stereoRequested = false;
     let portalSuppressed = false;
+    let holeActive = false;
     try {
       autoInstalled = !!(auto && auto.isInstalled && auto.isInstalled());
       view3D = !!(auto && auto.is3DVisible && auto.is3DVisible());
@@ -122,6 +110,7 @@
       popupRequested = !!(auto && auto.isProjectionPopupRequested && auto.isProjectionPopupRequested());
       stereoRequested = !!(auto && auto.isStereoRequested && auto.isStereoRequested());
       portalSuppressed = !!(auto && auto.isPortalSuppressed && auto.isPortalSuppressed());
+      holeActive = !!(auto && auto.isUnderlayHoleActive && auto.isUnderlayHoleActive());
     } catch (_) {}
 
     const color = window.GeoGebraQuestColorPatch;
@@ -162,6 +151,7 @@
     lines.push('3D visible:       ' + yes(view3D));
     lines.push('3D exposed:       ' + yes(viewExposed));
     lines.push('glasses forced:   ' + yes(projectionArmed));
+    lines.push('underlay hole:    ' + yes(holeActive));
     lines.push('popup requested:  ' + yes(popupRequested));
     lines.push('portal suppressed:' + yes(portalSuppressed));
     lines.push('full colour:      ' + (colorConfigured ? 'YES' : colorFailed ? 'FAILED' : colorState));
