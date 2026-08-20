@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 22
-        versionName = "0.6.0"
+        versionCode = 23
+        versionName = "0.6.1"
     }
 
     buildFeatures {
@@ -58,9 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.0 lets GeoGebra render its stock grayscale anaglyph, decodes the final
-// framebuffer channels back into left/right 3D views, and composites those views
-// into two complete GeoGebra interface images before StereoMode.LeftRight output.
+// v0.6.1 is a deliberate stereo-pipeline diagnostic. Headset activation shows
+// known left/right disparities generated natively, independent of GeoGebra's
+// WebGL/anaglyph capture, so we can isolate whether StereoMode.LeftRight works.
 spatial {
     allowUsageDataCollection.set(true)
 }
