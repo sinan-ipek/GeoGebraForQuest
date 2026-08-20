@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 24
-        versionName = "0.6.2"
+        versionCode = 25
+        versionName = "0.6.3"
     }
 
     buildFeatures {
@@ -58,9 +58,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.2 keeps the proven StereoMode.LeftRight output path from v0.6.1 but
-// replaces the synthetic targets with GeoGebra's raw JavaScript-captured SBS
-// frame. No WebView screenshot or 3D-portal composition is involved.
+// v0.6.3 keeps the proven StereoMode.LeftRight path, lets GeoGebra receive the
+// original headset-button gesture so it really enters PROJECTION_GLASSES, and
+// captures the finished anaglyph framebuffer with a requestAnimationFrame
+// fallback. The Android side still displays the raw SBS directly for diagnosis.
 spatial {
     allowUsageDataCollection.set(true)
 }
