@@ -4,6 +4,19 @@
   if (window.__ggqDebugOverlayV071) return;
   window.__ggqDebugOverlayV071 = true;
 
+  // Development builds load the full-colour helper here. It remains a separate
+  // asset so the grayscale workaround can later be promoted into the normal
+  // bootstrap without coupling it to the debug UI.
+  try {
+    if (!document.getElementById('ggq-color-patch-v071')) {
+      const colorScript = document.createElement('script');
+      colorScript.id = 'ggq-color-patch-v071';
+      colorScript.src = 'https://appassets.androidplatform.net/assets/web/quest-color-patch.js';
+      colorScript.async = false;
+      (document.head || document.documentElement).appendChild(colorScript);
+    }
+  } catch (_) {}
+
   const recentLogs = [];
   let panel = null;
   let body = null;
@@ -16,7 +29,7 @@
       }).join(' ');
       if (text.indexOf('GGQ') < 0 && text.indexOf('GeoGebraForQuest') < 0) return;
       recentLogs.push(text.replace(/\s+/g, ' ').slice(0, 180));
-      while (recentLogs.length > 5) recentLogs.shift();
+      while (recentLogs.length > 6) recentLogs.shift();
     } catch (_) {}
   }
 
@@ -39,7 +52,7 @@
     panel.id = 'ggq-debug-overlay-v071';
     panel.style.cssText = [
       'position:fixed','right:10px','top:10px','z-index:2147483647',
-      'width:350px','max-width:45vw','box-sizing:border-box','padding:9px 10px',
+      'width:355px','max-width:46vw','box-sizing:border-box','padding:9px 10px',
       'border-radius:8px','background:rgba(0,0,0,.82)','color:#b8ffbd',
       'font:11px/1.35 monospace','white-space:pre-wrap','pointer-events:none',
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
@@ -85,6 +98,7 @@
 
   function update() {
     ensurePanel();
+
     let captureEnabled = false;
     try {
       captureEnabled = !!(window.GeoGebraQuestStereoCapture &&
@@ -108,6 +122,18 @@
       popupRequested = !!(auto && auto.isProjectionPopupRequested && auto.isProjectionPopupRequested());
       stereoRequested = !!(auto && auto.isStereoRequested && auto.isStereoRequested());
       portalSuppressed = !!(auto && auto.isPortalSuppressed && auto.isPortalSuppressed());
+    } catch (_) {}
+
+    const color = window.GeoGebraQuestColorPatch;
+    let colorInstalled = false;
+    let colorConfigured = false;
+    let colorFailed = false;
+    let colorState = 'loading';
+    try {
+      colorInstalled = !!(color && color.isInstalled && color.isInstalled());
+      colorConfigured = !!(color && color.isConfigured && color.isConfigured());
+      colorFailed = !!(color && color.hasFailed && color.hasFailed());
+      colorState = color && color.getState ? String(color.getState()) : 'loading';
     } catch (_) {}
 
     let getContextHook = false;
@@ -138,6 +164,8 @@
     lines.push('glasses forced:   ' + yes(projectionArmed));
     lines.push('popup requested:  ' + yes(popupRequested));
     lines.push('portal suppressed:' + yes(portalSuppressed));
+    lines.push('full colour:      ' + (colorConfigured ? 'YES' : colorFailed ? 'FAILED' : colorState));
+    lines.push('color patch:      ' + yes(colorInstalled));
     lines.push('stereo requested: ' + yes(stereoRequested));
     lines.push('stereo JS:        ' + (captureEnabled ? 'ON' : 'off'));
     lines.push('getContext hook:  ' + yes(getContextHook));
