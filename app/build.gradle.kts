@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 28
-        versionName = "0.6.6"
+        versionCode = 29
+        versionName = "0.6.7"
     }
 
     buildFeatures {
@@ -58,11 +58,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.6 fixes the remaining headset-click interception bug: both legacy DOM
-// markers are temporarily removed while the real user gesture travels through
-// GeoGebra's projection SelectionTable. This lets GeoGebra genuinely enter
-// PROJECTION_GLASSES so the direct full-colour left/right eye capture added in
-// v0.6.5 can actually receive RED -> RIGHT -> ALL eye passes.
+// v0.6.7 is a diagnostic-only follow-up to v0.6.6. It keeps the real
+// GeoGebra Glasses click and direct-eye capture unchanged, then exposes the
+// JavaScript hooks and native bridge/EGL presentation counters in a small
+// on-screen overlay so one Quest screenshot identifies the failing stage.
 spatial {
     allowUsageDataCollection.set(true)
 }
