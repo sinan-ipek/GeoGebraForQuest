@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 25
-        versionName = "0.6.3"
+        versionCode = 26
+        versionName = "0.6.4"
     }
 
     buildFeatures {
@@ -58,10 +58,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.3 keeps the proven StereoMode.LeftRight path, lets GeoGebra receive the
-// original headset-button gesture so it really enters PROJECTION_GLASSES, and
-// captures the finished anaglyph framebuffer with a requestAnimationFrame
-// fallback. The Android side still displays the raw SBS directly for diagnosis.
+// v0.6.4 captures the completed stock anaglyph synchronously inside GeoGebra's
+// real WebGL colorMask eye-pass sequence. It deliberately removes the late
+// requestAnimationFrame readback that produced black frames in v0.6.3. The raw
+// diagnostic stereo surface is now positioned only over the 3D Graphics area so
+// the ordinary GeoGebra WebView remains visible around it.
 spatial {
     allowUsageDataCollection.set(true)
 }
