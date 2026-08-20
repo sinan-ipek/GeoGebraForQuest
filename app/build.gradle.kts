@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 34
-        versionName = "0.7.1"
+        versionCode = 35
+        versionName = "0.7.2"
     }
 
     buildFeatures {
@@ -58,9 +58,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.1 keeps automatic stereo for every visible 3D view, starts Glasses mode
-// without a user click, hides the stereo portal when another GeoGebra layer is
-// in front, and raises the direct-eye capture target toward 30 fps.
+// v0.7.2 changes the stereo portal from an overlay to an underlay. The real
+// GeoGebra WebView stays physically in front and interactive; only the 3D canvas
+// pixels are made transparent while stereo is active, so the left/right media
+// surface is visible through that hole. This lets controller rays hit the WebView
+// directly and lets normal GeoGebra dialogs/menus naturally cover the stereo view.
 spatial {
     allowUsageDataCollection.set(true)
 }
