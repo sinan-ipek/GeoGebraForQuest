@@ -1,0 +1,1 @@
+v0.6.6 fixes headset gesture pass-through by removing both legacy stereo DOM markers during the real GeoGebra Glasses click.
