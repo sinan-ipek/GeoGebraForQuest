@@ -139,9 +139,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             applyPortalRect(json)
         }
 
-        SpatialBridgeBus.onStereoFrame = { dataUrl, eyeWidth, eyeHeight ->
-            if (!pendingStereo || dataUrl.isBlank()) return@onStereoFrame
-            if (!stereoFrameSurface.canAcceptFrame()) return@onStereoFrame
+        SpatialBridgeBus.onStereoFrame = frame@{ dataUrl, eyeWidth, eyeHeight ->
+            if (!pendingStereo || dataUrl.isBlank()) return@frame
+            if (!stereoFrameSurface.canAcceptFrame()) return@frame
 
             stereoFrameSurface.submitRawStereoDataUrl(
                 dataUrl = dataUrl,
