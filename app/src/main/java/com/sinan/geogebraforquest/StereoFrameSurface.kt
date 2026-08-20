@@ -3,6 +3,7 @@ package com.sinan.geogebraforquest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.opengl.GLES20
@@ -34,17 +35,14 @@ import javax.microedition.khronos.egl.EGLSurface
 import org.json.JSONObject
 
 /**
- * v0.6.0 full-panel stereo compositor.
+ * Full-panel stereo compositor.
  *
- * JavaScript no longer sends an already-composited portal image. It sends only
- * the decoded SBS image of GeoGebra's 3D viewport. The Activity separately takes
- * one ordinary screenshot of the whole WebView panel. This class then builds:
- *
- *   LEFT EYE  = full GeoGebra UI + left 3D image
- *   RIGHT EYE = full GeoGebra UI + right 3D image
- *
- * and packs the two complete interface images side-by-side. Spatial SDK's
- * StereoMode.LeftRight performs the final eye selection.
+ * Normal mode builds two complete GeoGebra interface images and packs them SBS.
+ * v0.6.1 additionally contains a deterministic calibration frame. The
+ * calibration frame does not depend on GeoGebra, WebGL, anaglyph extraction, or
+ * portal geometry: the two halves contain deliberately displaced targets. If
+ * those targets have different apparent depths in Quest, StereoMode.LeftRight
+ * and the Android -> Spatial surface pipeline are proven to work.
  */
 class StereoFrameSurface {
 
@@ -106,13 +104,48 @@ class StereoFrameSurface {
     fun canAcceptFrame(): Boolean = !framePending.get()
 
     /**
-     * Composes one complete left-eye GeoGebra panel and one complete right-eye
-     * panel. [basePanel] is always recycled by this method once ownership is
-     * accepted, even when decoding or EGL presentation fails.
+     * Pure stereo-pipeline test. The underlying GeoGebra panel is copied into
+     * both eyes unchanged, then three black/white calibration targets are drawn:
      *
-     * @return true if the frame was accepted for processing; false if another
-     * frame is already in flight. When false, the caller still owns basePanel.
+     *   A: positive horizontal disparity
+     *   B: zero disparity
+     *   C: negative horizontal disparity
+     *
+     * If Quest really sends the left half only to the left eye and the right
+     * half only to the right eye, A/B/C must not all lie on the same depth plane.
      */
+    fun submitCalibration(
+        basePanel: Bitmap,
+        onPresented: (() -> Unit)? = null,
+        onFinished: (() -> Unit)? = null,
+    ): Boolean {
+        if (!framePending.compareAndSet(false, true)) {
+            return false
+        }
+
+        executor.execute {
+            var calibration: Bitmap? = null
+            try {
+                calibration = composeCalibration(basePanel)
+                val surface = targetSurface ?: return@execute
+                if (!surface.isValid) return@execute
+                if (eglSurface == EGL_NO_SURFACE && !initEgl(surface)) return@execute
+                if (drawBitmap(calibration)) {
+                    onPresented?.invoke()
+                }
+            } catch (_: Throwable) {
+                // Diagnostic frame must never crash the app.
+            } finally {
+                if (!basePanel.isRecycled) basePanel.recycle()
+                calibration?.let { if (!it.isRecycled) it.recycle() }
+                framePending.set(false)
+                onFinished?.invoke()
+            }
+        }
+
+        return true
+    }
+
     fun submitCompositeDataUrl(
         dataUrl: String,
         basePanel: Bitmap,
@@ -147,7 +180,6 @@ class StereoFrameSurface {
                 }
             } catch (_: Throwable) {
                 // A transient WebView snapshot, JPEG, or EGL frame is disposable.
-                // Never allow one bad frame to crash the Spatial activity.
             } finally {
                 if (!basePanel.isRecycled) basePanel.recycle()
                 stereo3D?.let { if (!it.isRecycled) it.recycle() }
@@ -166,6 +198,75 @@ class StereoFrameSurface {
             releaseEglInternal()
         }
         executor.shutdown()
+    }
+
+    private fun composeCalibration(basePanel: Bitmap): Bitmap {
+        val output = Bitmap.createBitmap(
+            SURFACE_WIDTH,
+            SURFACE_HEIGHT,
+            Bitmap.Config.ARGB_8888,
+        )
+        val canvas = Canvas(output)
+        val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val baseSource = Rect(0, 0, basePanel.width, basePanel.height)
+
+        canvas.drawBitmap(basePanel, baseSource, Rect(0, 0, EYE_WIDTH, EYE_HEIGHT), bitmapPaint)
+        canvas.drawBitmap(
+            basePanel,
+            baseSource,
+            Rect(EYE_WIDTH, 0, SURFACE_WIDTH, EYE_HEIGHT),
+            bitmapPaint,
+        )
+
+        val bannerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(225, 255, 255, 255)
+            style = Paint.Style.FILL
+        }
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 34f
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+        val targetFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        val targetStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 8f
+        }
+
+        fun drawEye(eyeOffset: Int, eyeName: String, sign: Int) {
+            canvas.drawRect(
+                eyeOffset + 160f,
+                54f,
+                eyeOffset + EYE_WIDTH - 160f,
+                112f,
+                bannerPaint,
+            )
+            canvas.drawText("STEREO TEST - $eyeName", eyeOffset + EYE_WIDTH / 2f, 94f, textPaint)
+
+            val centerX = eyeOffset + EYE_WIDTH / 2f
+            val ys = floatArrayOf(270f, 390f, 510f)
+            val disparities = intArrayOf(56, 0, -56)
+            val labels = arrayOf("A", "B", "C")
+
+            for (i in ys.indices) {
+                val x = centerX + sign * disparities[i]
+                canvas.drawCircle(x, ys[i], 44f, targetFill)
+                canvas.drawCircle(x, ys[i], 44f, targetStroke)
+                canvas.drawText(labels[i], x, ys[i] + 12f, textPaint)
+            }
+        }
+
+        // In local eye coordinates the same target is shifted in opposite
+        // directions. B has zero disparity and is the reference plane.
+        drawEye(0, "LEFT", +1)
+        drawEye(EYE_WIDTH, "RIGHT", -1)
+
+        return output
     }
 
     private fun decodeDataUrl(dataUrl: String): Bitmap? {
@@ -193,7 +294,6 @@ class StereoFrameSurface {
         val leftEyePanel = Rect(0, 0, EYE_WIDTH, EYE_HEIGHT)
         val rightEyePanel = Rect(EYE_WIDTH, 0, SURFACE_WIDTH, EYE_HEIGHT)
 
-        // The same ordinary GeoGebra UI is the base of both eye images.
         canvas.drawBitmap(basePanel, baseSource, leftEyePanel, paint)
         canvas.drawBitmap(basePanel, baseSource, rightEyePanel, paint)
 
@@ -204,12 +304,7 @@ class StereoFrameSurface {
                 val leftSource = Rect(0, 0, half, stereo3D.height)
                 val rightSource = Rect(half, 0, stereo3D.width, stereo3D.height)
 
-                canvas.drawBitmap(
-                    stereo3D,
-                    leftSource,
-                    destination,
-                    paint,
-                )
+                canvas.drawBitmap(stereo3D, leftSource, destination, paint)
 
                 val rightDestination = Rect(
                     destination.left + EYE_WIDTH,
@@ -217,12 +312,7 @@ class StereoFrameSurface {
                     destination.right + EYE_WIDTH,
                     destination.bottom,
                 )
-                canvas.drawBitmap(
-                    stereo3D,
-                    rightSource,
-                    rightDestination,
-                    paint,
-                )
+                canvas.drawBitmap(stereo3D, rightSource, rightDestination, paint)
             }
         }
 
