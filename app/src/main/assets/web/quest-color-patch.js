@@ -90,17 +90,10 @@
   }
 
   function findGrayCheckbox() {
-    const checkboxes = Array.from(document.querySelectorAll(
-      '.checkboxPanel,[role="checkbox"]'
-    ));
+    const checkboxes = Array.from(document.querySelectorAll('.checkboxPanel,[role="checkbox"]'));
     const needles = [
-      'gri olcek',
-      'gri ölçek',
-      'gray scale',
-      'grayscale',
-      'graustufen',
-      'echelle de gris',
-      'escala de grises'
+      'gri olcek', 'gri ölçek', 'gray scale', 'grayscale',
+      'graustufen', 'echelle de gris', 'escala de grises'
     ].map(normalize);
 
     for (const checkbox of checkboxes) {
@@ -119,8 +112,7 @@
   }
 
   function findSettingsAction() {
-    const needles = ['ayarlar', 'settings', 'einstellungen', 'parametres', 'ajustes']
-      .map(normalize);
+    const needles = ['ayarlar', 'settings', 'einstellungen', 'parametres', 'ajustes'].map(normalize);
     for (const element of clickableCandidates()) {
       if (hasAnyText(element, needles)) return element;
     }
@@ -128,24 +120,28 @@
   }
 
   function findMenuLauncher() {
-    const needles = ['menu', 'menü', 'ana menu', 'main menu', 'open menu']
-      .map(normalize);
+    const needles = ['menu', 'menü', 'ana menu', 'main menu', 'open menu'].map(normalize);
     for (const element of clickableCandidates()) {
       if (element.closest && element.closest('.SelectionTable')) continue;
       if (hasAnyText(element, needles)) return element;
     }
 
-    // GeoGebra's hamburger sometimes has no localized text, but its CSS class
-    // still contains "menu". Keep this as a constrained fallback.
+    // Constrained hamburger fallback: do not mistake a 3D stylebar popup for the
+    // main menu merely because both contain "menu" in a CSS class.
     for (const element of clickableCandidates()) {
       const cls = normalize(element.className);
-      if (cls.indexOf('menu') >= 0 && cls.indexOf('item') < 0) return element;
+      if (cls.indexOf('menu') < 0 || cls.indexOf('item') >= 0) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.top < 100 && rect.left > innerWidth * 0.70) return element;
     }
     return null;
   }
 
   function settingsPanel() {
-    const panels = Array.from(document.querySelectorAll('.PropertiesViewW,.sideSheet'));
+    // ComponentSideSheet receives the PropertiesViewW class when it is actually
+    // GeoGebra Settings. The hamburger menu may also be a side sheet, so never
+    // treat a generic .sideSheet as Settings here.
+    const panels = Array.from(document.querySelectorAll('.PropertiesViewW'));
     for (const panel of panels) {
       if (visible(panel)) return panel;
     }
@@ -157,24 +153,18 @@
     if (!panel) return;
     try {
       panel.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'Escape',
-        code: 'Escape',
-        keyCode: 27,
-        which: 27,
-        bubbles: true,
-        cancelable: true
+        key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+        bubbles: true, cancelable: true
       }));
     } catch (_) {}
 
-    // Fallback: use a visible close/back button inside the settings sheet.
     setTimeout(function () {
       const stillOpen = settingsPanel();
       if (!stillOpen) return;
       const candidates = Array.from(stillOpen.querySelectorAll(
         'button,[role="button"],.headerButton,.closeButton,.backButton'
       )).filter(visible);
-      const needles = ['close', 'kapat', 'back', 'geri', 'schliessen', 'schließen']
-        .map(normalize);
+      const needles = ['close', 'kapat', 'back', 'geri', 'schliessen', 'schließen'].map(normalize);
       for (const element of candidates) {
         if (hasAnyText(element, needles)) {
           clickElement(element);
