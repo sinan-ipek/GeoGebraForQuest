@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 23
-        versionName = "0.6.1"
+        versionCode = 24
+        versionName = "0.6.2"
     }
 
     buildFeatures {
@@ -58,9 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.1 is a deliberate stereo-pipeline diagnostic. Headset activation shows
-// known left/right disparities generated natively, independent of GeoGebra's
-// WebGL/anaglyph capture, so we can isolate whether StereoMode.LeftRight works.
+// v0.6.2 keeps the proven StereoMode.LeftRight output path from v0.6.1 but
+// replaces the synthetic targets with GeoGebra's raw JavaScript-captured SBS
+// frame. No WebView screenshot or 3D-portal composition is involved.
 spatial {
     allowUsageDataCollection.set(true)
 }
