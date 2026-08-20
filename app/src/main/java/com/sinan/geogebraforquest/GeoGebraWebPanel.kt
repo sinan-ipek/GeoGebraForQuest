@@ -96,11 +96,11 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 /**
- * v0.7.2 uses the WebView as the front interaction layer and the stereo media
- * panel as an underlay. The active WebGL canvas is kept alive and hittable but
- * made almost fully transparent; only same-sized canvas wrapper elements are
- * made transparent as well. This creates an alpha hole through which the stereo
- * underlay is visible without sacrificing WebView pointer/controller input.
+ * v0.7.3 keeps the GeoGebra WebView as the front interaction layer and the
+ * stereo media panel as an underlay. The active WebGL canvas remains hittable
+ * but becomes almost fully transparent while stereo is active. Same-sized
+ * wrappers are made transparent as well so the LeftRight surface can be seen
+ * through the 3D rectangle without sacrificing controller input.
  */
 private fun injectStereoUnderlayCss(view: WebView) {
     view.evaluateJavascript(
@@ -206,7 +206,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.7.2"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.7.3"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
