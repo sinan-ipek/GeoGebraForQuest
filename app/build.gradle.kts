@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 21
-        versionName = "0.5.2"
+        versionCode = 22
+        versionName = "0.6.0"
     }
 
     buildFeatures {
@@ -58,9 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.5.2 captures GeoGebra's real two-eye PROJECTION_GLASSES renders by
-// distinguishing its RED / BLUE(+GREEN) eye masks from the internal NONE mask
-// used while drawing hidden geometry. Only the eye filters are bypassed.
+// v0.6.0 lets GeoGebra render its stock grayscale anaglyph, decodes the final
+// framebuffer channels back into left/right 3D views, and composites those views
+// into two complete GeoGebra interface images before StereoMode.LeftRight output.
 spatial {
     allowUsageDataCollection.set(true)
 }
