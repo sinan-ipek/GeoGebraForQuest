@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqDebugOverlayV072) return;
-  window.__ggqDebugOverlayV072 = true;
+  if (window.__ggqDebugOverlayV073) return;
+  window.__ggqDebugOverlayV073 = true;
 
   const recentLogs = [];
   let panel = null;
@@ -36,7 +36,7 @@
   function ensurePanel() {
     if (panel && panel.isConnected) return;
     panel = document.createElement('div');
-    panel.id = 'ggq-debug-overlay-v072';
+    panel.id = 'ggq-debug-overlay-v073';
     panel.style.cssText = [
       'position:fixed','right:10px','top:10px','z-index:2147483647',
       'width:360px','max-width:47vw','box-sizing:border-box','padding:9px 10px',
@@ -45,7 +45,7 @@
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
     ].join(';');
     const title = document.createElement('div');
-    title.textContent = 'GGQ v0.7.2 UNDERLAY DEBUG';
+    title.textContent = 'GGQ v0.7.3 UNDERLAY DEBUG';
     title.style.cssText = 'font-weight:bold;color:#fff;margin-bottom:5px;font-size:12px';
     panel.appendChild(title);
     body = document.createElement('div');
