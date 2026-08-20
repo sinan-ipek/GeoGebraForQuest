@@ -1,10 +1,10 @@
 (function () {
   'use strict';
 
-  if (window.__ggqStereoCaptureV073) return;
-  window.__ggqStereoCaptureV073 = true;
+  if (window.__ggqStereoCaptureV071) return;
+  window.__ggqStereoCaptureV071 = true;
 
-  // GeoGebraForQuest v0.7.3 direct-eye capture.
+  // GeoGebraForQuest v0.7.1 direct-eye capture.
   //
   // GeoGebra's Glasses renderer draws LEFT and RIGHT into the same WebGL
   // framebuffer using red/cyan colour masks. We intercept only those two eye
@@ -13,13 +13,14 @@
   // the correct left/right camera matrices. NONE/ALPHA masks used for hidden
   // geometry are left untouched.
   //
-  // The two complete RGB eye frames are packed as left|right SBS and delivered
-  // to the native StereoMode.LeftRight surface. Native upload is already direct,
-  // so this file remains the only capture/packing stage.
+  // v0.7.1 also removes the old JavaScript per-pixel SBS packing loop. Eye
+  // buffers are copied to 2D canvases with putImageData() and scaled/flipped by
+  // drawImage(), then JPEG encoded. Together with the native direct texture
+  // upload this substantially reduces the CPU work per frame.
 
   const MAX_EYE_WIDTH = 720;
   const MAX_EYE_HEIGHT = 720;
-  const FRAME_INTERVAL_MS = 33;
+  const FRAME_INTERVAL_MS = 33; // request up to ~30 fps; native busy-drop self-throttles
   const JPEG_QUALITY = 0.80;
   const SWAP_EYES = false;
 
@@ -48,7 +49,7 @@
   function log() {
     try {
       const args = Array.prototype.slice.call(arguments);
-      args.unshift('[GGQ StereoCapture v0.7.3]');
+      args.unshift('[GGQ StereoCapture v0.7.1]');
       console.log.apply(console, args);
     } catch (_) {}
   }
@@ -136,15 +137,8 @@
 
   function readInto(gl, pixels) {
     try {
-      gl.readPixels(
-        0,
-        0,
-        gl.drawingBufferWidth,
-        gl.drawingBufferHeight,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        pixels
-      );
+      gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight,
+        gl.RGBA, gl.UNSIGNED_BYTE, pixels);
       return true;
     } catch (error) {
       console.warn('[GGQ StereoCapture] readPixels failed', error);
@@ -197,15 +191,8 @@
 
   function ensurePackingCanvases(width, height) {
     const size = targetSize(width, height);
-    if (
-      leftCanvas &&
-      sourceWidth === width &&
-      sourceHeight === height &&
-      targetEyeWidth === size.width &&
-      targetEyeHeight === size.height
-    ) {
-      return;
-    }
+    if (leftCanvas && sourceWidth === width && sourceHeight === height &&
+        targetEyeWidth === size.width && targetEyeHeight === size.height) return;
 
     removeCanvas(leftCanvas);
     removeCanvas(rightCanvas);
@@ -226,6 +213,8 @@
   }
 
   function imageDataFromPixels(pixels, width, height) {
+    // readPixels() supplies Uint8Array. ImageData wants Uint8ClampedArray; use a
+    // view on the same buffer so no JavaScript pixel-by-pixel copy is needed.
     return new ImageData(
       new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength),
       width,
@@ -251,6 +240,9 @@
 
       sbs2d.setTransform(1, 0, 0, 1, 0, 0);
       sbs2d.clearRect(0, 0, ew * 2, eh);
+
+      // WebGL readPixels starts at the framebuffer's lower-left corner. Flip the
+      // packed destination vertically while the browser handles resize/filtering.
       sbs2d.setTransform(1, 0, 0, -1, 0, eh);
       sbs2d.drawImage(first, 0, 0, state.width, state.height, 0, 0, ew, eh);
       sbs2d.drawImage(second, 0, 0, state.width, state.height, ew, 0, ew, eh);
@@ -258,11 +250,7 @@
 
       const dataUrl = sbsCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
       if (!dataUrl || dataUrl.length <= 64) return null;
-      return {
-        dataUrl: dataUrl,
-        eyeWidth: ew,
-        eyeHeight: eh
-      };
+      return { dataUrl: dataUrl, eyeWidth: ew, eyeHeight: eh };
     } catch (error) {
       console.warn('[GGQ StereoCapture] SBS encode failed', error);
       return null;
@@ -297,16 +285,10 @@
 
     if (lastFrameSentAt - lastPairLogAt > 1200) {
       lastPairLogAt = lastFrameSentAt;
-      log(
-        'Direct eye pair',
-        state.width + 'x' + state.height,
-        '->',
-        sbs.eyeWidth + 'x' + sbs.eyeHeight,
-        'difference',
-        sampledDifference(state.leftPixels, state.rightPixels).toFixed(2)
-      );
+      log('Direct eye pair', state.width + 'x' + state.height,
+        '->', sbs.eyeWidth + 'x' + sbs.eyeHeight,
+        'difference', sampledDifference(state.leftPixels, state.rightPixels).toFixed(2));
     }
-
     return true;
   }
 
@@ -341,6 +323,8 @@
           }
         }
 
+        // Critical for colour: GeoGebra asks for RED-only because Glasses mode
+        // normally creates an anaglyph. Quest needs the complete RGB left eye.
         return originalColorMask(true, true, true, true);
       }
 
@@ -370,12 +354,11 @@
 
     const wrappedClear = function (mask) {
       let nextMask = mask;
-      if (
-        stereoActive &&
-        state.phase === 'right' &&
-        state.needsRightColorClear &&
-        (mask & gl.DEPTH_BUFFER_BIT) !== 0
-      ) {
+      if (stereoActive && state.phase === 'right' && state.needsRightColorClear &&
+          (mask & gl.DEPTH_BUFFER_BIT) !== 0) {
+        // In anaglyph mode GeoGebra clears only depth between eyes because each
+        // eye writes different colour channels. We render full RGB, so right eye
+        // needs a clean colour buffer as well.
         nextMask = mask | gl.COLOR_BUFFER_BIT;
         state.needsRightColorClear = false;
       }
@@ -402,28 +385,31 @@
     const wrappedGetContext = function () {
       const context = originalGetContext.apply(this, arguments);
       const type = String(arguments[0] || '').toLowerCase();
-      if (
-        context &&
-        (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')
-      ) {
+      if (context && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
         hookContext(context);
       }
       return context;
     };
 
     wrappedGetContext.__ggqStereoGetContextHookV6 = true;
-    proto.getContext = wrappedGetContext;
+    try {
+      proto.getContext = wrappedGetContext;
+      log('Installed document-start canvas.getContext hook');
+    } catch (error) {
+      console.warn('[GGQ StereoCapture] getContext hook failed', error);
+    }
   }
 
-  function hookExistingContexts() {
-    const canvases = Array.from(document.querySelectorAll('canvas'));
-    for (const canvas of canvases) {
-      try {
-        const gl = canvas.getContext('webgl2') ||
-          canvas.getContext('webgl') ||
-          canvas.getContext('experimental-webgl');
-        if (gl) hookContext(gl);
-      } catch (_) {}
+  installGetContextHook();
+
+  function rawContextOf(canvas) {
+    if (!canvas) return null;
+    try {
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if (gl) hookContext(gl);
+      return gl;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -431,126 +417,134 @@
     const root = document.getElementById('ggb-element') || document;
     let best = null;
     let bestArea = 0;
-
     for (const canvas of Array.from(root.querySelectorAll('canvas'))) {
       const rect = visibleRect(canvas);
       if (!rect) continue;
-
-      let gl = null;
-      try {
-        gl = canvas.getContext('webgl2') ||
-          canvas.getContext('webgl') ||
-          canvas.getContext('experimental-webgl');
-      } catch (_) {}
+      const gl = rawContextOf(canvas);
       if (!gl) continue;
-
       const area = rect.width * rect.height;
       if (area > bestArea) {
         bestArea = area;
         best = canvas;
       }
     }
-
-    return best;
+    if (best) last3DCanvas = best;
+    return best || last3DCanvas;
   }
 
   function sendPortalRect() {
-    const canvas = last3DCanvas && visibleRect(last3DCanvas) ? last3DCanvas : find3DCanvas();
-    if (!canvas) return;
-
-    last3DCanvas = canvas;
+    const canvas = find3DCanvas();
+    if (!canvas || !canvas.isConnected) return;
     const rect = visibleRect(canvas);
     if (!rect) return;
 
-    const payload = JSON.stringify({
+    const json = JSON.stringify({
       left: rect.left,
       top: rect.top,
       width: rect.width,
       height: rect.height,
       viewWidth: innerWidth,
-      viewHeight: innerHeight
+      viewHeight: innerHeight,
+      devicePixelRatio: window.devicePixelRatio || 1
     });
 
-    if (payload !== lastPortalRect) {
-      lastPortalRect = payload;
-      bridgeCall('updatePortalRect', payload);
+    if (json !== lastPortalRect) {
+      lastPortalRect = json;
+      bridgeCall('updatePortalRect', json);
     }
   }
 
-  function setEnabled(enabled) {
+  function hookCurrent3DContext() {
+    const canvas = find3DCanvas();
+    if (!canvas) return;
+    const gl = rawContextOf(canvas);
+    if (gl) hookContext(gl);
+    if (stereoActive) sendPortalRect();
+  }
+
+  function projectionTable() {
+    return document.querySelector('[data-ggq-projection-container="1"]');
+  }
+
+  function projectionButtons() {
+    const table = projectionTable();
+    if (!table) return [];
+    let buttons = Array.from(table.querySelectorAll('.stylebarButton'));
+    if (buttons.length < 4) {
+      buttons = Array.from(table.querySelectorAll('td,button,[role="button"]'))
+        .filter(function (node) { return node.offsetWidth > 0 && node.offsetHeight > 0; });
+    }
+    return buttons.slice(0, 4);
+  }
+
+  function dispatchProjection(index) {
+    const target = projectionButtons()[index];
+    if (!target) return false;
+    try {
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function setStereoEnabled(enabled, preserveProjection) {
     const next = !!enabled;
+    const preserve = !!preserveProjection;
+
     if (stereoActive === next) {
-      if (next) sendPortalRect();
+      if (next) {
+        hookCurrent3DContext();
+        sendPortalRect();
+      }
       return;
     }
 
     stereoActive = next;
     document.documentElement.dataset.ggqStereo = next ? 'on' : 'off';
-    bridgeCall('setStereoEnabled', next);
+    lastFrameSentAt = 0;
 
     if (next) {
-      hookExistingContexts();
-      last3DCanvas = find3DCanvas();
+      hookCurrent3DContext();
       sendPortalRect();
-      log('Stereo capture ON');
-    } else {
-      lastPortalRect = '';
-      log('Stereo capture OFF');
+    } else if (!preserve) {
+      setTimeout(function () { dispatchProjection(1); }, 0);
     }
+
+    bridgeCall('setStereoEnabled', next);
+    log('Stereo capture', next ? 'ON' : 'OFF', preserve ? '(projection preserved)' : '');
   }
 
-  function wrapPublicApi() {
-    if (window.GeoGebraForQuest && window.GeoGebraForQuest.__ggqStereoWrappedV073) return true;
+  function wrapGeoGebraApi() {
+    const api = window.GeoGebraForQuest;
+    if (!api || typeof api.setStereoEnabled !== 'function') return false;
+    if (api.setStereoEnabled.__ggqStereoCaptureWrappedV6) return true;
 
-    const api = window.GeoGebraForQuest || {};
-    const originalSet = typeof api.setStereoEnabled === 'function'
-      ? api.setStereoEnabled.bind(api)
-      : null;
-
-    api.setStereoEnabled = function (enabled, preserveProjection) {
-      setEnabled(!!enabled);
-      if (originalSet) {
-        try {
-          originalSet(!!enabled, preserveProjection);
-        } catch (_) {}
-      }
+    const replacement = function (enabled, preserveProjection) {
+      setStereoEnabled(enabled, preserveProjection);
     };
-
-    api.__ggqStereoWrappedV073 = true;
-    window.GeoGebraForQuest = api;
+    replacement.__ggqStereoCaptureWrappedV6 = true;
+    api.setStereoEnabled = replacement;
+    log('Wrapped GeoGebraForQuest.setStereoEnabled');
     return true;
   }
 
-  window.GeoGebraQuestStereoCapture = {
-    enable: function () { setEnabled(true); },
-    disable: function () { setEnabled(false); },
-    isEnabled: function () { return stereoActive; },
-    scanNow: function () {
-      hookExistingContexts();
-      last3DCanvas = find3DCanvas();
-      sendPortalRect();
-    }
-  };
-
-  installGetContextHook();
-  hookExistingContexts();
-  wrapPublicApi();
-
   apiWrapTimer = setInterval(function () {
-    wrapPublicApi();
-  }, 250);
-
-  hookTimer = setInterval(function () {
-    hookExistingContexts();
-    if (stereoActive) {
-      last3DCanvas = find3DCanvas() || last3DCanvas;
-      sendPortalRect();
+    if (wrapGeoGebraApi()) {
+      clearInterval(apiWrapTimer);
+      apiWrapTimer = null;
     }
-  }, 250);
+  }, 100);
 
-  try {
-    addEventListener('resize', function () {
-      if (stereoActive) sendPortalRect();
-    });
-  } catch (_) {}
+  hookTimer = setInterval(hookCurrent3DContext, 250);
+  window.addEventListener('resize', function () { if (stereoActive) sendPortalRect(); });
+
+  window.GeoGebraQuestStereoCapture = {
+    enable: function () { setStereoEnabled(true, true); },
+    disable: function (preserveProjection) { setStereoEnabled(false, !!preserveProjection); },
+    isEnabled: function () { return stereoActive; },
+    hookNow: hookCurrent3DContext,
+    setSwapEyes: function () { return SWAP_EYES; },
+    requestedFrameIntervalMs: function () { return FRAME_INTERVAL_MS; }
+  };
 })();
