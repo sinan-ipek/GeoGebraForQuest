@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqDebugOverlayV0610) return;
-  window.__ggqDebugOverlayV0610 = true;
+  if (window.__ggqDebugOverlayV070) return;
+  window.__ggqDebugOverlayV070 = true;
 
   const recentLogs = [];
   let panel = null;
@@ -35,35 +35,29 @@
 
   function ensurePanel() {
     if (panel && panel.isConnected) return;
-
     panel = document.createElement('div');
-    panel.id = 'ggq-debug-overlay-v0610';
+    panel.id = 'ggq-debug-overlay-v070';
     panel.style.cssText = [
       'position:fixed','right:10px','top:10px','z-index:2147483647',
-      'width:330px','max-width:43vw','box-sizing:border-box','padding:9px 10px',
+      'width:340px','max-width:44vw','box-sizing:border-box','padding:9px 10px',
       'border-radius:8px','background:rgba(0,0,0,.82)','color:#b8ffbd',
       'font:11px/1.35 monospace','white-space:pre-wrap','pointer-events:none',
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
     ].join(';');
-
     const title = document.createElement('div');
-    title.textContent = 'GGQ v0.6.10 DEBUG';
+    title.textContent = 'GGQ v0.7.0 AUTO-3D DEBUG';
     title.style.cssText = 'font-weight:bold;color:#fff;margin-bottom:5px;font-size:12px';
     panel.appendChild(title);
-
     body = document.createElement('div');
-    body.textContent = 'waiting for GeoGebra…';
     panel.appendChild(body);
     (document.body || document.documentElement).appendChild(panel);
   }
 
   function largestWebGlCanvas() {
     const root = document.getElementById('ggb-element') || document;
-    const canvases = Array.from(root.querySelectorAll('canvas'));
     let best = null;
     let bestArea = 0;
-
-    for (const canvas of canvases) {
+    for (const canvas of Array.from(root.querySelectorAll('canvas'))) {
       try {
         const rect = canvas.getBoundingClientRect();
         if (rect.width < 100 || rect.height < 100) continue;
@@ -85,45 +79,46 @@
     try {
       if (!window.QuestBridge || typeof window.QuestBridge.getStereoDebugStatus !== 'function') return null;
       const raw = window.QuestBridge.getStereoDebugStatus();
-      if (!raw) return null;
-      return JSON.parse(String(raw));
-    } catch (_) {
-      return null;
-    }
+      return raw ? JSON.parse(String(raw)) : null;
+    } catch (_) { return null; }
   }
 
   function update() {
     ensurePanel();
-
     let captureEnabled = false;
     try {
-      captureEnabled = !!(
-        window.GeoGebraQuestStereoCapture &&
+      captureEnabled = !!(window.GeoGebraQuestStereoCapture &&
         typeof window.GeoGebraQuestStereoCapture.isEnabled === 'function' &&
-        window.GeoGebraQuestStereoCapture.isEnabled()
-      );
+        window.GeoGebraQuestStereoCapture.isEnabled());
+    } catch (_) {}
+
+    const auto = window.GeoGebraQuestAuto3D;
+    let autoInstalled = false;
+    let view3D = false;
+    let projectionArmed = false;
+    let stereoRequested = false;
+    try {
+      autoInstalled = !!(auto && auto.isInstalled && auto.isInstalled());
+      view3D = !!(auto && auto.is3DVisible && auto.is3DVisible());
+      projectionArmed = !!(auto && auto.isProjectionArmed && auto.isProjectionArmed());
+      stereoRequested = !!(auto && auto.isStereoRequested && auto.isStereoRequested());
     } catch (_) {}
 
     let getContextHook = false;
     try {
-      getContextHook = !!(
-        window.HTMLCanvasElement && HTMLCanvasElement.prototype &&
-        HTMLCanvasElement.prototype.getContext &&
-        HTMLCanvasElement.prototype.getContext.__ggqStereoGetContextHookV6
-      );
+      getContextHook = !!(HTMLCanvasElement.prototype.getContext &&
+        HTMLCanvasElement.prototype.getContext.__ggqStereoGetContextHookV6);
     } catch (_) {}
 
     const item = largestWebGlCanvas();
     let glHook = false;
     let clearHook = false;
-    let autoArmHook = false;
     let glSize = 'none';
     let cssSize = 'none';
     if (item) {
       try {
         glHook = !!(item.gl.colorMask && item.gl.colorMask.__ggqStereoMaskHookV6);
         clearHook = !!(item.gl.clear && item.gl.clear.__ggqStereoClearHookV6);
-        autoArmHook = !!(item.gl.colorMask && item.gl.colorMask.__ggqGlassesAutoArmV610);
         glSize = item.gl.drawingBufferWidth + 'x' + item.gl.drawingBufferHeight;
         cssSize = Math.round(item.rect.width) + 'x' + Math.round(item.rect.height);
       } catch (_) {}
@@ -131,22 +126,24 @@
 
     const native = nativeStatus();
     const lines = [];
-    lines.push('stereo JS:       ' + (captureEnabled ? 'ON' : 'off'));
-    lines.push('getContext hook: ' + yes(getContextHook));
-    lines.push('GL mask hook:    ' + yes(glHook));
-    lines.push('GL clear hook:   ' + yes(clearHook));
-    lines.push('auto-arm hook:   ' + yes(autoArmHook));
-    lines.push('canvas GL/CSS:   ' + glSize + ' / ' + cssSize);
+    lines.push('auto 3D ctl:      ' + yes(autoInstalled));
+    lines.push('3D visible:       ' + yes(view3D));
+    lines.push('glasses forced:   ' + yes(projectionArmed));
+    lines.push('stereo requested: ' + yes(stereoRequested));
+    lines.push('stereo JS:        ' + (captureEnabled ? 'ON' : 'off'));
+    lines.push('getContext hook:  ' + yes(getContextHook));
+    lines.push('GL mask/clear:    ' + yes(glHook) + ' / ' + yes(clearHook));
+    lines.push('canvas GL/CSS:    ' + glSize + ' / ' + cssSize);
 
     if (native) {
-      lines.push('native stereo:   ' + (native.stereoEnabled ? 'ON' : 'off'));
-      lines.push('surface/entity:  ' + yes(native.surfaceAttached) + ' / ' + yes(native.portalEntityReady));
-      lines.push('portal rects:    ' + native.portalRects + ' visible=' + yes(native.portalVisible));
-      lines.push('frames R/A/P:   ' + native.framesReceived + '/' + native.framesAccepted + '/' + native.framesPresented);
-      lines.push('busy/reject:    ' + native.framesDroppedBusy + '/' + native.framesRejected);
-      lines.push('last eye size:   ' + native.lastEyeWidth + 'x' + native.lastEyeHeight);
+      lines.push('native stereo:    ' + (native.stereoEnabled ? 'ON' : 'off'));
+      lines.push('surface/entity:   ' + yes(native.surfaceAttached) + ' / ' + yes(native.portalEntityReady));
+      lines.push('portal rects:     ' + native.portalRects + ' visible=' + yes(native.portalVisible));
+      lines.push('frames R/A/P:     ' + native.framesReceived + '/' + native.framesAccepted + '/' + native.framesPresented);
+      lines.push('busy/reject:      ' + native.framesDroppedBusy + '/' + native.framesRejected);
+      lines.push('last eye size:    ' + native.lastEyeWidth + 'x' + native.lastEyeHeight);
     } else {
-      lines.push('native status:   unavailable');
+      lines.push('native status:    unavailable');
     }
 
     lines.push('--- last GGQ logs ---');

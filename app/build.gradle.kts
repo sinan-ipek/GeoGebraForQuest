@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 32
-        versionName = "0.6.10"
+        versionCode = 33
+        versionName = "0.7.0"
     }
 
     buildFeatures {
@@ -58,9 +58,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.10 no longer relies on headset DOM click recognition to start stereo.
-// It observes GeoGebra's actual Glasses left-eye RED colorMask call and arms the
-// existing direct-eye capture path from that renderer-state signal.
+// v0.7.0 removes projection-mode UI from the user workflow. Whenever a visible
+// GeoGebra 3D WebGL canvas exists, the app automatically selects GeoGebra's
+// Glasses renderer internally and enables Quest stereo capture. When the 3D view
+// disappears, stereo is disabled. No headset/projection click is required.
 spatial {
     allowUsageDataCollection.set(true)
 }
