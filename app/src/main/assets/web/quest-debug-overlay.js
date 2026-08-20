@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqDebugOverlayV069) return;
-  window.__ggqDebugOverlayV069 = true;
+  if (window.__ggqDebugOverlayV0610) return;
+  window.__ggqDebugOverlayV0610 = true;
 
   const recentLogs = [];
   let panel = null;
@@ -16,7 +16,7 @@
       }).join(' ');
       if (text.indexOf('GGQ') < 0 && text.indexOf('GeoGebraForQuest') < 0) return;
       recentLogs.push(text.replace(/\s+/g, ' ').slice(0, 180));
-      while (recentLogs.length > 4) recentLogs.shift();
+      while (recentLogs.length > 5) recentLogs.shift();
     } catch (_) {}
   }
 
@@ -37,17 +37,17 @@
     if (panel && panel.isConnected) return;
 
     panel = document.createElement('div');
-    panel.id = 'ggq-debug-overlay-v069';
+    panel.id = 'ggq-debug-overlay-v0610';
     panel.style.cssText = [
       'position:fixed','right:10px','top:10px','z-index:2147483647',
-      'width:320px','max-width:42vw','box-sizing:border-box','padding:9px 10px',
+      'width:330px','max-width:43vw','box-sizing:border-box','padding:9px 10px',
       'border-radius:8px','background:rgba(0,0,0,.82)','color:#b8ffbd',
       'font:11px/1.35 monospace','white-space:pre-wrap','pointer-events:none',
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
     ].join(';');
 
     const title = document.createElement('div');
-    title.textContent = 'GGQ v0.6.9 DEBUG';
+    title.textContent = 'GGQ v0.6.10 DEBUG';
     title.style.cssText = 'font-weight:bold;color:#fff;margin-bottom:5px;font-size:12px';
     panel.appendChild(title);
 
@@ -116,12 +116,14 @@
     const item = largestWebGlCanvas();
     let glHook = false;
     let clearHook = false;
+    let autoArmHook = false;
     let glSize = 'none';
     let cssSize = 'none';
     if (item) {
       try {
         glHook = !!(item.gl.colorMask && item.gl.colorMask.__ggqStereoMaskHookV6);
         clearHook = !!(item.gl.clear && item.gl.clear.__ggqStereoClearHookV6);
+        autoArmHook = !!(item.gl.colorMask && item.gl.colorMask.__ggqGlassesAutoArmV610);
         glSize = item.gl.drawingBufferWidth + 'x' + item.gl.drawingBufferHeight;
         cssSize = Math.round(item.rect.width) + 'x' + Math.round(item.rect.height);
       } catch (_) {}
@@ -133,6 +135,7 @@
     lines.push('getContext hook: ' + yes(getContextHook));
     lines.push('GL mask hook:    ' + yes(glHook));
     lines.push('GL clear hook:   ' + yes(clearHook));
+    lines.push('auto-arm hook:   ' + yes(autoArmHook));
     lines.push('canvas GL/CSS:   ' + glSize + ' / ' + cssSize);
 
     if (native) {

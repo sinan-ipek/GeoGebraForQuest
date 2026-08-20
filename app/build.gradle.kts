@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 31
-        versionName = "0.6.9"
+        versionCode = 32
+        versionName = "0.6.10"
     }
 
     buildFeatures {
@@ -58,9 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.9 delays Quest stereo activation until the real GeoGebra Glasses click
-// has fully completed. This prevents the legacy projection listener from seeing
-// stereoEnabled=true during the same click and immediately cancelling stereo.
+// v0.6.10 no longer relies on headset DOM click recognition to start stereo.
+// It observes GeoGebra's actual Glasses left-eye RED colorMask call and arms the
+// existing direct-eye capture path from that renderer-state signal.
 spatial {
     allowUsageDataCollection.set(true)
 }
