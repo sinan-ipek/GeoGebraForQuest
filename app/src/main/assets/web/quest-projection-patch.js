@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqProjectionPatchV68) return;
-  window.__ggqProjectionPatchV68 = true;
+  if (window.__ggqProjectionPatchV69) return;
+  window.__ggqProjectionPatchV69 = true;
 
   const HEADSET_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M4.2 7.5h15.6c1.2 0 2.2 1 2.2 2.2v6.1c0 1.2-1 2.2-2.2 2.2h-4.3l-2.1-2.6h-2.8L8.5 18H4.2C3 18 2 17 2 15.8V9.7c0-1.2 1-2.2 2.2-2.2zm.3 2v6.5h3.1l2.1-2.6h4.6l2.1 2.6h3.1V9.5H4.5z"/><path d="M7 11.2h3v2H7zm7 0h3v2h-3z"/></svg>';
   const HEADSET_BG = 'url("data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(HEADSET_SVG) + '")';
@@ -15,14 +15,7 @@
   };
 
   let patchQueued = false;
-  let lastArmAt = 0;
-
-  // v0.6.8: the headset event must remain identifiable even while its temporary
-  // DOM markers are removed. v0.6.7 proved that removing those markers let the
-  // real GeoGebra Glasses click through, but our own later document click handler
-  // then saw the same event with no marker and treated it as an "other projection"
-  // click, switching Quest stereo OFF immediately after it had been armed.
-  // Remembering the Event object itself fixes that race without blocking GeoGebra.
+  let armScheduled = false;
   const headsetEvents = new WeakSet();
 
   function cssBackground(element) {
@@ -107,9 +100,7 @@
       if (icons.length !== 4) continue;
       const kinds = icons.map(kindOf);
       if (kinds[0] !== 'orthographic' || kinds[1] !== 'perspective' ||
-          kinds[2] !== 'glasses' || kinds[3] !== 'oblique') {
-        continue;
-      }
+          kinds[2] !== 'glasses' || kinds[3] !== 'oblique') continue;
       table.dataset.ggqProjectionContainer = '1';
       replaceWithHeadset(icons[2]);
     }
@@ -154,74 +145,55 @@
   }
 
   function projectionTableInEvent(event) {
-    const path = eventPath(event);
-    for (const node of path) {
+    for (const node of eventPath(event)) {
       if (node && node.nodeType === 1 && node.dataset &&
-          node.dataset.ggqProjectionContainer === '1') {
-        return node;
-      }
+          node.dataset.ggqProjectionContainer === '1') return node;
     }
     return null;
   }
 
   function armStereoCapture() {
-    const now = performance.now();
-    if (now - lastArmAt < 250) return;
-    lastArmAt = now;
     try {
       if (window.GeoGebraForQuest &&
           typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
         window.GeoGebraForQuest.setStereoEnabled(true, false);
+        console.log('[GeoGebraForQuest v0.6.9] delayed stereo arm ON');
       }
     } catch (error) {
-      console.error('[GeoGebraForQuest arm stereo]', error);
+      console.error('[GeoGebraForQuest v0.6.9 arm stereo]', error);
     }
   }
 
-  /**
-   * v0.6.8: let GeoGebra receive the REAL Glasses button gesture, while keeping
-   * the same event recognizable to our own later handlers.
-   *
-   * The legacy index.html capture code recognizes two DOM markers:
-   *   data-ggq-stereo-target
-   *   data-ggq-stereo-icon
-   *
-   * Both markers are temporarily removed from the real event path so the old
-   * capture listeners ignore the gesture and GeoGebra's SelectionTable receives
-   * it unchanged. The Event object is stored in headsetEvents before that removal.
-   * Therefore the later "other projection" handler still knows this was the
-   * headset click and will NOT disable stereo merely because the DOM markers are
-   * momentarily absent.
-   */
+  function scheduleStereoArmAfterClick() {
+    if (armScheduled) return;
+    armScheduled = true;
+    setTimeout(function () {
+      armScheduled = false;
+      armStereoCapture();
+    }, 0);
+  }
+
+  // v0.6.9: during the real GeoGebra Glasses gesture, hide only our temporary
+  // headset markers so the legacy index.html capture listener cannot suppress the
+  // event. Crucially, do NOT arm Quest stereo until the CLICK event has completed.
+  // This keeps legacy "other projection" handlers seeing stereoEnabled=false for
+  // that same click, so they cannot immediately cancel the newly armed stereo.
   function passHeadsetEventThrough(event) {
     if (!stereoTargetInEvent(event)) return;
-
     headsetEvents.add(event);
-
-    if (event.type === 'pointerup' || event.type === 'touchend' || event.type === 'click') {
-      armStereoCapture();
-    }
 
     const changed = [];
     for (const node of eventPath(event)) {
       if (!node || node.nodeType !== 1 || !node.dataset) continue;
-
       const hadTarget = node.dataset.ggqStereoTarget === '1';
       const hadIcon = node.dataset.ggqStereoIcon === '1';
       if (!hadTarget && !hadIcon) continue;
-
-      changed.push({
-        node: node,
-        target: hadTarget,
-        icon: hadIcon
-      });
-
+      changed.push({ node: node, target: hadTarget, icon: hadIcon });
       if (hadTarget) delete node.dataset.ggqStereoTarget;
       if (hadIcon) delete node.dataset.ggqStereoIcon;
     }
 
-    // Intentionally do NOT call preventDefault(), stopPropagation(), or
-    // stopImmediatePropagation(). GeoGebra must receive this exact gesture.
+    // Never suppress the gesture here: GeoGebra must receive its real Glasses click.
     setTimeout(function () {
       for (const item of changed) {
         const node = item.node;
@@ -231,6 +203,10 @@
       }
       patchNow();
     }, 0);
+
+    if (event.type === 'click') {
+      scheduleStereoArmAfterClick();
+    }
   }
 
   ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click']
@@ -238,9 +214,6 @@
       window.addEventListener(type, passHeadsetEventThrough, true);
     });
 
-  // Let the other three projection buttons behave normally. v0.6.8's key fix
-  // is that stereoTargetInEvent(event) also checks headsetEvents, so the real
-  // headset click cannot fall through here while its DOM markers are removed.
   document.addEventListener('click', function (event) {
     const table = projectionTableInEvent(event);
     if (!table || stereoTargetInEvent(event)) return;

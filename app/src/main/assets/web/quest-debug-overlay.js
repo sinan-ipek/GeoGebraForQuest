@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqDebugOverlayV068) return;
-  window.__ggqDebugOverlayV068 = true;
+  if (window.__ggqDebugOverlayV069) return;
+  window.__ggqDebugOverlayV069 = true;
 
   const recentLogs = [];
   let panel = null;
@@ -37,34 +37,23 @@
     if (panel && panel.isConnected) return;
 
     panel = document.createElement('div');
-    panel.id = 'ggq-debug-overlay-v068';
+    panel.id = 'ggq-debug-overlay-v069';
     panel.style.cssText = [
-      'position:fixed',
-      'right:10px',
-      'top:10px',
-      'z-index:2147483647',
-      'width:320px',
-      'max-width:42vw',
-      'box-sizing:border-box',
-      'padding:9px 10px',
-      'border-radius:8px',
-      'background:rgba(0,0,0,.82)',
-      'color:#b8ffbd',
-      'font:11px/1.35 monospace',
-      'white-space:pre-wrap',
-      'pointer-events:none',
+      'position:fixed','right:10px','top:10px','z-index:2147483647',
+      'width:320px','max-width:42vw','box-sizing:border-box','padding:9px 10px',
+      'border-radius:8px','background:rgba(0,0,0,.82)','color:#b8ffbd',
+      'font:11px/1.35 monospace','white-space:pre-wrap','pointer-events:none',
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
     ].join(';');
 
     const title = document.createElement('div');
-    title.textContent = 'GGQ v0.6.8 DEBUG';
+    title.textContent = 'GGQ v0.6.9 DEBUG';
     title.style.cssText = 'font-weight:bold;color:#fff;margin-bottom:5px;font-size:12px';
     panel.appendChild(title);
 
     body = document.createElement('div');
     body.textContent = 'waiting for GeoGebra…';
     panel.appendChild(body);
-
     (document.body || document.documentElement).appendChild(panel);
   }
 
@@ -78,9 +67,7 @@
       try {
         const rect = canvas.getBoundingClientRect();
         if (rect.width < 100 || rect.height < 100) continue;
-        const gl = canvas.getContext('webgl2') ||
-          canvas.getContext('webgl') ||
-          canvas.getContext('experimental-webgl');
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
         if (!gl) continue;
         const area = rect.width * rect.height;
         if (area > bestArea) {
@@ -89,19 +76,14 @@
         }
       } catch (_) {}
     }
-
     return best;
   }
 
-  function yes(value) {
-    return value ? 'YES' : 'no';
-  }
+  function yes(value) { return value ? 'YES' : 'no'; }
 
   function nativeStatus() {
     try {
-      if (!window.QuestBridge || typeof window.QuestBridge.getStereoDebugStatus !== 'function') {
-        return null;
-      }
+      if (!window.QuestBridge || typeof window.QuestBridge.getStereoDebugStatus !== 'function') return null;
       const raw = window.QuestBridge.getStereoDebugStatus();
       if (!raw) return null;
       return JSON.parse(String(raw));
@@ -125,8 +107,7 @@
     let getContextHook = false;
     try {
       getContextHook = !!(
-        window.HTMLCanvasElement &&
-        HTMLCanvasElement.prototype &&
+        window.HTMLCanvasElement && HTMLCanvasElement.prototype &&
         HTMLCanvasElement.prototype.getContext &&
         HTMLCanvasElement.prototype.getContext.__ggqStereoGetContextHookV6
       );
@@ -158,25 +139,16 @@
       lines.push('native stereo:   ' + (native.stereoEnabled ? 'ON' : 'off'));
       lines.push('surface/entity:  ' + yes(native.surfaceAttached) + ' / ' + yes(native.portalEntityReady));
       lines.push('portal rects:    ' + native.portalRects + ' visible=' + yes(native.portalVisible));
-      lines.push(
-        'frames R/A/P:   ' + native.framesReceived + '/' +
-        native.framesAccepted + '/' + native.framesPresented
-      );
-      lines.push(
-        'busy/reject:    ' + native.framesDroppedBusy + '/' + native.framesRejected
-      );
+      lines.push('frames R/A/P:   ' + native.framesReceived + '/' + native.framesAccepted + '/' + native.framesPresented);
+      lines.push('busy/reject:    ' + native.framesDroppedBusy + '/' + native.framesRejected);
       lines.push('last eye size:   ' + native.lastEyeWidth + 'x' + native.lastEyeHeight);
     } else {
       lines.push('native status:   unavailable');
     }
 
     lines.push('--- last GGQ logs ---');
-    if (recentLogs.length) {
-      recentLogs.forEach(function (line) { lines.push(line); });
-    } else {
-      lines.push('(none captured yet)');
-    }
-
+    if (recentLogs.length) recentLogs.forEach(function (line) { lines.push(line); });
+    else lines.push('(none captured yet)');
     body.textContent = lines.join('\n');
   }
 
