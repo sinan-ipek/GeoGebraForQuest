@@ -1,33 +1,40 @@
 (function () {
   'use strict';
 
-  if (window.__ggqStereoCaptureV5) return;
-  window.__ggqStereoCaptureV5 = true;
+  if (window.__ggqStereoCaptureV6) return;
+  window.__ggqStereoCaptureV6 = true;
 
-  // GeoGebraForQuest v0.6.4
+  // GeoGebraForQuest v0.6.5
   //
-  // v0.6.3 proved that the JavaScript -> Android -> EGL -> StereoMode.LeftRight
-  // transport is alive, because the raw diagnostic banner reached the headset.
-  // The raw image itself was black, however. The reason is that v0.6.3 also
-  // polled gl.readPixels() from requestAnimationFrame after GeoGebra had already
-  // presented/discarded its drawing buffer. Those late black reads kept replacing
-  // any useful in-render capture.
+  // The previous build decoded the final red/cyan anaglyph framebuffer. That
+  // transport reached Quest, but it still did not produce a dependable stereo
+  // pair. v0.6.5 captures the two GeoGebra eye renders themselves.
   //
-  // This version captures ONLY inside GeoGebra's actual Glasses render sequence:
+  // GeoGebra's Glasses renderer performs this sequence every frame:
   //
-  //   RED mask               -> left eye is being drawn
-  //   BLUE / BLUE+GREEN mask -> right eye is being drawn
-  //   ALL mask               -> both eye passes are complete
+  //   RED colorMask                 left eye starts
+  //   ... left-eye draw ...
+  //   BLUE or BLUE+GREEN colorMask  right eye starts
+  //   depth clear
+  //   ... right-eye draw ...
+  //   ALL colorMask                 frame ends
   //
-  // At the final ALL transition we read the framebuffer immediately, while the
-  // anaglyph pixels are still valid. No requestAnimationFrame readback is used.
-  // The stock anaglyph is left untouched; RED is decoded as left-eye grayscale,
-  // GREEN/BLUE as right-eye grayscale, then both images are packed side-by-side.
+  // While Quest stereo is enabled we replace only the actual eye masks with
+  // RGBA=all so each eye is rendered as a complete full-colour image. Internal
+  // NONE and ALPHA masks are preserved because GeoGebra uses them for hidden
+  // geometry/occlusion. At the transition to the right eye we read the finished
+  // left framebuffer. On the following depth clear we also clear colour so the
+  // right eye starts from a clean buffer. At final ALL we read the finished
+  // right framebuffer and pack LEFT | RIGHT as SBS.
+  //
+  // This file is also installed as a document-start script by Android, before
+  // GeoGebra creates its WebGL context. That guarantees our getContext wrapper
+  // sees the real renderer context before GeoGebra can cache WebGL methods.
 
   const MAX_EYE_WIDTH = 720;
   const MAX_EYE_HEIGHT = 720;
   const FRAME_INTERVAL_MS = 100;
-  const JPEG_QUALITY = 0.82;
+  const JPEG_QUALITY = 0.84;
   const SWAP_EYES = false;
 
   let stereoActive = false;
@@ -48,7 +55,7 @@
   function log() {
     try {
       const args = Array.prototype.slice.call(arguments);
-      args.unshift('[GGQ StereoCapture v0.6.4]');
+      args.unshift('[GGQ StereoCapture v0.6.5]');
       console.log.apply(console, args);
     } catch (_) {}
   }
@@ -76,17 +83,6 @@
     return rect;
   }
 
-  function rawContextOf(canvas) {
-    if (!canvas) return null;
-    try {
-      return canvas.getContext('webgl2') ||
-        canvas.getContext('webgl') ||
-        canvas.getContext('experimental-webgl');
-    } catch (_) {
-      return null;
-    }
-  }
-
   function classifyMask(red, green, blue, alpha) {
     const r = !!red;
     const g = !!green;
@@ -100,6 +96,28 @@
     if (!r && !g && b && a) return 'right';
     if (!r && !g && !b && a) return 'alpha';
     return 'other';
+  }
+
+  function newContextState() {
+    return {
+      phase: 'idle',
+      captureThisFrame: false,
+      left: null,
+      needsRightColorClear: false
+    };
+  }
+
+  function stateOf(gl) {
+    let state = contextStates.get(gl);
+    if (!state) {
+      state = newContextState();
+      contextStates.set(gl, state);
+    }
+    return state;
+  }
+
+  function resetContextState(gl) {
+    contextStates.set(gl, newContextState());
   }
 
   function readFramebuffer(gl) {
@@ -122,21 +140,47 @@
 
   function framebufferHasSignal(source) {
     if (!source || !source.pixels || !source.pixels.length) return false;
+
     const pixels = source.pixels;
     const pixelCount = Math.max(1, pixels.length / 4);
-    const sampleCount = Math.min(384, pixelCount);
+    const sampleCount = Math.min(512, pixelCount);
     const stride = Math.max(1, Math.floor(pixelCount / sampleCount));
 
-    let brightSamples = 0;
+    let nonBlack = 0;
     let sampled = 0;
     for (let i = 0; i < pixelCount && sampled < sampleCount; i += stride) {
       const p = i * 4;
-      const brightness = pixels[p] + pixels[p + 1] + pixels[p + 2];
-      if (brightness > 8) brightSamples += 1;
+      if (pixels[p] + pixels[p + 1] + pixels[p + 2] > 8) {
+        nonBlack += 1;
+      }
       sampled += 1;
     }
 
-    return brightSamples >= 2;
+    return nonBlack >= 2;
+  }
+
+  function pairDifference(left, right) {
+    if (!left || !right || left.width !== right.width || left.height !== right.height) {
+      return -1;
+    }
+
+    const a = left.pixels;
+    const b = right.pixels;
+    const pixelCount = Math.max(1, Math.min(a.length, b.length) / 4);
+    const sampleCount = Math.min(768, pixelCount);
+    const stride = Math.max(1, Math.floor(pixelCount / sampleCount));
+
+    let sum = 0;
+    let sampled = 0;
+    for (let i = 0; i < pixelCount && sampled < sampleCount; i += stride) {
+      const p = i * 4;
+      sum += Math.abs(a[p] - b[p]);
+      sum += Math.abs(a[p + 1] - b[p + 1]);
+      sum += Math.abs(a[p + 2] - b[p + 2]);
+      sampled += 1;
+    }
+
+    return sampled > 0 ? sum / (sampled * 3) : 0;
   }
 
   function targetEyeSize(sourceWidth, sourceHeight) {
@@ -174,17 +218,22 @@
     sbsImageData = sbsContext.createImageData(eyeWidth * 2, eyeHeight);
   }
 
-  function decodeAnaglyphToSbs(source) {
-    if (!source || !framebufferHasSignal(source)) return null;
+  function packStereoPair(left, right) {
+    if (!left || !right) return null;
+    if (!framebufferHasSignal(left) || !framebufferHasSignal(right)) return null;
+    if (left.width !== right.width || left.height !== right.height) return null;
 
-    const size = targetEyeSize(source.width, source.height);
+    const size = targetEyeSize(left.width, left.height);
     const eyeWidth = size.width;
     const eyeHeight = size.height;
     ensureSbsCanvas(eyeWidth, eyeHeight);
 
-    const src = source.pixels;
-    const srcW = source.width;
-    const srcH = source.height;
+    const first = SWAP_EYES ? right : left;
+    const second = SWAP_EYES ? left : right;
+    const firstPixels = first.pixels;
+    const secondPixels = second.pixels;
+    const srcW = left.width;
+    const srcH = left.height;
     const out = sbsImageData.data;
     const fullOutW = eyeWidth * 2;
 
@@ -201,24 +250,16 @@
         );
         const srcIndex = (sy * srcW + sx) * 4;
 
-        const leftGray = src[srcIndex];
-        const rightGray = Math.round(
-          (src[srcIndex + 1] + src[srcIndex + 2]) * 0.5
-        );
-
-        const firstGray = SWAP_EYES ? rightGray : leftGray;
-        const secondGray = SWAP_EYES ? leftGray : rightGray;
-
         let dst = (y * fullOutW + x) * 4;
-        out[dst] = firstGray;
-        out[dst + 1] = firstGray;
-        out[dst + 2] = firstGray;
+        out[dst] = firstPixels[srcIndex];
+        out[dst + 1] = firstPixels[srcIndex + 1];
+        out[dst + 2] = firstPixels[srcIndex + 2];
         out[dst + 3] = 255;
 
         dst = (y * fullOutW + eyeWidth + x) * 4;
-        out[dst] = secondGray;
-        out[dst + 1] = secondGray;
-        out[dst + 2] = secondGray;
+        out[dst] = secondPixels[srcIndex];
+        out[dst + 1] = secondPixels[srcIndex + 1];
+        out[dst + 2] = secondPixels[srcIndex + 2];
         out[dst + 3] = 255;
       }
     }
@@ -239,6 +280,166 @@
     }
   }
 
+  function emitStereoPair(left, right) {
+    if (!stereoActive) return false;
+
+    const sbs = packStereoPair(left, right);
+    if (!sbs) {
+      log('Ignored unusable direct eye pair');
+      return false;
+    }
+
+    const diff = pairDifference(left, right);
+    log('Direct eye pair', left.width + 'x' + left.height, 'difference', diff.toFixed(2));
+
+    sendPortalRect();
+    bridgeCall(
+      'submitStereoFrame',
+      sbs.dataUrl,
+      sbs.eyeWidth,
+      sbs.eyeHeight
+    );
+    lastFrameSentAt = performance.now();
+    return true;
+  }
+
+  function hookContext(gl) {
+    if (!gl || hookedContexts.has(gl)) return;
+    if (typeof gl.colorMask !== 'function' || typeof gl.clear !== 'function') return;
+
+    const originalColorMask = gl.colorMask.bind(gl);
+    const originalClear = gl.clear.bind(gl);
+    resetContextState(gl);
+
+    gl.colorMask = function (red, green, blue, alpha) {
+      const kind = classifyMask(red, green, blue, alpha);
+      const state = stateOf(gl);
+
+      if (!stereoActive) {
+        if (state.phase !== 'idle') resetContextState(gl);
+        return originalColorMask(red, green, blue, alpha);
+      }
+
+      // NONE/ALPHA are not eye transitions. GeoGebra uses these while drawing
+      // occluded geometry, so preserving them is essential.
+      if (kind === 'none' || kind === 'alpha' || kind === 'other') {
+        return originalColorMask(red, green, blue, alpha);
+      }
+
+      if (kind === 'left') {
+        if (state.phase !== 'left') {
+          state.phase = 'left';
+          state.captureThisFrame =
+            performance.now() - lastFrameSentAt >= FRAME_INTERVAL_MS;
+          state.left = null;
+          state.needsRightColorClear = false;
+        }
+
+        // Render the actual left eye in full colour instead of RED-only.
+        return originalColorMask(true, true, true, true);
+      }
+
+      if (kind === 'right') {
+        if (state.phase === 'left') {
+          if (state.captureThisFrame) {
+            state.left = readFramebuffer(gl);
+          }
+          state.phase = 'right';
+          state.needsRightColorClear = true;
+        }
+
+        // Repeated right masks after internal NONE are normal. Do not re-arm the
+        // colour clear; only the first left->right transition does that.
+        return originalColorMask(true, true, true, true);
+      }
+
+      if (kind === 'all') {
+        if (state.phase === 'right') {
+          if (state.captureThisFrame && state.left) {
+            const right = readFramebuffer(gl);
+            emitStereoPair(state.left, right);
+          }
+          resetContextState(gl);
+        }
+        return originalColorMask(true, true, true, true);
+      }
+
+      return originalColorMask(red, green, blue, alpha);
+    };
+
+    gl.clear = function (mask) {
+      const state = stateOf(gl);
+      let nextMask = mask;
+
+      if (
+        stereoActive &&
+        state.phase === 'right' &&
+        state.needsRightColorClear &&
+        (mask & gl.DEPTH_BUFFER_BIT) !== 0
+      ) {
+        // GeoGebra normally clears only depth between anaglyph eyes because the
+        // two colour-channel images share one framebuffer. We are capturing two
+        // complete RGBA images, so the right eye needs a fresh colour buffer.
+        nextMask = mask | gl.COLOR_BUFFER_BIT;
+        state.needsRightColorClear = false;
+      }
+
+      return originalClear(nextMask);
+    };
+
+    try { gl.colorMask.__ggqStereoMaskHookV6 = true; } catch (_) {}
+    try { gl.clear.__ggqStereoClearHookV6 = true; } catch (_) {}
+
+    hookedContexts.add(gl);
+    log('Hooked GeoGebra WebGL context', gl.drawingBufferWidth, gl.drawingBufferHeight);
+  }
+
+  // Document-start fast path. Because Android injects this file before GeoGebra,
+  // every WebGL context created afterwards is hooked immediately.
+  function installGetContextHook() {
+    if (!window.HTMLCanvasElement || !HTMLCanvasElement.prototype) return;
+    const proto = HTMLCanvasElement.prototype;
+    if (proto.getContext && proto.getContext.__ggqStereoGetContextHookV6) return;
+
+    const originalGetContext = proto.getContext;
+    if (typeof originalGetContext !== 'function') return;
+
+    const wrappedGetContext = function () {
+      const context = originalGetContext.apply(this, arguments);
+      const type = String(arguments[0] || '').toLowerCase();
+      if (
+        context &&
+        (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')
+      ) {
+        hookContext(context);
+      }
+      return context;
+    };
+
+    wrappedGetContext.__ggqStereoGetContextHookV6 = true;
+    try {
+      proto.getContext = wrappedGetContext;
+      log('Installed document-start canvas.getContext hook');
+    } catch (error) {
+      console.warn('[GGQ StereoCapture] getContext hook failed', error);
+    }
+  }
+
+  installGetContextHook();
+
+  function rawContextOf(canvas) {
+    if (!canvas) return null;
+    try {
+      const gl = canvas.getContext('webgl2') ||
+        canvas.getContext('webgl') ||
+        canvas.getContext('experimental-webgl');
+      if (gl) hookContext(gl);
+      return gl;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function find3DCanvas() {
     const root = document.getElementById('ggb-element') || document;
     const canvases = Array.from(root.querySelectorAll('canvas'));
@@ -251,7 +452,6 @@
 
       const gl = rawContextOf(canvas);
       if (!gl) continue;
-      hookContext(gl);
 
       const area = rect.width * rect.height;
       if (area > bestArea) {
@@ -283,84 +483,6 @@
       lastPortalRect = json;
       bridgeCall('updatePortalRect', json);
     }
-  }
-
-  function captureAndSend(gl) {
-    if (!stereoActive) return false;
-
-    const now = performance.now();
-    if (now - lastFrameSentAt < FRAME_INTERVAL_MS) return false;
-
-    const source = readFramebuffer(gl);
-    const sbs = decodeAnaglyphToSbs(source);
-    if (!sbs) {
-      log('Ignored empty/black framebuffer');
-      return false;
-    }
-
-    sendPortalRect();
-    bridgeCall(
-      'submitStereoFrame',
-      sbs.dataUrl,
-      sbs.eyeWidth,
-      sbs.eyeHeight
-    );
-    lastFrameSentAt = now;
-    return true;
-  }
-
-  function resetContextState(gl) {
-    contextStates.set(gl, {
-      sawLeft: false,
-      sawRight: false
-    });
-  }
-
-  function hookContext(gl) {
-    if (!gl || hookedContexts.has(gl)) return;
-    if (typeof gl.colorMask !== 'function') return;
-
-    const originalColorMask = gl.colorMask.bind(gl);
-    resetContextState(gl);
-
-    gl.colorMask = function (red, green, blue, alpha) {
-      const kind = classifyMask(red, green, blue, alpha);
-      let state = contextStates.get(gl);
-      if (!state) {
-        state = { sawLeft: false, sawRight: false };
-        contextStates.set(gl, state);
-      }
-
-      if (!stereoActive) {
-        state.sawLeft = false;
-        state.sawRight = false;
-        return originalColorMask(red, green, blue, alpha);
-      }
-
-      if (kind === 'left') {
-        // A real RED mask starts a new Glasses frame. Internal NONE/ALPHA masks
-        // later in the left-eye draw do not change this state.
-        state.sawLeft = true;
-        state.sawRight = false;
-      } else if (kind === 'right') {
-        if (state.sawLeft) state.sawRight = true;
-      } else if (kind === 'all' && state.sawLeft && state.sawRight) {
-        // Capture BEFORE restoring ALL. At this exact moment the completed stock
-        // anaglyph is still in the framebuffer from the right-eye pass.
-        captureAndSend(gl);
-        state.sawLeft = false;
-        state.sawRight = false;
-      }
-
-      return originalColorMask(red, green, blue, alpha);
-    };
-
-    try {
-      gl.colorMask.__ggqStereoMaskHookV5 = true;
-    } catch (_) {}
-
-    hookedContexts.add(gl);
-    log('Hooked active GeoGebra WebGL context', gl.drawingBufferWidth, gl.drawingBufferHeight);
   }
 
   function hookCurrent3DContext() {
@@ -443,6 +565,7 @@
       sendPortalRect();
     } else {
       lastFrameSentAt = 0;
+      contextStates.forEach;
       if (!preserve) {
         setTimeout(function () {
           dispatchProjection(1);
@@ -457,12 +580,12 @@
   function wrapGeoGebraApi() {
     const api = window.GeoGebraForQuest;
     if (!api || typeof api.setStereoEnabled !== 'function') return false;
-    if (api.setStereoEnabled.__ggqStereoCaptureWrappedV5) return true;
+    if (api.setStereoEnabled.__ggqStereoCaptureWrappedV6) return true;
 
     const replacement = function (enabled, preserveProjection) {
       setStereoEnabled(enabled, preserveProjection);
     };
-    replacement.__ggqStereoCaptureWrappedV5 = true;
+    replacement.__ggqStereoCaptureWrappedV6 = true;
     api.setStereoEnabled = replacement;
     log('Wrapped GeoGebraForQuest.setStereoEnabled');
     return true;
