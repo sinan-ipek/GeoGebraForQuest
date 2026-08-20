@@ -16,6 +16,7 @@
   let stereoRequested = false;
   let missingTicks = 0;
   let lastLog = '';
+  let cachedProjection = null;
 
   function log(message) {
     if (message === lastLog) return;
@@ -44,12 +45,8 @@
     }
     if (/projection_(orthographic|perspective|glasses|oblique)/i.test(text)) return text;
     try {
-      if (/^data:image\/svg\+xml;base64,/i.test(text)) {
-        return atob(text.slice(text.indexOf(',') + 1));
-      }
-      if (/^data:image\/svg\+xml/i.test(text)) {
-        return decodeURIComponent(text.slice(text.indexOf(',') + 1));
-      }
+      if (/^data:image\/svg\+xml;base64,/i.test(text)) return atob(text.slice(text.indexOf(',') + 1));
+      if (/^data:image\/svg\+xml/i.test(text)) return decodeURIComponent(text.slice(text.indexOf(',') + 1));
     } catch (_) {}
     return text;
   }
@@ -58,9 +55,7 @@
     if (!element) return '';
     if (element.dataset && element.dataset.ggqStereoIcon === '1') return 'glasses';
     const source = decodeBackground(cssBackground(element))
-      .replace(/\s+/g, '')
-      .replace(/%20/gi, '')
-      .toLowerCase();
+      .replace(/\s+/g, '').replace(/%20/gi, '').toLowerCase();
     if (!source) return '';
     if (source.includes('projection_orthographic') || source.includes(SIG.orthographic.toLowerCase())) return 'orthographic';
     if (source.includes('projection_perspective') || source.includes(SIG.perspective.toLowerCase())) return 'perspective';
@@ -80,21 +75,19 @@
         if (style.display === 'none' || style.visibility === 'hidden') continue;
         if (rect.width < 160 || rect.height < 140) continue;
         if (rect.right <= 0 || rect.bottom <= 0 || rect.left >= innerWidth || rect.top >= innerHeight) continue;
-        const gl = canvas.getContext('webgl2') ||
-          canvas.getContext('webgl') ||
-          canvas.getContext('experimental-webgl');
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
         if (!gl) continue;
         const area = rect.width * rect.height;
-        if (area > bestArea) {
-          best = canvas;
-          bestArea = area;
-        }
+        if (area > bestArea) { best = canvas; bestArea = area; }
       } catch (_) {}
     }
     return best;
   }
 
   function projectionTableInfo() {
+    if (cachedProjection && cachedProjection.table && cachedProjection.table.isConnected &&
+        cachedProjection.glasses && cachedProjection.glasses.isConnected) return cachedProjection;
+
     for (const table of Array.from(document.querySelectorAll('.SelectionTable'))) {
       const icons = Array.from(table.querySelectorAll('.stylebarButton'))
         .filter(function (element) { return !!cssBackground(element); });
@@ -102,7 +95,8 @@
       const kinds = icons.map(kindOf);
       if (kinds[0] === 'orthographic' && kinds[1] === 'perspective' &&
           kinds[2] === 'glasses' && kinds[3] === 'oblique') {
-        return { table: table, glasses: icons[2] };
+        cachedProjection = { table: table, glasses: icons[2] };
+        return cachedProjection;
       }
     }
     return null;
@@ -140,22 +134,18 @@
       return !!(window.GeoGebraQuestStereoCapture &&
         typeof window.GeoGebraQuestStereoCapture.isEnabled === 'function' &&
         window.GeoGebraQuestStereoCapture.isEnabled());
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { return false; }
   }
 
   function requestStereoOn() {
     try {
-      if (window.GeoGebraQuestStereoCapture &&
-          typeof window.GeoGebraQuestStereoCapture.enable === 'function') {
+      if (window.GeoGebraQuestStereoCapture && typeof window.GeoGebraQuestStereoCapture.enable === 'function') {
         window.GeoGebraQuestStereoCapture.enable();
         stereoRequested = true;
         log('3D visible -> stereo ON');
         return true;
       }
-      if (window.GeoGebraForQuest &&
-          typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
+      if (window.GeoGebraForQuest && typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
         window.GeoGebraForQuest.setStereoEnabled(true, true);
         stereoRequested = true;
         log('3D visible -> stereo ON via API');
@@ -169,8 +159,7 @@
 
   function requestStereoOff() {
     try {
-      if (window.GeoGebraForQuest &&
-          typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
+      if (window.GeoGebraForQuest && typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
         window.GeoGebraForQuest.setStereoEnabled(false, true);
       }
     } catch (_) {}
@@ -181,15 +170,17 @@
   function forceGlassesProjection(info) {
     if (!info || !info.glasses) return false;
     stripLegacyMarkers(info.table);
+
+    // Arm capture BEFORE the programmatic Glasses click so GeoGebra's very first
+    // RED/RIGHT render pass is captured even if a static scene does not redraw later.
+    if (!captureEnabled() && !requestStereoOn()) return false;
+
     try {
       info.glasses.dispatchEvent(new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        view: window
+        bubbles: true, cancelable: true, view: window
       }));
       projectionArmed = true;
-      log('3D detected -> Glasses projection selected automatically');
-      setTimeout(requestStereoOn, 60);
+      log('3D detected -> Glasses selected automatically; no user click');
       return true;
     } catch (error) {
       console.error('[GGQ Auto3D v0.7.0 projection]', error);
@@ -233,9 +224,7 @@
     scanNow: scan
   };
 
-  const observer = new MutationObserver(function () {
-    setTimeout(scan, 0);
-  });
+  const observer = new MutationObserver(function () { setTimeout(scan, 0); });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
   scan();
