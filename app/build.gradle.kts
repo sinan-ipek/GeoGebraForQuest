@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 26
-        versionName = "0.6.4"
+        versionCode = 27
+        versionName = "0.6.5"
     }
 
     buildFeatures {
@@ -58,11 +58,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.4 captures the completed stock anaglyph synchronously inside GeoGebra's
-// real WebGL colorMask eye-pass sequence. It deliberately removes the late
-// requestAnimationFrame readback that produced black frames in v0.6.3. The raw
-// diagnostic stereo surface is now positioned only over the 3D Graphics area so
-// the ordinary GeoGebra WebView remains visible around it.
+// v0.6.5 installs the WebGL hook at document start, before GeoGebra creates its
+// renderer context. During PROJECTION_GLASSES it captures GeoGebra's completed
+// left and right eye passes separately as full-colour RGBA frames, packs them as
+// SBS, and shows the stereo media surface only over the 3D Graphics rectangle.
 spatial {
     allowUsageDataCollection.set(true)
 }
