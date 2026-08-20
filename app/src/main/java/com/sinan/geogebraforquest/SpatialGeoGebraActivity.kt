@@ -142,20 +142,20 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         SpatialBridgeBus.onPortalRect = { _ -> Unit }
 
         SpatialBridgeBus.onStereoFrame = { dataUrl, eyeWidth, eyeHeight ->
-            if (!pendingStereo || dataUrl.isBlank()) return@onStereoFrame
-
-            stereoFrameSurface.submitRawStereoDataUrl(
-                dataUrl = dataUrl,
-                reportedEyeWidth = eyeWidth,
-                reportedEyeHeight = eyeHeight,
-                onPresented = {
-                    runOnMainThread {
-                        if (pendingStereo) {
-                            stereoFullPanelEntity?.setComponent(Visible(true))
+            if (pendingStereo && dataUrl.isNotBlank()) {
+                stereoFrameSurface.submitRawStereoDataUrl(
+                    dataUrl = dataUrl,
+                    reportedEyeWidth = eyeWidth,
+                    reportedEyeHeight = eyeHeight,
+                    onPresented = {
+                        runOnMainThread {
+                            if (pendingStereo) {
+                                stereoFullPanelEntity?.setComponent(Visible(true))
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
 
         SpatialBridgeBus.onPanelReady = {
