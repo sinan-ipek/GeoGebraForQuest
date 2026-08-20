@@ -128,14 +128,21 @@ class StereoFrameSurface {
             var stereo3D: Bitmap? = null
             var fullSbs: Bitmap? = null
             try {
-                stereo3D = decodeDataUrl(dataUrl) ?: return@execute
-                fullSbs = composeFullPanel(basePanel, stereo3D, portalRectJson)
+                val decodedStereo3D = decodeDataUrl(dataUrl) ?: return@execute
+                stereo3D = decodedStereo3D
+
+                val composedFullSbs = composeFullPanel(
+                    basePanel = basePanel,
+                    stereo3D = decodedStereo3D,
+                    portalRectJson = portalRectJson,
+                )
+                fullSbs = composedFullSbs
 
                 val surface = targetSurface ?: return@execute
                 if (!surface.isValid) return@execute
                 if (eglSurface == EGL_NO_SURFACE && !initEgl(surface)) return@execute
 
-                if (drawBitmap(fullSbs)) {
+                if (drawBitmap(composedFullSbs)) {
                     onPresented?.invoke()
                 }
             } catch (_: Throwable) {
@@ -241,20 +248,20 @@ class StereoFrameSurface {
                 width <= 0.0 || height <= 0.0 ||
                 viewWidth <= 0.0 || viewHeight <= 0.0
             ) {
-                return null
+                null
+            } else {
+                val x0 = (left / viewWidth * EYE_WIDTH).toInt()
+                val y0 = (top / viewHeight * EYE_HEIGHT).toInt()
+                val x1 = ((left + width) / viewWidth * EYE_WIDTH).toInt()
+                val y1 = ((top + height) / viewHeight * EYE_HEIGHT).toInt()
+
+                Rect(
+                    x0.coerceIn(0, EYE_WIDTH - 1),
+                    y0.coerceIn(0, EYE_HEIGHT - 1),
+                    x1.coerceIn(1, EYE_WIDTH),
+                    y1.coerceIn(1, EYE_HEIGHT),
+                ).takeIf { it.width() > 0 && it.height() > 0 }
             }
-
-            val x0 = (left / viewWidth * EYE_WIDTH).toInt()
-            val y0 = (top / viewHeight * EYE_HEIGHT).toInt()
-            val x1 = ((left + width) / viewWidth * EYE_WIDTH).toInt()
-            val y1 = ((top + height) / viewHeight * EYE_HEIGHT).toInt()
-
-            Rect(
-                x0.coerceIn(0, EYE_WIDTH - 1),
-                y0.coerceIn(0, EYE_HEIGHT - 1),
-                x1.coerceIn(1, EYE_WIDTH),
-                y1.coerceIn(1, EYE_HEIGHT),
-            ).takeIf { it.width() > 0 && it.height() > 0 }
         } catch (_: Throwable) {
             null
         }
