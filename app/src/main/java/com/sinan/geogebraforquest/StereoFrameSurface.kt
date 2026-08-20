@@ -32,17 +32,18 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLContext
 import javax.microedition.khronos.egl.EGLDisplay
 import javax.microedition.khronos.egl.EGLSurface
-import org.json.JSONObject
 
 /**
- * Full-panel stereo compositor.
+ * v0.6.2 raw GeoGebra stereo-capture presenter.
  *
- * Normal mode builds two complete GeoGebra interface images and packs them SBS.
- * v0.6.1 additionally contains a deterministic calibration frame. The
- * calibration frame does not depend on GeoGebra, WebGL, anaglyph extraction, or
- * portal geometry: the two halves contain deliberately displaced targets. If
- * those targets have different apparent depths in Quest, StereoMode.LeftRight
- * and the Android -> Spatial surface pipeline are proven to work.
+ * v0.6.1 already proved StereoMode.LeftRight and the native Surface/EGL path.
+ * This class now deliberately removes every other moving part. It takes the SBS
+ * JPEG data URL emitted by quest-stereo-capture.js and shows its left half to
+ * the left eye and its right half to the right eye, scaled to the whole panel.
+ *
+ * This means a successful v0.6.2 image proves that JavaScript/WebGL extraction
+ * itself is producing a usable two-eye frame. No WebView screenshot or portal
+ * compositing is involved here.
  */
 class StereoFrameSurface {
 
@@ -57,7 +58,7 @@ class StereoFrameSurface {
     }
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "GGQ-FullPanelStereoSurface").apply { isDaemon = true }
+        Thread(runnable, "GGQ-RawStereoSurface").apply { isDaemon = true }
     }
     private val framePending = AtomicBoolean(false)
 
@@ -103,53 +104,10 @@ class StereoFrameSurface {
 
     fun canAcceptFrame(): Boolean = !framePending.get()
 
-    /**
-     * Pure stereo-pipeline test. The underlying GeoGebra panel is copied into
-     * both eyes unchanged, then three black/white calibration targets are drawn:
-     *
-     *   A: positive horizontal disparity
-     *   B: zero disparity
-     *   C: negative horizontal disparity
-     *
-     * If Quest really sends the left half only to the left eye and the right
-     * half only to the right eye, A/B/C must not all lie on the same depth plane.
-     */
-    fun submitCalibration(
-        basePanel: Bitmap,
-        onPresented: (() -> Unit)? = null,
-        onFinished: (() -> Unit)? = null,
-    ): Boolean {
-        if (!framePending.compareAndSet(false, true)) {
-            return false
-        }
-
-        executor.execute {
-            var calibration: Bitmap? = null
-            try {
-                calibration = composeCalibration(basePanel)
-                val surface = targetSurface ?: return@execute
-                if (!surface.isValid) return@execute
-                if (eglSurface == EGL_NO_SURFACE && !initEgl(surface)) return@execute
-                if (drawBitmap(calibration)) {
-                    onPresented?.invoke()
-                }
-            } catch (_: Throwable) {
-                // Diagnostic frame must never crash the app.
-            } finally {
-                if (!basePanel.isRecycled) basePanel.recycle()
-                calibration?.let { if (!it.isRecycled) it.recycle() }
-                framePending.set(false)
-                onFinished?.invoke()
-            }
-        }
-
-        return true
-    }
-
-    fun submitCompositeDataUrl(
+    fun submitRawStereoDataUrl(
         dataUrl: String,
-        basePanel: Bitmap,
-        portalRectJson: String?,
+        reportedEyeWidth: Int,
+        reportedEyeHeight: Int,
         onPresented: (() -> Unit)? = null,
         onFinished: (() -> Unit)? = null,
     ): Boolean {
@@ -158,32 +116,28 @@ class StereoFrameSurface {
         }
 
         executor.execute {
-            var stereo3D: Bitmap? = null
-            var fullSbs: Bitmap? = null
+            var decoded: Bitmap? = null
+            var prepared: Bitmap? = null
             try {
-                val decodedStereo3D = decodeDataUrl(dataUrl) ?: return@execute
-                stereo3D = decodedStereo3D
-
-                val composedFullSbs = composeFullPanel(
-                    basePanel = basePanel,
-                    stereo3D = decodedStereo3D,
-                    portalRectJson = portalRectJson,
+                decoded = decodeDataUrl(dataUrl) ?: return@execute
+                prepared = composeRawStereo(
+                    decoded = decoded,
+                    reportedEyeWidth = reportedEyeWidth,
+                    reportedEyeHeight = reportedEyeHeight,
                 )
-                fullSbs = composedFullSbs
 
                 val surface = targetSurface ?: return@execute
                 if (!surface.isValid) return@execute
                 if (eglSurface == EGL_NO_SURFACE && !initEgl(surface)) return@execute
 
-                if (drawBitmap(composedFullSbs)) {
+                if (drawBitmap(prepared)) {
                     onPresented?.invoke()
                 }
             } catch (_: Throwable) {
-                // A transient WebView snapshot, JPEG, or EGL frame is disposable.
+                // One malformed diagnostic frame is disposable.
             } finally {
-                if (!basePanel.isRecycled) basePanel.recycle()
-                stereo3D?.let { if (!it.isRecycled) it.recycle() }
-                fullSbs?.let { if (!it.isRecycled) it.recycle() }
+                decoded?.let { if (!it.isRecycled) it.recycle() }
+                prepared?.let { if (!it.isRecycled) it.recycle() }
                 framePending.set(false)
                 onFinished?.invoke()
             }
@@ -200,24 +154,28 @@ class StereoFrameSurface {
         executor.shutdown()
     }
 
-    private fun composeCalibration(basePanel: Bitmap): Bitmap {
+    private fun decodeDataUrl(dataUrl: String): Bitmap? {
+        val comma = dataUrl.indexOf(',')
+        if (comma < 0 || comma >= dataUrl.length - 1) return null
+        val payload = dataUrl.substring(comma + 1)
+        val bytes = Base64.decode(payload, Base64.DEFAULT)
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }
+
+    private fun composeRawStereo(
+        decoded: Bitmap,
+        reportedEyeWidth: Int,
+        reportedEyeHeight: Int,
+    ): Bitmap {
         val output = Bitmap.createBitmap(
             SURFACE_WIDTH,
             SURFACE_HEIGHT,
             Bitmap.Config.ARGB_8888,
         )
         val canvas = Canvas(output)
+        canvas.drawColor(Color.rgb(34, 34, 34))
+
         val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        val baseSource = Rect(0, 0, basePanel.width, basePanel.height)
-
-        canvas.drawBitmap(basePanel, baseSource, Rect(0, 0, EYE_WIDTH, EYE_HEIGHT), bitmapPaint)
-        canvas.drawBitmap(
-            basePanel,
-            baseSource,
-            Rect(EYE_WIDTH, 0, SURFACE_WIDTH, EYE_HEIGHT),
-            bitmapPaint,
-        )
-
         val bannerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.argb(225, 255, 255, 255)
             style = Paint.Style.FILL
@@ -228,133 +186,55 @@ class StereoFrameSurface {
             textAlign = Paint.Align.CENTER
             isFakeBoldText = true
         }
-        val targetFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
-        }
-        val targetStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val detailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            style = Paint.Style.STROKE
-            strokeWidth = 8f
+            textSize = 22f
+            textAlign = Paint.Align.CENTER
         }
 
-        fun drawEye(eyeOffset: Int, eyeName: String, sign: Int) {
+        val sourceHalf = (decoded.width / 2).coerceAtLeast(1)
+        val leftSource = Rect(0, 0, sourceHalf, decoded.height)
+        val rightSource = Rect(sourceHalf, 0, decoded.width, decoded.height)
+
+        canvas.drawBitmap(
+            decoded,
+            leftSource,
+            Rect(0, 0, EYE_WIDTH, EYE_HEIGHT),
+            bitmapPaint,
+        )
+        canvas.drawBitmap(
+            decoded,
+            rightSource,
+            Rect(EYE_WIDTH, 0, SURFACE_WIDTH, EYE_HEIGHT),
+            bitmapPaint,
+        )
+
+        fun drawBanner(eyeOffset: Int, eyeName: String) {
             canvas.drawRect(
-                eyeOffset + 160f,
-                54f,
-                eyeOffset + EYE_WIDTH - 160f,
-                112f,
+                eyeOffset + 170f,
+                36f,
+                eyeOffset + EYE_WIDTH - 170f,
+                122f,
                 bannerPaint,
             )
-            canvas.drawText("STEREO TEST - $eyeName", eyeOffset + EYE_WIDTH / 2f, 94f, textPaint)
-
-            val centerX = eyeOffset + EYE_WIDTH / 2f
-            val ys = floatArrayOf(270f, 390f, 510f)
-            val disparities = intArrayOf(56, 0, -56)
-            val labels = arrayOf("A", "B", "C")
-
-            for (i in ys.indices) {
-                val x = centerX + sign * disparities[i]
-                canvas.drawCircle(x, ys[i], 44f, targetFill)
-                canvas.drawCircle(x, ys[i], 44f, targetStroke)
-                canvas.drawText(labels[i], x, ys[i] + 12f, textPaint)
-            }
+            canvas.drawText(
+                "GEOGEBRA RAW - $eyeName",
+                eyeOffset + EYE_WIDTH / 2f,
+                78f,
+                textPaint,
+            )
+            canvas.drawText(
+                "source ${decoded.width}x${decoded.height} / reported ${reportedEyeWidth}x${reportedEyeHeight}",
+                eyeOffset + EYE_WIDTH / 2f,
+                108f,
+                detailPaint,
+            )
         }
 
-        // In local eye coordinates the same target is shifted in opposite
-        // directions. B has zero disparity and is the reference plane.
-        drawEye(0, "LEFT", +1)
-        drawEye(EYE_WIDTH, "RIGHT", -1)
+        drawBanner(0, "LEFT")
+        drawBanner(EYE_WIDTH, "RIGHT")
 
         return output
-    }
-
-    private fun decodeDataUrl(dataUrl: String): Bitmap? {
-        val comma = dataUrl.indexOf(',')
-        if (comma < 0 || comma >= dataUrl.length - 1) return null
-        val payload = dataUrl.substring(comma + 1)
-        val bytes = Base64.decode(payload, Base64.DEFAULT)
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-    }
-
-    private fun composeFullPanel(
-        basePanel: Bitmap,
-        stereo3D: Bitmap,
-        portalRectJson: String?,
-    ): Bitmap {
-        val output = Bitmap.createBitmap(
-            SURFACE_WIDTH,
-            SURFACE_HEIGHT,
-            Bitmap.Config.ARGB_8888,
-        )
-        val canvas = Canvas(output)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-
-        val baseSource = Rect(0, 0, basePanel.width, basePanel.height)
-        val leftEyePanel = Rect(0, 0, EYE_WIDTH, EYE_HEIGHT)
-        val rightEyePanel = Rect(EYE_WIDTH, 0, SURFACE_WIDTH, EYE_HEIGHT)
-
-        canvas.drawBitmap(basePanel, baseSource, leftEyePanel, paint)
-        canvas.drawBitmap(basePanel, baseSource, rightEyePanel, paint)
-
-        val destination = portalDestination(portalRectJson)
-        if (destination != null && stereo3D.width >= 2 && stereo3D.height >= 1) {
-            val half = stereo3D.width / 2
-            if (half >= 1) {
-                val leftSource = Rect(0, 0, half, stereo3D.height)
-                val rightSource = Rect(half, 0, stereo3D.width, stereo3D.height)
-
-                canvas.drawBitmap(stereo3D, leftSource, destination, paint)
-
-                val rightDestination = Rect(
-                    destination.left + EYE_WIDTH,
-                    destination.top,
-                    destination.right + EYE_WIDTH,
-                    destination.bottom,
-                )
-                canvas.drawBitmap(stereo3D, rightSource, rightDestination, paint)
-            }
-        }
-
-        return output
-    }
-
-    private fun portalDestination(json: String?): Rect? {
-        if (json.isNullOrBlank()) return null
-
-        return try {
-            val data = JSONObject(json)
-            val left = data.optDouble("left", Double.NaN)
-            val top = data.optDouble("top", Double.NaN)
-            val width = data.optDouble("width", Double.NaN)
-            val height = data.optDouble("height", Double.NaN)
-            val viewWidth = data.optDouble("viewWidth", Double.NaN)
-            val viewHeight = data.optDouble("viewHeight", Double.NaN)
-
-            if (
-                !left.isFinite() || !top.isFinite() ||
-                !width.isFinite() || !height.isFinite() ||
-                !viewWidth.isFinite() || !viewHeight.isFinite() ||
-                width <= 0.0 || height <= 0.0 ||
-                viewWidth <= 0.0 || viewHeight <= 0.0
-            ) {
-                null
-            } else {
-                val x0 = (left / viewWidth * EYE_WIDTH).toInt()
-                val y0 = (top / viewHeight * EYE_HEIGHT).toInt()
-                val x1 = ((left + width) / viewWidth * EYE_WIDTH).toInt()
-                val y1 = ((top + height) / viewHeight * EYE_HEIGHT).toInt()
-
-                Rect(
-                    x0.coerceIn(0, EYE_WIDTH - 1),
-                    y0.coerceIn(0, EYE_HEIGHT - 1),
-                    x1.coerceIn(1, EYE_WIDTH),
-                    y1.coerceIn(1, EYE_HEIGHT),
-                ).takeIf { it.width() > 0 && it.height() > 0 }
-            }
-        } catch (_: Throwable) {
-            null
-        }
     }
 
     private fun initEgl(surface: Surface): Boolean {
