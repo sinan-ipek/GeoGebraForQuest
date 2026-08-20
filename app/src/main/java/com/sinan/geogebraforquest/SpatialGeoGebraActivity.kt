@@ -34,12 +34,13 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.7.2.
+ * GeoGebraForQuest v0.7.3.
  *
  * The WebView is the front, interactive panel. The stereo media surface is a
  * visual underlay behind it. JavaScript punches transparency only through the
- * active 3D canvas pixels, so rays always meet the real WebView first and any
- * GeoGebra dialog/menu naturally paints over the stereo image.
+ * active 3D canvas pixels, so rays always meet the real WebView first. Because
+ * the stereo surface is physically behind the WebView, GeoGebra dialogs and
+ * menus can paint over it without disabling stereo capture.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -52,8 +53,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
 
-        // Positive local Z puts the stereo surface a few millimetres behind the
-        // GeoGebra panel; v0.7.1 used -Z and therefore made it an overlay.
+        // Positive local Z keeps the stereo media panel just behind GeoGebra.
         private const val PORTAL_Z = 0.008f
     }
 
@@ -293,9 +293,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
 
-        // Retry because the runtime may create the media-panel mesh after the
-        // entity itself. Underlay positioning is the primary input fix; this is
-        // an additional guard against the media panel ever becoming a ray target.
+        // The underlay is behind the WebView, but also remove its collision mesh
+        // when the runtime exposes it so it can never become a controller target.
         makePortalNonHittable(stereoPanel)
         listOf(50L, 150L, 400L, 1000L).forEach { delay ->
             mainHandler.postDelayed({ makePortalNonHittable(stereoPanel) }, delay)
