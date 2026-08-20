@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 30
-        versionName = "0.6.8"
+        versionCode = 31
+        versionName = "0.6.9"
     }
 
     buildFeatures {
@@ -58,12 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.8 fixes the cancellation revealed by the v0.6.7 debug overlay. The
-// real headset click was correctly reaching GeoGebra and entering Glasses mode,
-// but the same click was then misclassified as an "other projection" click after
-// the temporary DOM markers had been removed. That immediately switched Quest
-// stereo back OFF. Headset events are now remembered independently of DOM state,
-// so the direct-eye capture stays armed while GeoGebra renders RED/RIGHT/ALL.
+// v0.6.9 delays Quest stereo activation until the real GeoGebra Glasses click
+// has fully completed. This prevents the legacy projection listener from seeing
+// stereoEnabled=true during the same click and immediately cancelling stereo.
 spatial {
     allowUsageDataCollection.set(true)
 }
