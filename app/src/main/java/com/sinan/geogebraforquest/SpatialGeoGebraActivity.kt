@@ -30,17 +30,13 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.6.4 — in-render capture diagnostic.
+ * GeoGebraForQuest v0.6.7 — stereo pipeline diagnostic.
  *
- * v0.6.3 intentionally stretched the raw stereo test surface over the whole
- * GeoGebra panel. That proved the JavaScript -> Android -> EGL -> Quest path was
- * alive, but it also hid the entire ordinary GeoGebra interface.
- *
- * This build keeps the real WebView visible. The diagnostic stereo surface is a
- * child of the GeoGebra panel and is positioned/scaled only over the exact 3D
- * Graphics rectangle reported by JavaScript. Therefore toolbar, algebra panel,
- * menus and input remain visible and interactive while we verify the corrected
- * in-render framebuffer capture.
+ * The rendering path remains the same as v0.6.6: the normal GeoGebra WebView is
+ * visible and the StereoMode.LeftRight media surface covers only the 3D Graphics
+ * rectangle. This build adds counters only, so a screenshot can tell us whether
+ * a direct eye pair reached Android, was accepted by the EGL writer, was actually
+ * presented, and whether the portal entity became visible.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -100,6 +96,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             VideoSurfacePanelRegistration(
                 R.id.stereo_portal_panel,
                 surfaceConsumer = { _, surface ->
+                    StereoDebugState.onSurfaceAttached()
                     stereoFrameSurface.attach(surface)
                 },
                 settingsCreator = {
@@ -124,9 +121,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        StereoDebugState.reset()
 
         SpatialBridgeBus.onStereoChanged = { enabled ->
             pendingStereo = enabled
+            StereoDebugState.onStereoChanged(enabled)
             if (!enabled) {
                 runOnMainThread {
                     stereoPortalEntity?.setComponent(Visible(false))
@@ -136,26 +135,47 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         SpatialBridgeBus.onPortalRect = { json ->
             pendingPortalRect = json
+            StereoDebugState.onPortalRect()
             applyPortalRect(json)
         }
 
         SpatialBridgeBus.onStereoFrame = frame@{ dataUrl, eyeWidth, eyeHeight ->
-            if (!pendingStereo || dataUrl.isBlank()) return@frame
-            if (!stereoFrameSurface.canAcceptFrame()) return@frame
+            StereoDebugState.onFrameReceived(eyeWidth, eyeHeight)
 
-            stereoFrameSurface.submitRawStereoDataUrl(
+            if (!pendingStereo || dataUrl.isBlank()) {
+                StereoDebugState.onFrameRejected()
+                return@frame
+            }
+
+            if (!stereoFrameSurface.canAcceptFrame()) {
+                StereoDebugState.onFrameDroppedBusy()
+                return@frame
+            }
+
+            val accepted = stereoFrameSurface.submitRawStereoDataUrl(
                 dataUrl = dataUrl,
                 reportedEyeWidth = eyeWidth,
                 reportedEyeHeight = eyeHeight,
                 onPresented = {
+                    StereoDebugState.onFramePresented()
                     runOnMainThread {
                         if (pendingStereo) {
                             pendingPortalRect?.let { applyPortalRect(it) }
                             stereoPortalEntity?.setComponent(Visible(true))
+                            StereoDebugState.onPortalVisible()
                         }
                     }
                 },
+                onFinished = {
+                    StereoDebugState.onFrameFinished()
+                },
             )
+
+            if (accepted) {
+                StereoDebugState.onFrameAccepted()
+            } else {
+                StereoDebugState.onFrameDroppedBusy()
+            }
         }
 
         SpatialBridgeBus.onPanelReady = {
@@ -296,6 +316,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
         stereoPortalEntity = stereoPanel
+        StereoDebugState.onPortalEntityReady()
 
         pendingPortalRect?.let { applyPortalRect(it) }
     }
