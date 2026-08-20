@@ -15,6 +15,8 @@ import com.meta.spatial.toolkit.Grabbable
 import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
 import com.meta.spatial.toolkit.MediaPanelRenderOptions
 import com.meta.spatial.toolkit.MediaPanelSettings
+import com.meta.spatial.toolkit.Mesh
+import com.meta.spatial.toolkit.MeshCollision
 import com.meta.spatial.toolkit.Panel
 import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
@@ -30,13 +32,12 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.6.7 — stereo pipeline diagnostic.
+ * GeoGebraForQuest v0.7.1.
  *
- * The rendering path remains the same as v0.6.6: the normal GeoGebra WebView is
- * visible and the StereoMode.LeftRight media surface covers only the 3D Graphics
- * rectangle. This build adds counters only, so a screenshot can tell us whether
- * a direct eye pair reached Android, was accepted by the EGL writer, was actually
- * presented, and whether the portal entity became visible.
+ * The regular GeoGebra WebView remains the interactive panel. A transparent,
+ * non-hittable StereoMode.LeftRight media surface is positioned over only the
+ * 3D canvas. Its only job is visual stereo presentation; controller rays should
+ * continue through it to the WebView underneath.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -315,6 +316,21 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Visible(false),
             ),
         )
+
+        // VideoSurfacePanelRegistration creates a panel mesh. Make that mesh
+        // non-hittable so controller/hand rays keep reaching the interactive
+        // GeoGebra WebView panel underneath instead of being consumed by the
+        // visual stereo overlay.
+        try {
+            val portalMesh = stereoPanel.getComponent<Mesh>()
+            portalMesh.hittable = MeshCollision.NoCollision
+            stereoPanel.setComponent(portalMesh)
+        } catch (_: Throwable) {
+            // Some SDK/runtime revisions may attach the mesh one frame later.
+            // The panel still works visually; diagnostics/test will reveal if a
+            // delayed retry is needed for that runtime.
+        }
+
         stereoPortalEntity = stereoPanel
         StereoDebugState.onPortalEntityReady()
 
