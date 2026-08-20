@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 
 private const val LOCAL_APP_URL =
@@ -26,14 +28,17 @@ private const val PROJECTION_PATCH_URL =
     "https://appassets.androidplatform.net/assets/web/quest-projection-patch.js"
 private const val STEREO_CAPTURE_URL =
     "https://appassets.androidplatform.net/assets/web/quest-stereo-capture.js"
+private const val DEBUG_OVERLAY_URL =
+    "https://appassets.androidplatform.net/assets/web/quest-debug-overlay.js"
+private const val STEREO_CAPTURE_ASSET = "web/quest-stereo-capture.js"
+private const val APPASSETS_ORIGIN = "https://appassets.androidplatform.net"
 
 /**
  * JavaScript bridge for the single integrated GeoGebra panel.
  *
- * v0.6.0 leaves GeoGebra's stock anaglyph renderer intact. JavaScript decodes
- * the completed anaglyph framebuffer back into left/right grayscale 3D images.
- * Android then combines those images with a snapshot of this whole WebView, so
- * the Quest receives two complete GeoGebra interface images.
+ * v0.6.7 keeps the v0.6.6 real-Glasses click path and adds only observability.
+ * JavaScript can read a compact native diagnostic snapshot so the on-screen
+ * overlay shows whether an eye pair reached the bridge, Spatial surface and EGL.
  */
 private class QuestBridge(
     private val context: Context,
@@ -60,8 +65,13 @@ private class QuestBridge(
         }
     }
 
+    @JavascriptInterface
+    fun getStereoDebugStatus(): String {
+        return StereoDebugState.toJson()
+    }
+
     /**
-     * Kept because the older bootstrap still emits scene JSON. v0.6.0 does not
+     * Kept because the older bootstrap still emits scene JSON. v0.6.7 does not
      * mirror GeoGebra objects as native Spatial SDK meshes.
      */
     @JavascriptInterface
@@ -121,13 +131,48 @@ private fun injectFullPanelStereoSafety(view: WebView) {
     )
 }
 
+/**
+ * Install the capture script before any page JavaScript executes.
+ *
+ * This is inherited unchanged from v0.6.5/v0.6.6. GeoGebra creates its WebGL
+ * context very early, so the capture hook must exist before deployggb.js starts.
+ */
+private fun installStereoCaptureAtDocumentStart(
+    view: WebView,
+    context: Context,
+) {
+    if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+        return
+    }
+
+    try {
+        val script = context.assets
+            .open(STEREO_CAPTURE_ASSET)
+            .bufferedReader(Charsets.UTF_8)
+            .use { reader -> reader.readText() }
+
+        WebViewCompat.addDocumentStartJavaScript(
+            view,
+            script,
+            setOf(APPASSETS_ORIGIN),
+        )
+    } catch (_: Throwable) {
+        // onPageFinished still injects the same script as a fallback.
+    }
+}
+
 private fun injectQuestScripts(view: WebView) {
-    // The ordinary WebView must remain fully visible because Android captures it
-    // as the common 2D base image for both eyes. The full stereo media layer is
-    // shown only after a complete left/right full-panel frame is presented.
+    // Keep the ordinary WebView fully visible. The Spatial stereo surface is
+    // independently positioned over only the 3D Graphics rectangle.
     injectFullPanelStereoSafety(view)
     injectAssetScript(view, "ggq-projection-patch", PROJECTION_PATCH_URL)
+
+    // Fallback for WebView implementations without DOCUMENT_START_SCRIPT.
     injectAssetScript(view, "ggq-stereo-capture", STEREO_CAPTURE_URL)
+
+    // v0.6.7 diagnostic overlay. It does not alter GeoGebra projection or frame
+    // capture; it only displays JavaScript hook state plus native counters.
+    injectAssetScript(view, "ggq-debug-overlay", DEBUG_OVERLAY_URL)
 }
 
 private fun bootStereoWhenReady(view: WebView) {
@@ -184,7 +229,7 @@ fun configureGeoGebraWebView(
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
         settings.userAgentString =
-            settings.userAgentString + " GeoGebraForQuest/0.6.0"
+            settings.userAgentString + " GeoGebraForQuest/0.6.7"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -230,6 +275,10 @@ fun configureGeoGebraWebView(
             QuestBridge(context, spatialMode),
             "QuestBridge",
         )
+
+        // Must happen before loadUrl(): the hook then executes before GeoGebra's
+        // own JavaScript and catches the real WebGL context at creation time.
+        installStereoCaptureAtDocumentStart(this, context)
 
         loadUrl(LOCAL_APP_URL)
     }
