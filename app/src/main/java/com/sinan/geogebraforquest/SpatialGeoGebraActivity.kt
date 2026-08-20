@@ -33,20 +33,18 @@ import com.meta.spatial.vr.VRFeature
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * GeoGebraForQuest v0.6.0
+ * GeoGebraForQuest v0.6.1 stereo-pipeline diagnostic build.
  *
- * The visible stereo layer now contains the WHOLE GeoGebra interface for each
- * eye instead of a small portal over the 3D viewport:
+ * v0.6.0 still produced no visible depth. Before changing GeoGebra capture again
+ * we now isolate the final half of the pipeline. Pressing the headset button
+ * shows a deterministic full-panel SBS calibration image generated natively:
+ * the ordinary GeoGebra panel is identical in both eyes, while A/B/C targets
+ * have positive/zero/negative horizontal disparity.
  *
- *   left eye  = ordinary GeoGebra panel + decoded left-eye 3D image
- *   right eye = ordinary GeoGebra panel + decoded right-eye 3D image
- *
- * Everything outside the 3D viewport is therefore pixel-identical in both eye
- * images. The two-eye difference exists only inside the 3D rectangle, but the
- * Quest compositor receives two complete panel images.
- *
- * No second Activity, window, or immersive-mode transition is launched when the
- * headset button is pressed.
+ * If A/B/C occupy different apparent depths, the Android -> Spatial surface ->
+ * StereoMode.LeftRight path is working and the remaining bug is upstream in
+ * GeoGebra/anaglyph extraction. If all three are flat/identical, the bug is in
+ * the Spatial stereo presentation path itself.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -58,6 +56,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
+
+        // Temporary diagnostic switch for v0.6.1.
+        private const val STEREO_PIPELINE_TEST = true
     }
 
     private val stereoFrameSurface = StereoFrameSurface()
@@ -112,8 +113,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 },
                 settingsCreator = {
                     MediaPanelSettings(
-                        // The raw surface is SBS (2160x720), but StereoMode.LeftRight
-                        // maps each 1080x720 half over this same 1.5:1 quad per eye.
                         shape = QuadShapeOptions(width = 1f, height = 1f),
                         display = PixelDisplayOptions(
                             width = StereoFrameSurface.SURFACE_WIDTH,
@@ -141,19 +140,19 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 runOnMainThread {
                     stereoFullPanelEntity?.setComponent(Visible(false))
                 }
+            } else if (STEREO_PIPELINE_TEST) {
+                showStereoCalibrationFrame()
             }
-            // On enable, keep the ordinary WebView visible until the first
-            // complete full-panel stereo frame is actually presented.
         }
 
         SpatialBridgeBus.onPortalRect = { json ->
-            // v0.6.0 uses this rectangle only while compositing the two complete
-            // panel bitmaps. It is no longer used to position a separate portal.
             pendingPortalRect = json
         }
 
         SpatialBridgeBus.onStereoFrame = { dataUrl, _, _ ->
-            captureAndSubmitFullPanelFrame(dataUrl)
+            if (!STEREO_PIPELINE_TEST) {
+                captureAndSubmitFullPanelFrame(dataUrl)
+            }
         }
 
         SpatialBridgeBus.onPanelReady = {
@@ -161,6 +160,69 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         }
 
         requestScenePermissionIfNeeded()
+    }
+
+    /**
+     * Captures the ordinary WebView once and asks StereoFrameSurface to draw
+     * deliberately displaced A/B/C targets into the left/right halves. No
+     * GeoGebra WebGL capture is involved in this test.
+     */
+    private fun showStereoCalibrationFrame() {
+        if (!pendingStereo) return
+        if (!stereoFrameSurface.canAcceptFrame()) return
+        if (!webCapturePending.compareAndSet(false, true)) return
+
+        val webView = geoGebraWebView
+        if (webView == null) {
+            webCapturePending.set(false)
+            return
+        }
+
+        webView.post {
+            if (!pendingStereo || webView.width <= 0 || webView.height <= 0) {
+                webCapturePending.set(false)
+                return@post
+            }
+
+            var basePanel: Bitmap? = null
+            try {
+                basePanel = Bitmap.createBitmap(
+                    webView.width,
+                    webView.height,
+                    Bitmap.Config.ARGB_8888,
+                )
+                val canvas = Canvas(basePanel)
+                canvas.drawColor(Color.WHITE)
+                webView.draw(canvas)
+
+                val accepted = stereoFrameSurface.submitCalibration(
+                    basePanel = basePanel,
+                    onPresented = {
+                        runOnMainThread {
+                            if (pendingStereo) {
+                                stereoFullPanelEntity?.setComponent(Visible(true))
+                            }
+                        }
+                    },
+                    onFinished = {
+                        webCapturePending.set(false)
+                    },
+                )
+
+                if (accepted) {
+                    basePanel = null
+                }
+            } catch (_: Throwable) {
+                // A failed diagnostic snapshot must not crash the app.
+            } finally {
+                basePanel?.let { bitmap ->
+                    if (!bitmap.isRecycled) bitmap.recycle()
+                }
+                if (basePanel != null) {
+                    webCapturePending.set(false)
+                }
+            }
+        }
     }
 
     private fun captureAndSubmitFullPanelFrame(dataUrl: String) {
@@ -176,9 +238,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         val portalRect = pendingPortalRect
 
-        // WebView.draw() must run on the Android UI thread. The expensive JPEG
-        // decode, panel composition, texture upload, and EGL swap happen later on
-        // StereoFrameSurface's dedicated worker thread.
         webView.post {
             if (!pendingStereo || webView.width <= 0 || webView.height <= 0) {
                 webCapturePending.set(false)
@@ -213,7 +272,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 )
 
                 if (accepted) {
-                    // Ownership transferred to StereoFrameSurface.
                     basePanel = null
                 }
             } catch (_: Throwable) {
@@ -286,10 +344,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             listOf(
                 Panel(R.id.stereo_portal_panel),
                 TransformParent(geoPanel),
-                // A few millimetres in front of the ordinary WebView panel.
                 Transform(Pose(Vector3(0f, 0f, -0.006f))),
-                // Registration shape is 1m x 1m; scale it to the exact GeoGebra
-                // panel dimensions. Each eye sees the whole 1.5m x 1.0m panel.
                 Scale(Vector3(PANEL_WIDTH_METERS, PANEL_HEIGHT_METERS, 1f)),
                 Visible(false),
             ),
