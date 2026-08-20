@@ -3,7 +3,6 @@ package com.sinan.geogebraforquest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.opengl.GLES20
@@ -34,16 +33,13 @@ import javax.microedition.khronos.egl.EGLDisplay
 import javax.microedition.khronos.egl.EGLSurface
 
 /**
- * v0.6.2 raw GeoGebra stereo-capture presenter.
+ * v0.6.5 direct GeoGebra stereo presenter.
  *
- * v0.6.1 already proved StereoMode.LeftRight and the native Surface/EGL path.
- * This class now deliberately removes every other moving part. It takes the SBS
- * JPEG data URL emitted by quest-stereo-capture.js and shows its left half to
- * the left eye and its right half to the right eye, scaled to the whole panel.
- *
- * This means a successful v0.6.2 image proves that JavaScript/WebGL extraction
- * itself is producing a usable two-eye frame. No WebView screenshot or portal
- * compositing is involved here.
+ * JavaScript sends one SBS JPEG whose first half is GeoGebra's completed left
+ * eye render and whose second half is its completed right eye render. This class
+ * does not synthesize depth, decode anaglyph channels, or draw diagnostic text.
+ * It only scales the two halves to the fixed SBS Surface consumed by Spatial SDK
+ * with StereoMode.LeftRight.
  */
 class StereoFrameSurface {
 
@@ -58,7 +54,7 @@ class StereoFrameSurface {
     }
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "GGQ-RawStereoSurface").apply { isDaemon = true }
+        Thread(runnable, "GGQ-DirectEyeStereoSurface").apply { isDaemon = true }
     }
     private val framePending = AtomicBoolean(false)
 
@@ -106,8 +102,8 @@ class StereoFrameSurface {
 
     fun submitRawStereoDataUrl(
         dataUrl: String,
-        reportedEyeWidth: Int,
-        reportedEyeHeight: Int,
+        @Suppress("UNUSED_PARAMETER") reportedEyeWidth: Int,
+        @Suppress("UNUSED_PARAMETER") reportedEyeHeight: Int,
         onPresented: (() -> Unit)? = null,
         onFinished: (() -> Unit)? = null,
     ): Boolean {
@@ -120,11 +116,7 @@ class StereoFrameSurface {
             var prepared: Bitmap? = null
             try {
                 decoded = decodeDataUrl(dataUrl) ?: return@execute
-                prepared = composeRawStereo(
-                    decoded = decoded,
-                    reportedEyeWidth = reportedEyeWidth,
-                    reportedEyeHeight = reportedEyeHeight,
-                )
+                prepared = prepareStereoSurface(decoded)
 
                 val surface = targetSurface ?: return@execute
                 if (!surface.isValid) return@execute
@@ -134,7 +126,7 @@ class StereoFrameSurface {
                     onPresented?.invoke()
                 }
             } catch (_: Throwable) {
-                // One malformed diagnostic frame is disposable.
+                // One malformed/corrupt frame is disposable. Keep the app alive.
             } finally {
                 decoded?.let { if (!it.isRecycled) it.recycle() }
                 prepared?.let { if (!it.isRecycled) it.recycle() }
@@ -162,35 +154,14 @@ class StereoFrameSurface {
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }
 
-    private fun composeRawStereo(
-        decoded: Bitmap,
-        reportedEyeWidth: Int,
-        reportedEyeHeight: Int,
-    ): Bitmap {
+    private fun prepareStereoSurface(decoded: Bitmap): Bitmap {
         val output = Bitmap.createBitmap(
             SURFACE_WIDTH,
             SURFACE_HEIGHT,
             Bitmap.Config.ARGB_8888,
         )
         val canvas = Canvas(output)
-        canvas.drawColor(Color.rgb(34, 34, 34))
-
-        val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        val bannerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(225, 255, 255, 255)
-            style = Paint.Style.FILL
-        }
-        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 34f
-            textAlign = Paint.Align.CENTER
-            isFakeBoldText = true
-        }
-        val detailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 22f
-            textAlign = Paint.Align.CENTER
-        }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
         val sourceHalf = (decoded.width / 2).coerceAtLeast(1)
         val leftSource = Rect(0, 0, sourceHalf, decoded.height)
@@ -200,39 +171,14 @@ class StereoFrameSurface {
             decoded,
             leftSource,
             Rect(0, 0, EYE_WIDTH, EYE_HEIGHT),
-            bitmapPaint,
+            paint,
         )
         canvas.drawBitmap(
             decoded,
             rightSource,
             Rect(EYE_WIDTH, 0, SURFACE_WIDTH, EYE_HEIGHT),
-            bitmapPaint,
+            paint,
         )
-
-        fun drawBanner(eyeOffset: Int, eyeName: String) {
-            canvas.drawRect(
-                eyeOffset + 170f,
-                36f,
-                eyeOffset + EYE_WIDTH - 170f,
-                122f,
-                bannerPaint,
-            )
-            canvas.drawText(
-                "GEOGEBRA RAW - $eyeName",
-                eyeOffset + EYE_WIDTH / 2f,
-                78f,
-                textPaint,
-            )
-            canvas.drawText(
-                "source ${decoded.width}x${decoded.height} / reported ${reportedEyeWidth}x${reportedEyeHeight}",
-                eyeOffset + EYE_WIDTH / 2f,
-                108f,
-                detailPaint,
-            )
-        }
-
-        drawBanner(0, "LEFT")
-        drawBanner(EYE_WIDTH, "RIGHT")
 
         return output
     }
