@@ -27,25 +27,20 @@ import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.toolkit.Visible
 import com.meta.spatial.vr.VRFeature
+import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.6.2 — raw GeoGebra stereo-capture diagnostic.
+ * GeoGebraForQuest v0.6.4 — in-render capture diagnostic.
  *
- * v0.6.1 proved that the native Android -> Spatial SDK -> StereoMode.LeftRight
- * path is correct: Quest showed a different image to each eye and eye ordering
- * was correct.
+ * v0.6.3 intentionally stretched the raw stereo test surface over the whole
+ * GeoGebra panel. That proved the JavaScript -> Android -> EGL -> Quest path was
+ * alive, but it also hid the entire ordinary GeoGebra interface.
  *
- * This build therefore tests ONLY the upstream half. When GeoGebra's JavaScript
- * capture sends an SBS frame, that frame is displayed directly as the stereo
- * panel. No WebView screenshot, portal compositing, or UI duplication is used.
- *
- * Expected result when capture works:
- *   left eye  -> "GEOGEBRA RAW - LEFT" + left 3D eye image
- *   right eye -> "GEOGEBRA RAW - RIGHT" + right 3D eye image
- *
- * If the headset button is pressed and this raw screen never appears, the
- * failure is before Quest/Spatial presentation: GeoGebra/WebGL capture is not
- * producing submitStereoFrame().
+ * This build keeps the real WebView visible. The diagnostic stereo surface is a
+ * child of the GeoGebra panel and is positioned/scaled only over the exact 3D
+ * Graphics rectangle reported by JavaScript. Therefore toolbar, algebra panel,
+ * menus and input remain visible and interactive while we verify the corrected
+ * in-render framebuffer capture.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -57,13 +52,15 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
+        private const val PORTAL_Z = -0.006f
     }
 
     private val stereoFrameSurface = StereoFrameSurface()
 
     private var geoGebraPanelEntity: Entity? = null
-    private var stereoFullPanelEntity: Entity? = null
+    private var stereoPortalEntity: Entity? = null
     private var pendingStereo = false
+    private var pendingPortalRect: String? = null
     private var sceneReady = false
     private var vrReady = false
 
@@ -132,37 +129,108 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             pendingStereo = enabled
             if (!enabled) {
                 runOnMainThread {
-                    stereoFullPanelEntity?.setComponent(Visible(false))
+                    stereoPortalEntity?.setComponent(Visible(false))
                 }
             }
         }
 
-        // Geometry is deliberately irrelevant in this diagnostic. We display
-        // the captured SBS frame over the complete panel.
-        SpatialBridgeBus.onPortalRect = { _ -> Unit }
+        SpatialBridgeBus.onPortalRect = { json ->
+            pendingPortalRect = json
+            applyPortalRect(json)
+        }
 
         SpatialBridgeBus.onStereoFrame = { dataUrl, eyeWidth, eyeHeight ->
-            if (pendingStereo && dataUrl.isNotBlank()) {
-                stereoFrameSurface.submitRawStereoDataUrl(
-                    dataUrl = dataUrl,
-                    reportedEyeWidth = eyeWidth,
-                    reportedEyeHeight = eyeHeight,
-                    onPresented = {
-                        runOnMainThread {
-                            if (pendingStereo) {
-                                stereoFullPanelEntity?.setComponent(Visible(true))
-                            }
+            if (!pendingStereo || dataUrl.isBlank()) return@onStereoFrame
+            if (!stereoFrameSurface.canAcceptFrame()) return@onStereoFrame
+
+            stereoFrameSurface.submitRawStereoDataUrl(
+                dataUrl = dataUrl,
+                reportedEyeWidth = eyeWidth,
+                reportedEyeHeight = eyeHeight,
+                onPresented = {
+                    runOnMainThread {
+                        if (pendingStereo) {
+                            pendingPortalRect?.let { applyPortalRect(it) }
+                            stereoPortalEntity?.setComponent(Visible(true))
                         }
-                    },
-                )
-            }
+                    }
+                },
+            )
         }
 
         SpatialBridgeBus.onPanelReady = {
-            // Nothing to mirror natively.
+            // No native GeoGebra geometry mirror is used.
         }
 
         requestScenePermissionIfNeeded()
+    }
+
+    private fun applyPortalRect(json: String) {
+        val entity = stereoPortalEntity ?: return
+
+        try {
+            val data = JSONObject(json)
+            val left = data.optDouble("left", Double.NaN)
+            val top = data.optDouble("top", Double.NaN)
+            val width = data.optDouble("width", Double.NaN)
+            val height = data.optDouble("height", Double.NaN)
+            val viewWidth = data.optDouble("viewWidth", Double.NaN)
+            val viewHeight = data.optDouble("viewHeight", Double.NaN)
+
+            if (
+                !left.isFinite() || !top.isFinite() ||
+                !width.isFinite() || !height.isFinite() ||
+                !viewWidth.isFinite() || !viewHeight.isFinite() ||
+                width <= 0.0 || height <= 0.0 ||
+                viewWidth <= 0.0 || viewHeight <= 0.0
+            ) {
+                return
+            }
+
+            val centerXPixels = left + width / 2.0
+            val centerYPixels = top + height / 2.0
+
+            val centerX = (
+                centerXPixels / viewWidth - 0.5
+            ).toFloat() * PANEL_WIDTH_METERS
+
+            val centerY = (
+                0.5 - centerYPixels / viewHeight
+            ).toFloat() * PANEL_HEIGHT_METERS
+
+            val widthMeters = (
+                width / viewWidth
+            ).toFloat() * PANEL_WIDTH_METERS
+
+            val heightMeters = (
+                height / viewHeight
+            ).toFloat() * PANEL_HEIGHT_METERS
+
+            runOnMainThread {
+                entity.setComponent(
+                    Transform(
+                        Pose(
+                            Vector3(
+                                centerX,
+                                centerY,
+                                PORTAL_Z,
+                            ),
+                        ),
+                    ),
+                )
+                entity.setComponent(
+                    Scale(
+                        Vector3(
+                            widthMeters,
+                            heightMeters,
+                            1f,
+                        ),
+                    ),
+                )
+            }
+        } catch (_: Throwable) {
+            // Ignore one malformed or transient DOM rectangle.
+        }
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -222,18 +290,20 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             listOf(
                 Panel(R.id.stereo_portal_panel),
                 TransformParent(geoPanel),
-                Transform(Pose(Vector3(0f, 0f, -0.006f))),
-                Scale(Vector3(PANEL_WIDTH_METERS, PANEL_HEIGHT_METERS, 1f)),
+                Transform(Pose(Vector3(0f, 0f, PORTAL_Z))),
+                Scale(Vector3(0.01f, 0.01f, 1f)),
                 Visible(false),
             ),
         )
-        stereoFullPanelEntity = stereoPanel
+        stereoPortalEntity = stereoPanel
+
+        pendingPortalRect?.let { applyPortalRect(it) }
     }
 
     override fun onDestroy() {
         SpatialBridgeBus.clear()
         stereoFrameSurface.release()
-        stereoFullPanelEntity = null
+        stereoPortalEntity = null
         geoGebraPanelEntity = null
         super.onDestroy()
     }
