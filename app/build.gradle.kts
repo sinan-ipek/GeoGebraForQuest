@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 27
-        versionName = "0.6.5"
+        versionCode = 28
+        versionName = "0.6.6"
     }
 
     buildFeatures {
@@ -58,10 +58,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.6.5 installs the WebGL hook at document start, before GeoGebra creates its
-// renderer context. During PROJECTION_GLASSES it captures GeoGebra's completed
-// left and right eye passes separately as full-colour RGBA frames, packs them as
-// SBS, and shows the stereo media surface only over the 3D Graphics rectangle.
+// v0.6.6 fixes the remaining headset-click interception bug: both legacy DOM
+// markers are temporarily removed while the real user gesture travels through
+// GeoGebra's projection SelectionTable. This lets GeoGebra genuinely enter
+// PROJECTION_GLASSES so the direct full-colour left/right eye capture added in
+// v0.6.5 can actually receive RED -> RIGHT -> ALL eye passes.
 spatial {
     allowUsageDataCollection.set(true)
 }
