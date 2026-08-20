@@ -2,6 +2,8 @@ package com.sinan.geogebraforquest
 
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
@@ -15,6 +17,8 @@ import com.meta.spatial.toolkit.Grabbable
 import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
 import com.meta.spatial.toolkit.MediaPanelRenderOptions
 import com.meta.spatial.toolkit.MediaPanelSettings
+import com.meta.spatial.toolkit.Mesh
+import com.meta.spatial.toolkit.MeshCollision
 import com.meta.spatial.toolkit.Panel
 import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
@@ -30,13 +34,13 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.6.7 — stereo pipeline diagnostic.
+ * GeoGebraForQuest v0.7.3.
  *
- * The rendering path remains the same as v0.6.6: the normal GeoGebra WebView is
- * visible and the StereoMode.LeftRight media surface covers only the 3D Graphics
- * rectangle. This build adds counters only, so a screenshot can tell us whether
- * a direct eye pair reached Android, was accepted by the EGL writer, was actually
- * presented, and whether the portal entity became visible.
+ * The WebView is the front, interactive panel. The stereo media surface is a
+ * visual underlay behind it. JavaScript punches transparency only through the
+ * active 3D canvas pixels, so rays always meet the real WebView first. Because
+ * the stereo surface is physically behind the WebView, GeoGebra dialogs and
+ * menus can paint over it without disabling stereo capture.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -48,10 +52,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
-        private const val PORTAL_Z = -0.006f
+
+        // Positive local Z keeps the stereo media panel just behind GeoGebra.
+        private const val PORTAL_Z = 0.008f
     }
 
     private val stereoFrameSurface = StereoFrameSurface()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var geoGebraPanelEntity: Entity? = null
     private var stereoPortalEntity: Entity? = null
@@ -60,9 +67,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var sceneReady = false
     private var vrReady = false
 
-    override fun registerFeatures(): List<SpatialFeature> {
-        return listOf(VRFeature(this))
-    }
+    override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
     override fun registerPanels(): List<PanelRegistration> {
         return listOf(
@@ -108,7 +113,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         ),
                         rendering = MediaPanelRenderOptions(
                             stereoMode = StereoMode.LeftRight,
-                            zIndex = 1,
+                            zIndex = -1,
                         ),
                         style = PanelStyleOptions(
                             themeResourceId = R.style.PanelAppThemeTransparent,
@@ -166,22 +171,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         }
                     }
                 },
-                onFinished = {
-                    StereoDebugState.onFrameFinished()
-                },
+                onFinished = { StereoDebugState.onFrameFinished() },
             )
 
-            if (accepted) {
-                StereoDebugState.onFrameAccepted()
-            } else {
-                StereoDebugState.onFrameDroppedBusy()
-            }
+            if (accepted) StereoDebugState.onFrameAccepted()
+            else StereoDebugState.onFrameDroppedBusy()
         }
 
-        SpatialBridgeBus.onPanelReady = {
-            // No native GeoGebra geometry mirror is used.
-        }
-
+        SpatialBridgeBus.onPanelReady = { }
         requestScenePermissionIfNeeded()
     }
 
@@ -203,53 +200,35 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 !viewWidth.isFinite() || !viewHeight.isFinite() ||
                 width <= 0.0 || height <= 0.0 ||
                 viewWidth <= 0.0 || viewHeight <= 0.0
-            ) {
-                return
-            }
+            ) return
 
             val centerXPixels = left + width / 2.0
             val centerYPixels = top + height / 2.0
-
-            val centerX = (
-                centerXPixels / viewWidth - 0.5
-            ).toFloat() * PANEL_WIDTH_METERS
-
-            val centerY = (
-                0.5 - centerYPixels / viewHeight
-            ).toFloat() * PANEL_HEIGHT_METERS
-
-            val widthMeters = (
-                width / viewWidth
-            ).toFloat() * PANEL_WIDTH_METERS
-
-            val heightMeters = (
-                height / viewHeight
-            ).toFloat() * PANEL_HEIGHT_METERS
+            val centerX = (centerXPixels / viewWidth - 0.5).toFloat() * PANEL_WIDTH_METERS
+            val centerY = (0.5 - centerYPixels / viewHeight).toFloat() * PANEL_HEIGHT_METERS
+            val widthMeters = (width / viewWidth).toFloat() * PANEL_WIDTH_METERS
+            val heightMeters = (height / viewHeight).toFloat() * PANEL_HEIGHT_METERS
 
             runOnMainThread {
                 entity.setComponent(
-                    Transform(
-                        Pose(
-                            Vector3(
-                                centerX,
-                                centerY,
-                                PORTAL_Z,
-                            ),
-                        ),
-                    ),
+                    Transform(Pose(Vector3(centerX, centerY, PORTAL_Z))),
                 )
                 entity.setComponent(
-                    Scale(
-                        Vector3(
-                            widthMeters,
-                            heightMeters,
-                            1f,
-                        ),
-                    ),
+                    Scale(Vector3(widthMeters, heightMeters, 1f)),
                 )
             }
         } catch (_: Throwable) {
-            // Ignore one malformed or transient DOM rectangle.
+            // Ignore one malformed/transient DOM rectangle.
+        }
+    }
+
+    private fun makePortalNonHittable(entity: Entity) {
+        try {
+            val mesh = entity.getComponent<Mesh>()
+            mesh.hittable = MeshCollision.NoCollision
+            entity.setComponent(mesh)
+        } catch (_: Throwable) {
+            // VideoSurfacePanelRegistration may attach its mesh slightly later.
         }
     }
 
@@ -277,9 +256,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             requestCode == REQUEST_USE_SCENE &&
             grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
-        ) {
-            enablePassthroughWhenSafe()
-        }
+        ) enablePassthroughWhenSafe()
     }
 
     override fun onSceneReady() {
@@ -315,13 +292,21 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Visible(false),
             ),
         )
+
+        // The underlay is behind the WebView, but also remove its collision mesh
+        // when the runtime exposes it so it can never become a controller target.
+        makePortalNonHittable(stereoPanel)
+        listOf(50L, 150L, 400L, 1000L).forEach { delay ->
+            mainHandler.postDelayed({ makePortalNonHittable(stereoPanel) }, delay)
+        }
+
         stereoPortalEntity = stereoPanel
         StereoDebugState.onPortalEntityReady()
-
         pendingPortalRect?.let { applyPortalRect(it) }
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
         SpatialBridgeBus.clear()
         stereoFrameSurface.release()
         stereoPortalEntity = null

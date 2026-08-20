@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 33
-        versionName = "0.7.0"
+        versionCode = 36
+        versionName = "0.7.3"
     }
 
     buildFeatures {
@@ -58,10 +58,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.0 removes projection-mode UI from the user workflow. Whenever a visible
-// GeoGebra 3D WebGL canvas exists, the app automatically selects GeoGebra's
-// Glasses renderer internally and enables Quest stereo capture. When the 3D view
-// disappears, stereo is disabled. No headset/projection click is required.
+// v0.7.3 keeps the WebView in front and the stereo media surface behind it.
+// Unlike v0.7.2, normal GeoGebra dialogs no longer globally disable stereo:
+// because the portal is an underlay, those dialogs naturally paint over it.
+// This prevents the colour-settings helper from accidentally killing stereo.
 spatial {
     allowUsageDataCollection.set(true)
 }

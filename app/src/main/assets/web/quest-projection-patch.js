@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqAuto3DV070) return;
-  window.__ggqAuto3DV070 = true;
+  if (window.__ggqAuto3DV073) return;
+  window.__ggqAuto3DV073 = true;
 
   const SIG = {
     orthographic: 'M2117.4l-.86.6M3.6220.44L220M194.77l2.55',
@@ -13,15 +13,18 @@
 
   let activeCanvas = null;
   let projectionArmed = false;
+  let projectionPopupRequested = false;
   let stereoRequested = false;
   let missingTicks = 0;
   let lastLog = '';
   let cachedProjection = null;
+  let projectionRetryAt = 0;
+  let markedHoleNodes = [];
 
   function log(message) {
     if (message === lastLog) return;
     lastLog = message;
-    console.log('[GGQ Auto3D v0.7.0] ' + message);
+    console.log('[GGQ Auto3D v0.7.3] ' + message);
   }
 
   function cssBackground(element) {
@@ -53,7 +56,6 @@
 
   function kindOf(element) {
     if (!element) return '';
-    if (element.dataset && element.dataset.ggqStereoIcon === '1') return 'glasses';
     const source = decodeBackground(cssBackground(element))
       .replace(/\s+/g, '').replace(/%20/gi, '').toLowerCase();
     if (!source) return '';
@@ -64,10 +66,24 @@
     return '';
   }
 
+  function visible(element) {
+    if (!element || !element.isConnected) return false;
+    try {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' &&
+        Number(style.opacity || 1) > 0 && rect.width > 2 && rect.height > 2 &&
+        rect.bottom > 0 && rect.right > 0 && rect.left < innerWidth && rect.top < innerHeight;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function visibleWebGlCanvas() {
     const root = document.getElementById('ggb-element') || document;
     let best = null;
     let bestArea = 0;
+
     for (const canvas of Array.from(root.querySelectorAll('canvas'))) {
       try {
         const rect = canvas.getBoundingClientRect();
@@ -75,58 +91,102 @@
         if (style.display === 'none' || style.visibility === 'hidden') continue;
         if (rect.width < 160 || rect.height < 140) continue;
         if (rect.right <= 0 || rect.bottom <= 0 || rect.left >= innerWidth || rect.top >= innerHeight) continue;
-        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+
+        const gl = canvas.getContext('webgl2') ||
+          canvas.getContext('webgl') ||
+          canvas.getContext('experimental-webgl');
         if (!gl) continue;
+
         const area = rect.width * rect.height;
-        if (area > bestArea) { best = canvas; bestArea = area; }
+        if (area > bestArea) {
+          best = canvas;
+          bestArea = area;
+        }
       } catch (_) {}
     }
+
     return best;
   }
 
   function projectionTableInfo() {
     if (cachedProjection && cachedProjection.table && cachedProjection.table.isConnected &&
-        cachedProjection.glasses && cachedProjection.glasses.isConnected) return cachedProjection;
+        cachedProjection.glasses && cachedProjection.glasses.isConnected) {
+      return cachedProjection;
+    }
+
+    cachedProjection = null;
 
     for (const table of Array.from(document.querySelectorAll('.SelectionTable'))) {
       const icons = Array.from(table.querySelectorAll('.stylebarButton'))
         .filter(function (element) { return !!cssBackground(element); });
       if (icons.length !== 4) continue;
+
       const kinds = icons.map(kindOf);
       if (kinds[0] === 'orthographic' && kinds[1] === 'perspective' &&
           kinds[2] === 'glasses' && kinds[3] === 'oblique') {
-        cachedProjection = { table: table, glasses: icons[2] };
+        cachedProjection = {
+          table: table,
+          glasses: icons[2],
+          icons: icons
+        };
         return cachedProjection;
       }
     }
+
     return null;
   }
 
-  function stripLegacyMarkers(root) {
-    if (!root) return;
-    const nodes = [root].concat(Array.from(root.querySelectorAll ? root.querySelectorAll('*') : []));
-    for (const node of nodes) {
-      if (!node || !node.dataset) continue;
-      delete node.dataset.ggqStereoTarget;
-      delete node.dataset.ggqStereoIcon;
-      delete node.dataset.ggqProjectionContainer;
+  function projectionLauncher() {
+    const candidates = Array.from(document.querySelectorAll(
+      '.stylebarButton,button,[role="button"],[style*="background-image"]'
+    ));
+
+    for (const element of candidates) {
+      if (element.closest && element.closest('.SelectionTable')) continue;
+      if (!kindOf(element) || !visible(element)) continue;
+      return element;
     }
-    let parent = root.parentElement;
-    for (let i = 0; parent && i < 4; i += 1, parent = parent.parentElement) {
-      if (!parent.dataset) continue;
-      delete parent.dataset.ggqStereoTarget;
-      delete parent.dataset.ggqStereoIcon;
-      delete parent.dataset.ggqProjectionContainer;
+
+    return null;
+  }
+
+  function synthesizeActivation(target) {
+    if (!target) return false;
+
+    try {
+      const mouse = function (type) {
+        target.dispatchEvent(new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 0,
+          buttons: type === 'mousedown' ? 1 : 0
+        }));
+      };
+
+      mouse('mousedown');
+      mouse('mouseup');
+      if (typeof target.click === 'function') target.click();
+      else mouse('click');
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
-  function hideProjectionControls() {
-    const info = projectionTableInfo();
-    if (!info) return null;
-    stripLegacyMarkers(info.table);
-    info.table.style.setProperty('display', 'none', 'important');
-    info.table.setAttribute('aria-hidden', 'true');
-    return info;
+  function concealProjectionUi(info) {
+    if (info && info.table) {
+      info.table.style.setProperty('opacity', '0', 'important');
+      info.table.style.setProperty('pointer-events', 'none', 'important');
+      info.table.style.setProperty('visibility', 'hidden', 'important');
+      info.table.setAttribute('aria-hidden', 'true');
+    }
+
+    const launcher = projectionLauncher();
+    if (launcher) {
+      launcher.style.setProperty('display', 'none', 'important');
+      launcher.setAttribute('aria-hidden', 'true');
+    }
   }
 
   function captureEnabled() {
@@ -134,99 +194,192 @@
       return !!(window.GeoGebraQuestStereoCapture &&
         typeof window.GeoGebraQuestStereoCapture.isEnabled === 'function' &&
         window.GeoGebraQuestStereoCapture.isEnabled());
-    } catch (_) { return false; }
-  }
-
-  function requestStereoOn() {
-    try {
-      if (window.GeoGebraQuestStereoCapture && typeof window.GeoGebraQuestStereoCapture.enable === 'function') {
-        window.GeoGebraQuestStereoCapture.enable();
-        stereoRequested = true;
-        log('3D visible -> stereo ON');
-        return true;
-      }
-      if (window.GeoGebraForQuest && typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
-        window.GeoGebraForQuest.setStereoEnabled(true, true);
-        stereoRequested = true;
-        log('3D visible -> stereo ON via API');
-        return true;
-      }
-    } catch (error) {
-      console.error('[GGQ Auto3D v0.7.0 enable]', error);
-    }
-    return false;
-  }
-
-  function requestStereoOff() {
-    try {
-      if (window.GeoGebraForQuest && typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
-        window.GeoGebraForQuest.setStereoEnabled(false, true);
-      }
-    } catch (_) {}
-    stereoRequested = false;
-    log('3D not visible -> stereo OFF');
-  }
-
-  function forceGlassesProjection(info) {
-    if (!info || !info.glasses) return false;
-    stripLegacyMarkers(info.table);
-
-    // Arm capture BEFORE the programmatic Glasses click so GeoGebra's very first
-    // RED/RIGHT render pass is captured even if a static scene does not redraw later.
-    if (!captureEnabled() && !requestStereoOn()) return false;
-
-    try {
-      info.glasses.dispatchEvent(new MouseEvent('click', {
-        bubbles: true, cancelable: true, view: window
-      }));
-      projectionArmed = true;
-      log('3D detected -> Glasses selected automatically; no user click');
-      return true;
-    } catch (error) {
-      console.error('[GGQ Auto3D v0.7.0 projection]', error);
+    } catch (_) {
       return false;
     }
   }
 
+  function setStereo(enabled) {
+    try {
+      if (window.GeoGebraForQuest && typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
+        window.GeoGebraForQuest.setStereoEnabled(!!enabled, true);
+        stereoRequested = !!enabled;
+        return true;
+      }
+
+      if (window.GeoGebraQuestStereoCapture) {
+        if (enabled && typeof window.GeoGebraQuestStereoCapture.enable === 'function') {
+          window.GeoGebraQuestStereoCapture.enable();
+          stereoRequested = true;
+          return true;
+        }
+
+        if (!enabled && typeof window.GeoGebraQuestStereoCapture.disable === 'function') {
+          window.GeoGebraQuestStereoCapture.disable(true);
+          stereoRequested = false;
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('[GGQ Auto3D v0.7.3 stereo]', error);
+    }
+
+    return false;
+  }
+
+  function ensureProjectionPopup() {
+    const info = projectionTableInfo();
+    if (info) return info;
+
+    const now = performance.now();
+    if (now < projectionRetryAt) return null;
+    projectionRetryAt = now + 220;
+
+    const launcher = projectionLauncher();
+    if (launcher && synthesizeActivation(launcher)) {
+      projectionPopupRequested = true;
+      log('3D detected -> opening projection selector internally');
+    }
+
+    return null;
+  }
+
+  function forceGlassesProjection(info) {
+    if (!info || !info.glasses) return false;
+
+    if (!captureEnabled()) setStereo(true);
+
+    const table = info.table;
+    const oldVisibility = table.style.visibility;
+    const oldOpacity = table.style.opacity;
+    const oldPointerEvents = table.style.pointerEvents;
+
+    table.style.visibility = 'visible';
+    table.style.opacity = '0';
+    table.style.pointerEvents = 'none';
+
+    const ok = synthesizeActivation(info.glasses);
+
+    table.style.visibility = oldVisibility;
+    table.style.opacity = oldOpacity;
+    table.style.pointerEvents = oldPointerEvents;
+
+    if (ok) {
+      projectionArmed = true;
+      projectionPopupRequested = false;
+      concealProjectionUi(info);
+      log('Glasses projection selected automatically');
+      return true;
+    }
+
+    return false;
+  }
+
+  function clearStereoHole() {
+    if (activeCanvas) {
+      try { activeCanvas.classList.remove('ggq-stereo-canvas'); } catch (_) {}
+    }
+
+    for (const node of markedHoleNodes) {
+      try { node.classList.remove('ggq-stereo-hole'); } catch (_) {}
+    }
+
+    markedHoleNodes = [];
+  }
+
+  function markStereoHole(canvas) {
+    clearStereoHole();
+    if (!canvas) return;
+
+    canvas.classList.add('ggq-stereo-canvas');
+
+    const rect = canvas.getBoundingClientRect();
+    let node = canvas.parentElement;
+
+    for (let i = 0; node && i < 8; i += 1, node = node.parentElement) {
+      try {
+        const r = node.getBoundingClientRect();
+        const closeWidth = r.width <= rect.width * 1.08 && r.width >= rect.width * 0.92;
+        const closeHeight = r.height <= rect.height * 1.08 && r.height >= rect.height * 0.92;
+        if (!closeWidth || !closeHeight) break;
+
+        node.classList.add('ggq-stereo-hole');
+        markedHoleNodes.push(node);
+      } catch (_) {
+        break;
+      }
+    }
+  }
+
   function scan() {
-    const info = hideProjectionControls();
     const canvas = visibleWebGlCanvas();
 
     if (!canvas) {
       missingTicks += 1;
-      if (missingTicks >= 4) {
+      if (missingTicks >= 3) {
+        clearStereoHole();
         activeCanvas = null;
         projectionArmed = false;
-        if (stereoRequested || captureEnabled()) requestStereoOff();
+        projectionPopupRequested = false;
+        if (stereoRequested || captureEnabled()) setStereo(false);
       }
       return;
     }
 
     missingTicks = 0;
+
     if (activeCanvas !== canvas) {
+      clearStereoHole();
       activeCanvas = canvas;
       projectionArmed = false;
+      projectionPopupRequested = false;
+      cachedProjection = null;
+      projectionRetryAt = 0;
     }
 
     if (!projectionArmed) {
+      const info = projectionTableInfo() || ensureProjectionPopup();
       if (info) forceGlassesProjection(info);
       return;
     }
 
-    if (!captureEnabled()) requestStereoOn();
+    const info = projectionTableInfo();
+    if (info) concealProjectionUi(info);
+
+    // v0.7.3 intentionally does NOT disable stereo when GeoGebra settings,
+    // save, login or other UI layers are visible. The stereo surface is now an
+    // underlay behind the WebView, so those ordinary WebView layers naturally
+    // cover it. Turning stereo off for them caused v0.7.2 to fall back to the
+    // visible anaglyph canvas while the colour helper had Settings open.
+    markStereoHole(canvas);
+    if (!captureEnabled()) setStereo(true);
   }
 
   window.GeoGebraQuestAuto3D = {
     isInstalled: function () { return true; },
     is3DVisible: function () { return !!visibleWebGlCanvas(); },
+    is3DExposed: function () { return !!activeCanvas; },
     isProjectionArmed: function () { return projectionArmed; },
+    isProjectionPopupRequested: function () { return projectionPopupRequested; },
     isStereoRequested: function () { return stereoRequested; },
+    isPortalSuppressed: function () { return false; },
+    isUnderlayHoleActive: function () {
+      return !!(activeCanvas && activeCanvas.classList.contains('ggq-stereo-canvas'));
+    },
     scanNow: scan
   };
 
-  const observer = new MutationObserver(function () { setTimeout(scan, 0); });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  const observer = new MutationObserver(function () {
+    setTimeout(scan, 0);
+  });
+
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'style', 'aria-hidden', 'aria-expanded']
+  });
 
   scan();
-  setInterval(scan, 250);
+  setInterval(scan, 100);
 })();
