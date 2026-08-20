@@ -32,11 +32,10 @@ import javax.microedition.khronos.egl.EGLSurface
 /**
  * Direct SBS presenter for GeoGebra's left/right eye frames.
  *
- * v0.7.1 deliberately does not create a second 2160x720 Bitmap for every frame.
- * JavaScript has already packed the two eyes side-by-side, so the decoded SBS
- * bitmap is uploaded directly as an OpenGL texture and the GPU scales it to the
- * fixed Spatial SDK surface. This removes a large CPU copy/allocation from every
- * frame while preserving the original RGB channels exactly.
+ * JavaScript already packs the complete RGB eye images side-by-side. The bitmap
+ * is uploaded directly as one GL texture; the Spatial SDK interprets the surface
+ * as StereoMode.LeftRight. v0.7.3 keeps this proven renderer unchanged while the
+ * composition architecture moves the media panel behind the interactive WebView.
  */
 class StereoFrameSurface {
 
@@ -117,8 +116,6 @@ class StereoFrameSurface {
                 if (!surface.isValid) return@execute
                 if (eglSurface == EGL_NO_SURFACE && !initEgl(surface)) return@execute
 
-                // The input bitmap already is LEFT|RIGHT SBS. Upload it directly;
-                // linear texture sampling performs the final surface scaling on GPU.
                 if (drawBitmap(decoded)) {
                     onPresented?.invoke()
                 }
