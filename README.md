@@ -11,8 +11,9 @@ The v0.7.x line automatically detects the visible GeoGebra 3D WebGL view, intern
 - The normal GeoGebra WebView remains the **front interaction layer**.
 - The stereo media surface sits **behind** the WebView as an underlay.
 - Only the active 3D WebGL canvas is made almost transparent; controller rays still hit the real WebView canvas.
-- GeoGebra dialogs, settings, save/login UI and the virtual keyboard are no longer used as a reason to disable stereo globally. They simply draw in the WebView in front of the stereo underlay.
-- The colour helper opens the 3D Projection settings, disables GeoGebra's `GrayScale` option, and then closes Settings through GeoGebra's real `SheetTitlePanel.closeBtn` control.
+- GeoGebra dialogs, settings, save/login UI and the virtual keyboard are **not** used to disable stereo. They simply render in the WebView in front of the stereo underlay.
+- The colour helper opens the 3D Projection settings, disables GeoGebra's `GrayScale` option, then closes Settings through GeoGebra's real `SheetTitlePanel.closeBtn` control.
 - Projection-selection buttons are internal implementation details and are hidden from the user.
+- The proven direct-eye capture path from v0.7.1 is intentionally retained; v0.7.3 changes composition and UI automation, not the working left/right capture algorithm.
 
 This is still a debug/test build. The on-screen GGQ debug overlay is intentionally enabled so Quest-side tests can report stereo state, direct-eye frame counters, colour configuration, and underlay-hole state.
