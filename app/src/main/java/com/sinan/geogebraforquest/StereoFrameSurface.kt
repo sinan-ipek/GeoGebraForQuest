@@ -1,6 +1,10 @@
 package com.sinan.geogebraforquest
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import android.opengl.GLES20
 import android.opengl.GLUtils
 import android.util.Base64
@@ -27,25 +31,26 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLContext
 import javax.microedition.khronos.egl.EGLDisplay
 import javax.microedition.khronos.egl.EGLSurface
+import org.json.JSONObject
 
 /**
- * Draws GeoGebra's compressed SBS stereo frames directly into the Surface
- * supplied by Spatial SDK's VideoSurfacePanelRegistration.
+ * v0.6.0 full-panel stereo compositor.
  *
- * The Spatial panel is configured with StereoMode.LeftRight. Therefore this
- * class does not decide which eye sees which pixels: it simply paints a normal
- * 1280x480 SBS image (640x480 left eye + 640x480 right eye). Meta's compositor
- * performs the per-eye selection.
+ * JavaScript no longer sends an already-composited portal image. It sends only
+ * the decoded SBS image of GeoGebra's 3D viewport. The Activity separately takes
+ * one ordinary screenshot of the whole WebView panel. This class then builds:
  *
- * v0.5.1 reports presentation only after eglSwapBuffers() succeeds. The parent
- * Activity keeps the stereo portal hidden until that callback, so a missing
- * GeoGebra eye frame can never replace the working 3D view with a black panel.
+ *   LEFT EYE  = full GeoGebra UI + left 3D image
+ *   RIGHT EYE = full GeoGebra UI + right 3D image
+ *
+ * and packs the two complete interface images side-by-side. Spatial SDK's
+ * StereoMode.LeftRight performs the final eye selection.
  */
 class StereoFrameSurface {
 
     companion object {
-        const val EYE_WIDTH = 640
-        const val EYE_HEIGHT = 480
+        const val EYE_WIDTH = 1080
+        const val EYE_HEIGHT = 720
         const val SURFACE_WIDTH = EYE_WIDTH * 2
         const val SURFACE_HEIGHT = EYE_HEIGHT
 
@@ -54,7 +59,7 @@ class StereoFrameSurface {
     }
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "GGQ-StereoSurface").apply { isDaemon = true }
+        Thread(runnable, "GGQ-FullPanelStereoSurface").apply { isDaemon = true }
     }
     private val framePending = AtomicBoolean(false)
 
@@ -77,7 +82,6 @@ class StereoFrameSurface {
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer()
         .apply {
-            // x, y, u, v. Android Bitmap rows are top-down, so V is flipped.
             put(
                 floatArrayOf(
                     -1f, -1f, 0f, 1f,
@@ -99,40 +103,54 @@ class StereoFrameSurface {
         }
     }
 
-    fun submitDataUrl(
+    fun canAcceptFrame(): Boolean = !framePending.get()
+
+    /**
+     * Composes one complete left-eye GeoGebra panel and one complete right-eye
+     * panel. [basePanel] is always recycled by this method once ownership is
+     * accepted, even when decoding or EGL presentation fails.
+     *
+     * @return true if the frame was accepted for processing; false if another
+     * frame is already in flight. When false, the caller still owns basePanel.
+     */
+    fun submitCompositeDataUrl(
         dataUrl: String,
+        basePanel: Bitmap,
+        portalRectJson: String?,
         onPresented: (() -> Unit)? = null,
-    ) {
+        onFinished: (() -> Unit)? = null,
+    ): Boolean {
         if (!framePending.compareAndSet(false, true)) {
-            // Real-time rule: keep latency low by dropping a frame rather than
-            // queueing old frames behind the one currently being decoded.
-            return
+            return false
         }
 
         executor.execute {
+            var stereo3D: Bitmap? = null
+            var fullSbs: Bitmap? = null
             try {
-                val comma = dataUrl.indexOf(',')
-                if (comma < 0 || comma >= dataUrl.length - 1) return@execute
-                val payload = dataUrl.substring(comma + 1)
-                val bytes = Base64.decode(payload, Base64.DEFAULT)
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@execute
-                try {
-                    val surface = targetSurface ?: return@execute
-                    if (!surface.isValid) return@execute
-                    if (eglSurface == EGL_NO_SURFACE && !initEgl(surface)) return@execute
-                    if (drawBitmap(bitmap)) {
-                        onPresented?.invoke()
-                    }
-                } finally {
-                    bitmap.recycle()
+                stereo3D = decodeDataUrl(dataUrl) ?: return@execute
+                fullSbs = composeFullPanel(basePanel, stereo3D, portalRectJson)
+
+                val surface = targetSurface ?: return@execute
+                if (!surface.isValid) return@execute
+                if (eglSurface == EGL_NO_SURFACE && !initEgl(surface)) return@execute
+
+                if (drawBitmap(fullSbs)) {
+                    onPresented?.invoke()
                 }
             } catch (_: Throwable) {
-                // A bad/transient frame is disposable. Never crash the Spatial
-                // activity because one WebGL capture or JPEG decode failed.
+                // A transient WebView snapshot, JPEG, or EGL frame is disposable.
+                // Never allow one bad frame to crash the Spatial activity.
             } finally {
+                if (!basePanel.isRecycled) basePanel.recycle()
+                stereo3D?.let { if (!it.isRecycled) it.recycle() }
+                fullSbs?.let { if (!it.isRecycled) it.recycle() }
                 framePending.set(false)
+                onFinished?.invoke()
             }
         }
+
+        return true
     }
 
     fun release() {
@@ -141,6 +159,105 @@ class StereoFrameSurface {
             releaseEglInternal()
         }
         executor.shutdown()
+    }
+
+    private fun decodeDataUrl(dataUrl: String): Bitmap? {
+        val comma = dataUrl.indexOf(',')
+        if (comma < 0 || comma >= dataUrl.length - 1) return null
+        val payload = dataUrl.substring(comma + 1)
+        val bytes = Base64.decode(payload, Base64.DEFAULT)
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }
+
+    private fun composeFullPanel(
+        basePanel: Bitmap,
+        stereo3D: Bitmap,
+        portalRectJson: String?,
+    ): Bitmap {
+        val output = Bitmap.createBitmap(
+            SURFACE_WIDTH,
+            SURFACE_HEIGHT,
+            Bitmap.Config.ARGB_8888,
+        )
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+        val baseSource = Rect(0, 0, basePanel.width, basePanel.height)
+        val leftEyePanel = Rect(0, 0, EYE_WIDTH, EYE_HEIGHT)
+        val rightEyePanel = Rect(EYE_WIDTH, 0, SURFACE_WIDTH, EYE_HEIGHT)
+
+        // The same ordinary GeoGebra UI is the base of both eye images.
+        canvas.drawBitmap(basePanel, baseSource, leftEyePanel, paint)
+        canvas.drawBitmap(basePanel, baseSource, rightEyePanel, paint)
+
+        val destination = portalDestination(portalRectJson)
+        if (destination != null && stereo3D.width >= 2 && stereo3D.height >= 1) {
+            val half = stereo3D.width / 2
+            if (half >= 1) {
+                val leftSource = Rect(0, 0, half, stereo3D.height)
+                val rightSource = Rect(half, 0, stereo3D.width, stereo3D.height)
+
+                canvas.drawBitmap(
+                    stereo3D,
+                    leftSource,
+                    destination,
+                    paint,
+                )
+
+                val rightDestination = Rect(
+                    destination.left + EYE_WIDTH,
+                    destination.top,
+                    destination.right + EYE_WIDTH,
+                    destination.bottom,
+                )
+                canvas.drawBitmap(
+                    stereo3D,
+                    rightSource,
+                    rightDestination,
+                    paint,
+                )
+            }
+        }
+
+        return output
+    }
+
+    private fun portalDestination(json: String?): Rect? {
+        if (json.isNullOrBlank()) return null
+
+        return try {
+            val data = JSONObject(json)
+            val left = data.optDouble("left", Double.NaN)
+            val top = data.optDouble("top", Double.NaN)
+            val width = data.optDouble("width", Double.NaN)
+            val height = data.optDouble("height", Double.NaN)
+            val viewWidth = data.optDouble("viewWidth", Double.NaN)
+            val viewHeight = data.optDouble("viewHeight", Double.NaN)
+
+            if (
+                !left.isFinite() || !top.isFinite() ||
+                !width.isFinite() || !height.isFinite() ||
+                !viewWidth.isFinite() || !viewHeight.isFinite() ||
+                width <= 0.0 || height <= 0.0 ||
+                viewWidth <= 0.0 || viewHeight <= 0.0
+            ) {
+                return null
+            }
+
+            val x0 = (left / viewWidth * EYE_WIDTH).toInt()
+            val y0 = (top / viewHeight * EYE_HEIGHT).toInt()
+            val x1 = ((left + width) / viewWidth * EYE_WIDTH).toInt()
+            val y1 = ((top + height) / viewHeight * EYE_HEIGHT).toInt()
+
+            Rect(
+                x0.coerceIn(0, EYE_WIDTH - 1),
+                y0.coerceIn(0, EYE_HEIGHT - 1),
+                x1.coerceIn(1, EYE_WIDTH),
+                y1.coerceIn(1, EYE_HEIGHT),
+            ).takeIf { it.width() > 0 && it.height() > 0 }
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun initEgl(surface: Surface): Boolean {
@@ -259,7 +376,7 @@ class StereoFrameSurface {
         localEgl.eglSwapBuffers(eglDisplay, eglSurface)
     }
 
-    private fun drawBitmap(bitmap: android.graphics.Bitmap): Boolean {
+    private fun drawBitmap(bitmap: Bitmap): Boolean {
         val localEgl = egl ?: return false
         if (eglSurface == EGL_NO_SURFACE || program == 0 || texture == 0) return false
 
