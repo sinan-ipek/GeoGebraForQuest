@@ -1,9 +1,6 @@
 package com.sinan.geogebraforquest
 
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
 import android.os.Bundle
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
@@ -30,21 +27,25 @@ import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.toolkit.Visible
 import com.meta.spatial.vr.VRFeature
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * GeoGebraForQuest v0.6.1 stereo-pipeline diagnostic build.
+ * GeoGebraForQuest v0.6.2 — raw GeoGebra stereo-capture diagnostic.
  *
- * v0.6.0 still produced no visible depth. Before changing GeoGebra capture again
- * we now isolate the final half of the pipeline. Pressing the headset button
- * shows a deterministic full-panel SBS calibration image generated natively:
- * the ordinary GeoGebra panel is identical in both eyes, while A/B/C targets
- * have positive/zero/negative horizontal disparity.
+ * v0.6.1 proved that the native Android -> Spatial SDK -> StereoMode.LeftRight
+ * path is correct: Quest showed a different image to each eye and eye ordering
+ * was correct.
  *
- * If A/B/C occupy different apparent depths, the Android -> Spatial surface ->
- * StereoMode.LeftRight path is working and the remaining bug is upstream in
- * GeoGebra/anaglyph extraction. If all three are flat/identical, the bug is in
- * the Spatial stereo presentation path itself.
+ * This build therefore tests ONLY the upstream half. When GeoGebra's JavaScript
+ * capture sends an SBS frame, that frame is displayed directly as the stereo
+ * panel. No WebView screenshot, portal compositing, or UI duplication is used.
+ *
+ * Expected result when capture works:
+ *   left eye  -> "GEOGEBRA RAW - LEFT" + left 3D eye image
+ *   right eye -> "GEOGEBRA RAW - RIGHT" + right 3D eye image
+ *
+ * If the headset button is pressed and this raw screen never appears, the
+ * failure is before Quest/Spatial presentation: GeoGebra/WebGL capture is not
+ * producing submitStereoFrame().
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -56,19 +57,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
-
-        // Temporary diagnostic switch for v0.6.1.
-        private const val STEREO_PIPELINE_TEST = true
     }
 
     private val stereoFrameSurface = StereoFrameSurface()
-    private val webCapturePending = AtomicBoolean(false)
 
     private var geoGebraPanelEntity: Entity? = null
     private var stereoFullPanelEntity: Entity? = null
-    private var geoGebraWebView: WebView? = null
     private var pendingStereo = false
-    private var pendingPortalRect: String? = null
     private var sceneReady = false
     private var vrReady = false
 
@@ -98,7 +93,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 },
                 panelSetupWithRootView = { rootView, _, _ ->
                     val webView = rootView.findViewById<WebView>(R.id.geogebra_webview)
-                    geoGebraWebView = webView
                     configureGeoGebraWebView(
                         webView = webView,
                         spatialMode = true,
@@ -140,151 +134,35 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 runOnMainThread {
                     stereoFullPanelEntity?.setComponent(Visible(false))
                 }
-            } else if (STEREO_PIPELINE_TEST) {
-                showStereoCalibrationFrame()
             }
         }
 
-        SpatialBridgeBus.onPortalRect = { json ->
-            pendingPortalRect = json
-        }
+        // Geometry is deliberately irrelevant in this diagnostic. We display
+        // the captured SBS frame over the complete panel.
+        SpatialBridgeBus.onPortalRect = { _ -> Unit }
 
-        SpatialBridgeBus.onStereoFrame = { dataUrl, _, _ ->
-            if (!STEREO_PIPELINE_TEST) {
-                captureAndSubmitFullPanelFrame(dataUrl)
-            }
+        SpatialBridgeBus.onStereoFrame = { dataUrl, eyeWidth, eyeHeight ->
+            if (!pendingStereo || dataUrl.isBlank()) return@onStereoFrame
+
+            stereoFrameSurface.submitRawStereoDataUrl(
+                dataUrl = dataUrl,
+                reportedEyeWidth = eyeWidth,
+                reportedEyeHeight = eyeHeight,
+                onPresented = {
+                    runOnMainThread {
+                        if (pendingStereo) {
+                            stereoFullPanelEntity?.setComponent(Visible(true))
+                        }
+                    }
+                },
+            )
         }
 
         SpatialBridgeBus.onPanelReady = {
-            // No native GeoGebra geometry mirror is needed.
+            // Nothing to mirror natively.
         }
 
         requestScenePermissionIfNeeded()
-    }
-
-    /**
-     * Captures the ordinary WebView once and asks StereoFrameSurface to draw
-     * deliberately displaced A/B/C targets into the left/right halves. No
-     * GeoGebra WebGL capture is involved in this test.
-     */
-    private fun showStereoCalibrationFrame() {
-        if (!pendingStereo) return
-        if (!stereoFrameSurface.canAcceptFrame()) return
-        if (!webCapturePending.compareAndSet(false, true)) return
-
-        val webView = geoGebraWebView
-        if (webView == null) {
-            webCapturePending.set(false)
-            return
-        }
-
-        webView.post {
-            if (!pendingStereo || webView.width <= 0 || webView.height <= 0) {
-                webCapturePending.set(false)
-                return@post
-            }
-
-            var basePanel: Bitmap? = null
-            try {
-                basePanel = Bitmap.createBitmap(
-                    webView.width,
-                    webView.height,
-                    Bitmap.Config.ARGB_8888,
-                )
-                val canvas = Canvas(basePanel)
-                canvas.drawColor(Color.WHITE)
-                webView.draw(canvas)
-
-                val accepted = stereoFrameSurface.submitCalibration(
-                    basePanel = basePanel,
-                    onPresented = {
-                        runOnMainThread {
-                            if (pendingStereo) {
-                                stereoFullPanelEntity?.setComponent(Visible(true))
-                            }
-                        }
-                    },
-                    onFinished = {
-                        webCapturePending.set(false)
-                    },
-                )
-
-                if (accepted) {
-                    basePanel = null
-                }
-            } catch (_: Throwable) {
-                // A failed diagnostic snapshot must not crash the app.
-            } finally {
-                basePanel?.let { bitmap ->
-                    if (!bitmap.isRecycled) bitmap.recycle()
-                }
-                if (basePanel != null) {
-                    webCapturePending.set(false)
-                }
-            }
-        }
-    }
-
-    private fun captureAndSubmitFullPanelFrame(dataUrl: String) {
-        if (!pendingStereo || dataUrl.isBlank()) return
-        if (!stereoFrameSurface.canAcceptFrame()) return
-        if (!webCapturePending.compareAndSet(false, true)) return
-
-        val webView = geoGebraWebView
-        if (webView == null) {
-            webCapturePending.set(false)
-            return
-        }
-
-        val portalRect = pendingPortalRect
-
-        webView.post {
-            if (!pendingStereo || webView.width <= 0 || webView.height <= 0) {
-                webCapturePending.set(false)
-                return@post
-            }
-
-            var basePanel: Bitmap? = null
-            try {
-                basePanel = Bitmap.createBitmap(
-                    webView.width,
-                    webView.height,
-                    Bitmap.Config.ARGB_8888,
-                )
-                val canvas = Canvas(basePanel)
-                canvas.drawColor(Color.WHITE)
-                webView.draw(canvas)
-
-                val accepted = stereoFrameSurface.submitCompositeDataUrl(
-                    dataUrl = dataUrl,
-                    basePanel = basePanel,
-                    portalRectJson = portalRect,
-                    onPresented = {
-                        runOnMainThread {
-                            if (pendingStereo) {
-                                stereoFullPanelEntity?.setComponent(Visible(true))
-                            }
-                        }
-                    },
-                    onFinished = {
-                        webCapturePending.set(false)
-                    },
-                )
-
-                if (accepted) {
-                    basePanel = null
-                }
-            } catch (_: Throwable) {
-                // A failed WebView snapshot is just one dropped stereo frame.
-            } finally {
-                basePanel?.let { bitmap ->
-                    if (!bitmap.isRecycled) bitmap.recycle()
-                }
-                if (basePanel != null) {
-                    webCapturePending.set(false)
-                }
-            }
-        }
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -357,7 +235,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoFrameSurface.release()
         stereoFullPanelEntity = null
         geoGebraPanelEntity = null
-        geoGebraWebView = null
         super.onDestroy()
     }
 }
