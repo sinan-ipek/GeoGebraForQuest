@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqProjectionPatchV4) return;
-  window.__ggqProjectionPatchV4 = true;
+  if (window.__ggqProjectionPatchV5) return;
+  window.__ggqProjectionPatchV5 = true;
 
   const HEADSET_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M4.2 7.5h15.6c1.2 0 2.2 1 2.2 2.2v6.1c0 1.2-1 2.2-2.2 2.2h-4.3l-2.1-2.6h-2.8L8.5 18H4.2C3 18 2 17 2 15.8V9.7c0-1.2 1-2.2 2.2-2.2zm.3 2v6.5h3.1l2.1-2.6h4.6l2.1 2.6h3.1V9.5H4.5z"/><path d="M7 11.2h3v2H7zm7 0h3v2h-3z"/></svg>';
   const HEADSET_BG = 'url("data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(HEADSET_SVG) + '")';
@@ -15,7 +15,7 @@
   };
 
   let patchQueued = false;
-  let lastFallbackActivation = 0;
+  let lastArmAt = 0;
 
   function cssBackground(element) {
     if (!element || element.nodeType !== 1) return '';
@@ -98,7 +98,8 @@
         .filter(function (element) { return !!cssBackground(element); });
       if (icons.length !== 4) continue;
       const kinds = icons.map(kindOf);
-      if (kinds[0] !== 'orthographic' || kinds[1] !== 'perspective' || kinds[2] !== 'glasses' || kinds[3] !== 'oblique') {
+      if (kinds[0] !== 'orthographic' || kinds[1] !== 'perspective' ||
+          kinds[2] !== 'glasses' || kinds[3] !== 'oblique') {
         continue;
       }
       table.dataset.ggqProjectionContainer = '1';
@@ -145,114 +146,81 @@
   function projectionTableInEvent(event) {
     const path = eventPath(event);
     for (const node of path) {
-      if (node && node.nodeType === 1 && node.dataset && node.dataset.ggqProjectionContainer === '1') return node;
+      if (node && node.nodeType === 1 && node.dataset &&
+          node.dataset.ggqProjectionContainer === '1') {
+        return node;
+      }
     }
     return null;
   }
 
-  /**
-   * v0.5.1 activation path.
-   *
-   * Older GeoGebraForQuest index.html builds contain an early document-capture
-   * listener that intercepts the headset marker and prevents GeoGebra's own
-   * third projection cell from receiving the click. v0.5.0 then tried to send a
-   * second synthetic click back into the projection popup. On Quest that path
-   * produced the black stereo surface seen in testing because GeoGebra never
-   * reliably entered PROJECTION_GLASSES, so there were no left/right eye passes
-   * to capture.
-   *
-   * Capture on window runs before any document listener. We arm the stereo
-   * capture first, temporarily remove only the Quest marker from the event path,
-   * and then let the ORIGINAL user click continue untouched into GeoGebra. Thus
-   * GeoGebra itself performs its normal Anaglyph selection and creates the two
-   * eye renders. The visual headset marker is restored after the event and popup
-   * lifecycle settle.
-   */
-  window.addEventListener('click', function (event) {
-    if (!stereoTargetInEvent(event)) return;
-
-    const currentlyOn = document.documentElement.dataset.ggqStereo === 'on';
-
-    if (currentlyOn) {
-      // A second headset click is our explicit toggle-off gesture. Do not feed
-      // another Glasses selection into GeoGebra; GeoGebraForQuest will return to
-      // Perspective through its normal stereo-off path.
-      event.preventDefault();
-      event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
-      try {
-        if (window.GeoGebraForQuest && typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
-          window.GeoGebraForQuest.setStereoEnabled(false, false);
-        }
-      } catch (error) {
-        console.error('[GeoGebraForQuest natural projection off]', error);
-      }
-      return;
-    }
-
-    // Arm the WebGL eye-capture hook BEFORE GeoGebra receives this click.
+  function armStereoCapture() {
+    const now = performance.now();
+    if (now - lastArmAt < 250) return;
+    lastArmAt = now;
     try {
-      if (window.GeoGebraForQuest && typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
+      if (window.GeoGebraForQuest &&
+          typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
         window.GeoGebraForQuest.setStereoEnabled(true, false);
       }
     } catch (error) {
-      console.error('[GeoGebraForQuest natural projection on]', error);
+      console.error('[GeoGebraForQuest arm stereo]', error);
+    }
+  }
+
+  /**
+   * v0.6.3: let GeoGebra receive the REAL headset-button gesture.
+   *
+   * index.html has old capture-phase handlers for pointer/mouse/touch events.
+   * They used to see data-ggq-stereo-target and stop propagation, which meant
+   * GeoGebra never actually selected its Glasses/Anaglyph projection. v0.6.1
+   * proved the Quest SBS output, and v0.6.2 proved that no GeoGebra stereo frame
+   * was reaching Android. This pass-through removes the marker only for the
+   * duration of each real input event. The old interceptors therefore ignore it,
+   * while GeoGebra's own SelectionTable receives the original event unchanged.
+   */
+  function passHeadsetEventThrough(event) {
+    if (!stereoTargetInEvent(event)) return;
+
+    if (event.type === 'pointerup' || event.type === 'touchend' || event.type === 'click') {
+      armStereoCapture();
     }
 
-    // Hide the Quest marker just long enough for the old document-capture
-    // interceptors (and the v0.5 fallback below) to ignore this event. We do not
-    // preventDefault or stop propagation: GeoGebra's own SelectionTable must
-    // receive the original click.
     const changed = [];
     for (const node of eventPath(event)) {
-      if (node && node.nodeType === 1 && node.dataset && node.dataset.ggqStereoTarget === '1') {
+      if (node && node.nodeType === 1 && node.dataset &&
+          node.dataset.ggqStereoTarget === '1') {
         changed.push(node);
         delete node.dataset.ggqStereoTarget;
       }
     }
 
+    // Do not preventDefault and do not stop propagation. That is the whole point:
+    // GeoGebra must see the original user gesture and select PROJECTION_GLASSES.
     setTimeout(function () {
-      changed.forEach(function (node) {
+      for (const node of changed) {
         if (node && node.dataset) node.dataset.ggqStereoTarget = '1';
-      });
-      patchNow();
-    }, 180);
-  }, true);
-
-  // Fallback for builds where index.html no longer owns the capture-phase
-  // headset interception. The v0.5.1 window handler above removes the marker
-  // before this listener sees the real headset click, so normal Quest installs
-  // now use GeoGebra's original projection event rather than this fallback.
-  document.addEventListener('click', function (event) {
-    if (!stereoTargetInEvent(event)) return;
-    const now = performance.now();
-    if (now - lastFallbackActivation < 350) return;
-    lastFallbackActivation = now;
-
-    event.preventDefault();
-    event.stopPropagation();
-    if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
-
-    try {
-      if (window.GeoGebraForQuest && typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
-        const currentlyOn = document.documentElement.dataset.ggqStereo === 'on';
-        window.GeoGebraForQuest.setStereoEnabled(!currentlyOn, false);
       }
-    } catch (error) {
-      console.error('[GeoGebraForQuest projection patch]', error);
-    }
-  }, true);
+      patchNow();
+    }, 0);
+  }
 
-  // Let the other three projection buttons behave normally. Once GeoGebra has
-  // processed that click, turn off only the Quest stereo overlay and preserve
-  // the user's newly selected projection.
+  ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click']
+    .forEach(function (type) {
+      window.addEventListener(type, passHeadsetEventThrough, true);
+    });
+
+  // Let other projection buttons behave normally. After GeoGebra has processed
+  // the user's choice, only hide Quest stereo output; preserve the newly chosen
+  // GeoGebra projection.
   document.addEventListener('click', function (event) {
     const table = projectionTableInEvent(event);
     if (!table || stereoTargetInEvent(event)) return;
     if (document.documentElement.dataset.ggqStereo !== 'on') return;
     setTimeout(function () {
       try {
-        if (window.GeoGebraForQuest && typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
+        if (window.GeoGebraForQuest &&
+            typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
           window.GeoGebraForQuest.setStereoEnabled(false, true);
         }
       } catch (_) {}
