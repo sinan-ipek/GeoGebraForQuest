@@ -26,6 +26,8 @@ private const val LOCAL_APP_URL =
     "https://appassets.androidplatform.net/assets/web/index.html"
 private const val PROJECTION_PATCH_URL =
     "https://appassets.androidplatform.net/assets/web/quest-projection-patch.js"
+private const val COLOR_PATCH_URL =
+    "https://appassets.androidplatform.net/assets/web/quest-color-patch.js"
 private const val STEREO_CAPTURE_URL =
     "https://appassets.androidplatform.net/assets/web/quest-stereo-capture.js"
 private const val DEBUG_OVERLAY_URL =
@@ -33,29 +35,18 @@ private const val DEBUG_OVERLAY_URL =
 private const val STEREO_CAPTURE_ASSET = "web/quest-stereo-capture.js"
 private const val APPASSETS_ORIGIN = "https://appassets.androidplatform.net"
 
-/**
- * JavaScript bridge for the single integrated GeoGebra panel.
- *
- * v0.6.7 keeps the v0.6.6 real-Glasses click path and adds only observability.
- * JavaScript can read a compact native diagnostic snapshot so the on-screen
- * overlay shows whether an eye pair reached the bridge, Spatial surface and EGL.
- */
 private class QuestBridge(
     private val context: Context,
     private val spatialMode: Boolean,
 ) {
     @JavascriptInterface
     fun setStereoEnabled(enabled: Boolean) {
-        if (spatialMode) {
-            SpatialBridgeBus.stereoChanged(enabled)
-        }
+        if (spatialMode) SpatialBridgeBus.stereoChanged(enabled)
     }
 
     @JavascriptInterface
     fun updatePortalRect(json: String) {
-        if (spatialMode) {
-            SpatialBridgeBus.portalRect(json)
-        }
+        if (spatialMode) SpatialBridgeBus.portalRect(json)
     }
 
     @JavascriptInterface
@@ -66,29 +57,19 @@ private class QuestBridge(
     }
 
     @JavascriptInterface
-    fun getStereoDebugStatus(): String {
-        return StereoDebugState.toJson()
-    }
+    fun getStereoDebugStatus(): String = StereoDebugState.toJson()
 
-    /**
-     * Kept because the older bootstrap still emits scene JSON. v0.6.7 does not
-     * mirror GeoGebra objects as native Spatial SDK meshes.
-     */
     @JavascriptInterface
     fun updateScene(@Suppress("UNUSED_PARAMETER") json: String) = Unit
 
     @JavascriptInterface
     fun saveConstruction(base64: String) {
-        if (base64.isNotBlank()) {
-            GeoGebraSession.save(context, base64)
-        }
+        if (base64.isNotBlank()) GeoGebraSession.save(context, base64)
     }
 
     @JavascriptInterface
     fun panelReady() {
-        if (spatialMode) {
-            SpatialBridgeBus.panelReady()
-        }
+        if (spatialMode) SpatialBridgeBus.panelReady()
     }
 }
 
@@ -114,16 +95,33 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
     )
 }
 
-private fun injectFullPanelStereoSafety(view: WebView) {
+/**
+ * v0.7.2 uses the WebView as the front interaction layer and the stereo media
+ * panel as an underlay. The active WebGL canvas is kept alive and hittable but
+ * made almost fully transparent; only same-sized canvas wrapper elements are
+ * made transparent as well. This creates an alpha hole through which the stereo
+ * underlay is visible without sacrificing WebView pointer/controller input.
+ */
+private fun injectStereoUnderlayCss(view: WebView) {
     view.evaluateJavascript(
         """
         (function () {
-          if (document.getElementById('ggq-full-panel-stereo-safety')) return;
+          if (document.getElementById('ggq-stereo-underlay-css')) return;
           var style = document.createElement('style');
-          style.id = 'ggq-full-panel-stereo-safety';
+          style.id = 'ggq-stereo-underlay-css';
           style.textContent =
-            '.ggq-stereo-canvas{opacity:1!important;}' +
-            'html[data-ggq-stereo="on"] #ggb-element{background:#fff!important;}';
+            'html[data-ggq-stereo="on"] .ggq-stereo-canvas{' +
+              'opacity:0.001!important;' +
+              'background:transparent!important;' +
+              'pointer-events:auto!important;' +
+            '}' +
+            'html[data-ggq-stereo="on"] .ggq-stereo-hole{' +
+              'background:transparent!important;' +
+              'background-color:transparent!important;' +
+            '}' +
+            'html[data-ggq-stereo="off"] .ggq-stereo-canvas{' +
+              'opacity:1!important;' +
+            '}';
           (document.head || document.documentElement).appendChild(style);
         })();
         """.trimIndent(),
@@ -131,25 +129,14 @@ private fun injectFullPanelStereoSafety(view: WebView) {
     )
 }
 
-/**
- * Install the capture script before any page JavaScript executes.
- *
- * This is inherited unchanged from v0.6.5/v0.6.6. GeoGebra creates its WebGL
- * context very early, so the capture hook must exist before deployggb.js starts.
- */
-private fun installStereoCaptureAtDocumentStart(
-    view: WebView,
-    context: Context,
-) {
-    if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-        return
-    }
+private fun installStereoCaptureAtDocumentStart(view: WebView, context: Context) {
+    if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
 
     try {
         val script = context.assets
             .open(STEREO_CAPTURE_ASSET)
             .bufferedReader(Charsets.UTF_8)
-            .use { reader -> reader.readText() }
+            .use { it.readText() }
 
         WebViewCompat.addDocumentStartJavaScript(
             view,
@@ -157,21 +144,15 @@ private fun installStereoCaptureAtDocumentStart(
             setOf(APPASSETS_ORIGIN),
         )
     } catch (_: Throwable) {
-        // onPageFinished still injects the same script as a fallback.
+        // onPageFinished injects the same script as fallback.
     }
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // Keep the ordinary WebView fully visible. The Spatial stereo surface is
-    // independently positioned over only the 3D Graphics rectangle.
-    injectFullPanelStereoSafety(view)
+    injectStereoUnderlayCss(view)
     injectAssetScript(view, "ggq-projection-patch", PROJECTION_PATCH_URL)
-
-    // Fallback for WebView implementations without DOCUMENT_START_SCRIPT.
+    injectAssetScript(view, "ggq-color-patch", COLOR_PATCH_URL)
     injectAssetScript(view, "ggq-stereo-capture", STEREO_CAPTURE_URL)
-
-    // v0.6.7 diagnostic overlay. It does not alter GeoGebra projection or frame
-    // capture; it only displays JavaScript hook state plus native counters.
     injectAssetScript(view, "ggq-debug-overlay", DEBUG_OVERLAY_URL)
 }
 
@@ -195,7 +176,7 @@ private fun bootStereoWhenReady(view: WebView) {
                 clearInterval(window.__ggqStereoBootTimer);
                 window.__ggqStereoBootTimer = null;
               }
-            } catch (e) {}
+            } catch (_) {}
           }, 250);
         })();
         """.trimIndent(),
@@ -211,10 +192,7 @@ fun configureGeoGebraWebView(
 ) {
     val context = webView.context
     val assetLoader = WebViewAssetLoader.Builder()
-        .addPathHandler(
-            "/assets/",
-            WebViewAssetLoader.AssetsPathHandler(context),
-        )
+        .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
         .build()
 
     webView.apply {
@@ -228,8 +206,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString =
-            settings.userAgentString + " GeoGebraForQuest/0.6.7"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.7.2"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -239,21 +216,16 @@ fun configureGeoGebraWebView(
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest,
-            ): WebResourceResponse? {
-                return assetLoader.shouldInterceptRequest(request.url)
-            }
+            ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
 
             @Suppress("DEPRECATION")
             override fun shouldInterceptRequest(
                 view: WebView,
                 url: String,
-            ): WebResourceResponse? {
-                return assetLoader.shouldInterceptRequest(Uri.parse(url))
-            }
+            ): WebResourceResponse? = assetLoader.shouldInterceptRequest(Uri.parse(url))
 
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
-
                 injectQuestScripts(view)
 
                 val state = GeoGebraSession.load(context)
@@ -265,21 +237,12 @@ fun configureGeoGebraWebView(
                     )
                 }
 
-                if (spatialMode && startStereo) {
-                    bootStereoWhenReady(view)
-                }
+                if (spatialMode && startStereo) bootStereoWhenReady(view)
             }
         }
 
-        addJavascriptInterface(
-            QuestBridge(context, spatialMode),
-            "QuestBridge",
-        )
-
-        // Must happen before loadUrl(): the hook then executes before GeoGebra's
-        // own JavaScript and catches the real WebGL context at creation time.
+        addJavascriptInterface(QuestBridge(context, spatialMode), "QuestBridge")
         installStereoCaptureAtDocumentStart(this, context)
-
         loadUrl(LOCAL_APP_URL)
     }
 }
@@ -293,11 +256,7 @@ fun GeoGebraWebPanel(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             WebView(context).also { webView ->
-                configureGeoGebraWebView(
-                    webView = webView,
-                    spatialMode = spatialMode,
-                    startStereo = startStereo,
-                )
+                configureGeoGebraWebView(webView, spatialMode, startStereo)
             }
         },
     )
