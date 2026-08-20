@@ -4,7 +4,7 @@
   if (window.__ggqStereoCaptureV071) return;
   window.__ggqStereoCaptureV071 = true;
 
-  // GeoGebraForQuest v0.7.1 direct-eye capture.
+  // GeoGebraForQuest direct-eye capture.
   //
   // GeoGebra's Glasses renderer draws LEFT and RIGHT into the same WebGL
   // framebuffer using red/cyan colour masks. We intercept only those two eye
@@ -13,10 +13,9 @@
   // the correct left/right camera matrices. NONE/ALPHA masks used for hidden
   // geometry are left untouched.
   //
-  // v0.7.1 also removes the old JavaScript per-pixel SBS packing loop. Eye
-  // buffers are copied to 2D canvases with putImageData() and scaled/flipped by
-  // drawImage(), then JPEG encoded. Together with the native direct texture
-  // upload this substantially reduces the CPU work per frame.
+  // This is the proven v0.7.1 capture path retained by v0.7.3. The v0.7.3 work
+  // is in the WebView/stereo underlay composition and automatic colour/settings
+  // handling; the working eye-pair capture itself is intentionally unchanged.
 
   const MAX_EYE_WIDTH = 720;
   const MAX_EYE_HEIGHT = 720;
@@ -213,8 +212,6 @@
   }
 
   function imageDataFromPixels(pixels, width, height) {
-    // readPixels() supplies Uint8Array. ImageData wants Uint8ClampedArray; use a
-    // view on the same buffer so no JavaScript pixel-by-pixel copy is needed.
     return new ImageData(
       new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength),
       width,
@@ -240,9 +237,6 @@
 
       sbs2d.setTransform(1, 0, 0, 1, 0, 0);
       sbs2d.clearRect(0, 0, ew * 2, eh);
-
-      // WebGL readPixels starts at the framebuffer's lower-left corner. Flip the
-      // packed destination vertically while the browser handles resize/filtering.
       sbs2d.setTransform(1, 0, 0, -1, 0, eh);
       sbs2d.drawImage(first, 0, 0, state.width, state.height, 0, 0, ew, eh);
       sbs2d.drawImage(second, 0, 0, state.width, state.height, ew, 0, ew, eh);
@@ -322,9 +316,6 @@
             state.captureThisFrame = false;
           }
         }
-
-        // Critical for colour: GeoGebra asks for RED-only because Glasses mode
-        // normally creates an anaglyph. Quest needs the complete RGB left eye.
         return originalColorMask(true, true, true, true);
       }
 
@@ -356,9 +347,6 @@
       let nextMask = mask;
       if (stereoActive && state.phase === 'right' && state.needsRightColorClear &&
           (mask & gl.DEPTH_BUFFER_BIT) !== 0) {
-        // In anaglyph mode GeoGebra clears only depth between eyes because each
-        // eye writes different colour channels. We render full RGB, so right eye
-        // needs a clean colour buffer as well.
         nextMask = mask | gl.COLOR_BUFFER_BIT;
         state.needsRightColorClear = false;
       }
