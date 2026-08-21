@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 53
-        versionName = "0.9.3"
+        versionCode = 54
+        versionName = "0.9.4"
 
         ndkVersion = "27.0.12077973"
     }
@@ -60,11 +60,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.9.3 keeps the startup-isolation Spatial panel: one ordinary interactive
+// v0.9.4 keeps the startup-isolation Spatial panel: one ordinary interactive
 // WebView panel and no custom visual SceneObject yet. The source-built GeoGebra
-// renderer now reuses GeoGebra's existing PROJECTION_GLASSES identifier and
-// replaces only its anaglyph output with full-colour SBS. Custom shaders remain
-// packaged for the later single-PanelSceneObject integration step.
+// renderer reuses GeoGebra's existing PROJECTION_GLASSES identifier and replaces
+// only its anaglyph output with full-colour SBS. This revision fixes the local
+// source-build runtime layout so deployggb.js, Web3D, CSS and the remaining
+// resources all resolve from the same source-war root.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
