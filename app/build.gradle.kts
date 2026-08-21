@@ -13,8 +13,10 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 33
-        versionName = "0.7.0"
+        versionCode = 59
+        versionName = "0.9.8"
+
+        ndkVersion = "27.0.12077973"
     }
 
     buildFeatures {
@@ -58,10 +60,18 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.0 removes projection-mode UI from the user workflow. Whenever a visible
-// GeoGebra 3D WebGL canvas exists, the app automatically selects GeoGebra's
-// Glasses renderer internally and enables Quest stereo capture. When the 3D view
-// disappears, stereo is disabled. No headset/projection click is required.
+// v0.9.8 eye-pass portal architecture:
+// - the ordinary LayoutXML/WebView panel and its mesh are never replaced;
+// - GeoGebra keeps the permanent 2x-wide full-colour L|R source buffer;
+// - a separate non-interactive child SceneObject is created after scene, VR,
+//   WebView and a valid 3D layout are ready;
+// - getStereoPassId() is evaluated in the vertex shader, matching Meta's
+//   official stereo shader pattern;
+// - popup/settings overlaps punch holes in the portal instead of disabling the
+//   complete stereo layer and exposing raw SBS across the whole 3D view.
 spatial {
     allowUsageDataCollection.set(true)
+    shaders {
+        sources.add(project.layout.projectDirectory.dir("src/shaders"))
+    }
 }
