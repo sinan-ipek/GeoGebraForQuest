@@ -21,21 +21,14 @@ import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.6 source-SBS isolation build.
+ * GeoGebraForQuest v0.9.7.
  *
- * This build intentionally uses exactly one ordinary LayoutXML/WebView panel
- * and does not create or replace any Spatial mesh/material. The purpose is to
- * verify the corrected GeoGebra source renderer independently from the Quest
- * eye-aware presentation material.
- *
- * Expected diagnostic result when the source renderer is healthy:
- * - application starts normally;
- * - GeoGebra UI is interactive;
- * - the 3D canvas itself shows the raw full-colour L|R SBS output in the normal
- *   mono WebView panel (there is deliberately no Quest stereo depth yet).
- *
- * Persistent construction restore is not used; every full app restart begins
- * with a new blank GeoGebra construction.
+ * GeoGebra's patched WebGL renderer writes a permanent full-colour L|R SBS
+ * image into the 3D canvas backing store. The real interactive WebView panel is
+ * kept as the only panel and input surface. Its PanelSceneObject mesh uses an
+ * eye-aware shader: normal UI stays mono in both eyes, while only the measured
+ * 3D canvas rectangle is expanded from its left/right SBS halves and routed to
+ * the corresponding Quest eye.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -50,6 +43,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     }
 
     private var geoGebraPanelEntity: Entity? = null
+    private var stereoPanelRenderer: QuestStereoPanelRenderer? = null
+    private var pendingStereoLayout: String? = null
     private var sceneReady = false
     private var vrReady = false
 
@@ -75,13 +70,29 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         ),
                     )
                 },
-                panelSetupWithRootView = { rootView, _, _ ->
+                panelSetupWithRootView = { rootView, panelSceneObject, _ ->
                     val webView = rootView.findViewById<WebView>(R.id.geogebra_webview)
                     configureGeoGebraWebView(
                         webView = webView,
                         spatialMode = true,
                         startStereo = true,
                     )
+
+                    val texture = panelSceneObject.getTexture()
+                    if (texture != null) {
+                        stereoPanelRenderer =
+                            QuestStereoPanelRenderer(
+                                activity = this,
+                                panelSceneObject = panelSceneObject,
+                                panelTexture = texture,
+                                panelWidthMeters = PANEL_WIDTH_METERS,
+                                panelHeightMeters = PANEL_HEIGHT_METERS,
+                            )
+                        pendingStereoLayout?.let { layout ->
+                            stereoPanelRenderer?.updateLayout(layout)
+                            pendingStereoLayout = null
+                        }
+                    }
                 },
             ),
         )
@@ -91,9 +102,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         super.onCreate(savedInstanceState)
         StereoDebugState.reset()
 
-        // The browser may still report the 3D rectangle. In this isolation build
-        // it is deliberately ignored because no custom Spatial material exists.
-        SpatialBridgeBus.onStereoLayout = { _ -> }
+        SpatialBridgeBus.onStereoLayout = { layout ->
+            val renderer = stereoPanelRenderer
+            if (renderer != null) {
+                renderer.updateLayout(layout)
+            } else {
+                pendingStereoLayout = layout
+            }
+        }
         SpatialBridgeBus.onPanelReady = { }
 
         requestScenePermissionIfNeeded()
@@ -154,6 +170,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
     override fun onDestroy() {
         SpatialBridgeBus.clear()
+        stereoPanelRenderer?.release()
+        stereoPanelRenderer = null
+        pendingStereoLayout = null
         geoGebraPanelEntity = null
         super.onDestroy()
     }
