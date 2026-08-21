@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 36
-        versionName = "0.7.3"
+        versionCode = 37
+        versionName = "0.7.4"
     }
 
     buildFeatures {
@@ -58,10 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.3 keeps the WebView in front and the stereo media surface behind it.
-// Unlike v0.7.2, normal GeoGebra dialogs no longer globally disable stereo:
-// because the portal is an underlay, those dialogs naturally paint over it.
-// This prevents the colour-settings helper from accidentally killing stereo.
+// v0.7.4 returns to the proven front stereo portal. Capture and portal visibility
+// are now separate, and the front media mesh is forced non-hittable so rays can
+// reach the real GeoGebra WebView behind it.
 spatial {
     allowUsageDataCollection.set(true)
 }
