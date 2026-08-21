@@ -13,11 +13,9 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 51
-        versionName = "0.9.1"
+        versionCode = 52
+        versionName = "0.9.2"
 
-        // Meta's official Spatial SDK custom-shader samples use this NDK.
-        // The custom stereo panel shader is compiled to SPIR-V at build time.
         ndkVersion = "27.0.12077973"
     }
 
@@ -62,11 +60,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.9.1 keeps the source-built GeoGebra full-colour SBS renderer from v0.9.0,
-// but explicitly registers the Spatial SDK shader source directory. Without this
-// block the APK contains no questStereoPanel SPIR-V shader even though Kotlin
-// compilation succeeds; creating SceneMaterial.custom("questStereoPanel") then
-// fails on-device during startup.
+// Keep custom shaders packaged because the next integration step will reuse
+// them on the real PanelSceneObject. v0.9.2 itself deliberately does not create
+// a custom Spatial material; it isolates startup to the source-built GeoGebra
+// WebView plus the ordinary interactive Spatial panel.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
