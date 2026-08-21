@@ -24,20 +24,14 @@ import org.json.JSONObject
 /**
  * Visual-only eye-aware portal for the source-rendered GeoGebra SBS canvas.
  *
+ * v0.9.8 changes two important details:
+ * - eye selection is done in the vertex shader, matching Meta's own stereo
+ *   shader pattern, instead of querying the stereo pass from the fragment stage;
+ * - popup/settings rectangles punch holes only where they overlap the 3D view.
+ *   The complete portal is never hidden, so raw L|R SBS can no longer suddenly
+ *   become visible across the whole 3D canvas when a GeoGebra popup is opened.
+ *
  * The ordinary LayoutXML/WebView panel remains untouched and receives all input.
- * This child SceneObject has no Panel/Hittable/Grabbable component; it only
- * samples the already-existing WebView texture over the measured 3D rectangle.
- *
- * The current layout payload is produced by quest-stereo-layout.js:
- * {
- *   "stereo": { left, top, width, height },
- *   "viewWidth": ...,
- *   "viewHeight": ...,
- *   "occlusions": [...]
- * }
- *
- * If a popup/settings sheet overlaps the 3D rectangle, the portal is hidden so
- * the normal mono UI underneath remains readable and interactive.
  */
 class QuestStereoPortalRenderer(
     private val activity: AppSystemActivity,
@@ -46,21 +40,31 @@ class QuestStereoPortalRenderer(
 ) {
 
     companion object {
-        // Same small offset used by the earlier portal implementation. The
-        // object is visually separated from the WebView while remaining a child
-        // of the real panel entity.
+        // The panel entity is in front of the viewer at positive world Z. A
+        // small negative local Z offset moves this child toward the viewer.
         private const val PORTAL_Z = -0.006f
+        private const val MAX_OCCLUSIONS = 4
     }
+
+    private val noOcclusion = Vector4(-2f, -2f, 0f, 0f)
 
     private val material =
         SceneMaterial.custom(
             "questStereoPortal",
             arrayOf(
                 SceneMaterialAttribute("sourceRect", SceneMaterialDataType.Vector4),
+                SceneMaterialAttribute("occlusion0", SceneMaterialDataType.Vector4),
+                SceneMaterialAttribute("occlusion1", SceneMaterialDataType.Vector4),
+                SceneMaterialAttribute("occlusion2", SceneMaterialDataType.Vector4),
+                SceneMaterialAttribute("occlusion3", SceneMaterialDataType.Vector4),
                 SceneMaterialAttribute("albedoSampler", SceneMaterialDataType.Texture2D),
             ),
         ).apply {
             setAttribute("sourceRect", Vector4(0f, 0f, 1f, 1f))
+            setAttribute("occlusion0", noOcclusion)
+            setAttribute("occlusion1", noOcclusion)
+            setAttribute("occlusion2", noOcclusion)
+            setAttribute("occlusion3", noOcclusion)
             setTexture("albedoSampler", panelTexture)
             setUnlit(true)
         }
@@ -91,8 +95,9 @@ class QuestStereoPortalRenderer(
     }
 
     /**
-     * Update portal position/size and the source UV crop from the current DOM
-     * measurement. Ordinary popups/settings hide the portal until they close.
+     * Updates portal position/size, source UV crop and up to four popup holes.
+     * The portal remains visible while a popup is open; only the overlapped
+     * pixels are discarded so the ordinary interactive WebView can show through.
      */
     fun updateLayout(
         json: String,
@@ -138,20 +143,52 @@ class QuestStereoPortalRenderer(
                     (height / viewHeight).toFloat(),
                 )
 
+            val popupRects = Array(MAX_OCCLUSIONS) { noOcclusion }
             val occlusions = data.optJSONArray("occlusions")
-            val blocked = occlusions != null && occlusions.length() > 0
+            if (occlusions != null) {
+                val count = minOf(MAX_OCCLUSIONS, occlusions.length())
+                for (i in 0 until count) {
+                    val rect = occlusions.optJSONObject(i) ?: continue
+                    val rectLeft = rect.optDouble("left", Double.NaN)
+                    val rectTop = rect.optDouble("top", Double.NaN)
+                    val rectWidth = rect.optDouble("width", Double.NaN)
+                    val rectHeight = rect.optDouble("height", Double.NaN)
+
+                    if (
+                        !rectLeft.isFinite() || !rectTop.isFinite() ||
+                        !rectWidth.isFinite() || !rectHeight.isFinite() ||
+                        rectWidth <= 0.0 || rectHeight <= 0.0
+                    ) continue
+
+                    // Convert from WebView pixels into portal-local UV space.
+                    // quest-stereo-layout.js already clips each rectangle to the
+                    // 3D canvas, so these values normally lie within 0..1.
+                    popupRects[i] =
+                        Vector4(
+                            ((rectLeft - left) / width).toFloat(),
+                            ((rectTop - top) / height).toFloat(),
+                            (rectWidth / width).toFloat(),
+                            (rectHeight / height).toFloat(),
+                        )
+                }
+            }
 
             activity.runOnUiThread {
                 if (released) return@runOnUiThread
 
                 material.setAttribute("sourceRect", sourceRect)
+                material.setAttribute("occlusion0", popupRects[0])
+                material.setAttribute("occlusion1", popupRects[1])
+                material.setAttribute("occlusion2", popupRects[2])
+                material.setAttribute("occlusion3", popupRects[3])
+
                 entity.setComponent(
                     Transform(Pose(Vector3(centerX, centerY, PORTAL_Z))),
                 )
                 entity.setComponent(
                     Scale(Vector3(widthMeters, heightMeters, 1f)),
                 )
-                entity.setComponent(Visible(!blocked))
+                entity.setComponent(Visible(true))
             }
         } catch (_: Throwable) {
             // DOM measurements can be transient while GeoGebra is relaying out.
@@ -181,11 +218,14 @@ class QuestStereoPortalRenderer(
     }
 
     private fun createUnitQuad(material: SceneMaterial): SceneMesh {
+        // Both windings are supplied, exactly as Meta's own SpatialVideoSample
+        // does for its front video quad. This avoids the portal disappearing due
+        // to back-face culling when attached to a panel-facing coordinate system.
         val triMesh =
             TriangleMesh(
                 4,
-                6,
-                intArrayOf(6),
+                12,
+                intArrayOf(12),
                 arrayOf(material),
             )
 
@@ -204,7 +244,7 @@ class QuestStereoPortalRenderer(
                 0f, 0f, 1f,
             ),
             floatArrayOf(
-                // Match the DOM convention used for sourceRect.
+                // DOM convention: v=0 is the top of the WebView.
                 0f, 1f,
                 1f, 1f,
                 1f, 0f,
@@ -218,7 +258,15 @@ class QuestStereoPortalRenderer(
             ),
         )
 
-        triMesh.updatePrimitives(0, intArrayOf(0, 1, 2, 0, 2, 3))
+        triMesh.updatePrimitives(
+            0,
+            intArrayOf(
+                0, 1, 2,
+                0, 2, 3,
+                0, 2, 1,
+                0, 3, 2,
+            ),
+        )
         return SceneMesh.fromTriangleMesh(triMesh, false)
     }
 }
