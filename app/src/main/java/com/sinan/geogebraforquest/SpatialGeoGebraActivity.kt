@@ -34,13 +34,18 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.7.3.
+ * GeoGebraForQuest v0.7.4.
  *
- * The WebView is the front, interactive panel. The stereo media surface is a
- * visual underlay behind it. JavaScript punches transparency only through the
- * active 3D canvas pixels, so rays always meet the real WebView first. Because
- * the stereo surface is physically behind the WebView, GeoGebra dialogs and
- * menus can paint over it without disabling stereo capture.
+ * v0.7.2/v0.7.3 proved that a media panel behind an Android WebView can receive
+ * valid eye pairs but is not actually visible through per-pixel CSS alpha in the
+ * Spatial panel texture. v0.7.4 therefore returns the stereo media surface to the
+ * front, which is the composition that already produced real Quest depth.
+ *
+ * Input is handled independently: the media panel's mesh is repeatedly forced to
+ * MeshCollision.NoCollision, allowing controller/hand rays to continue to the
+ * real GeoGebra WebView behind it. Portal visibility is also independent from
+ * stereo capture, so dialogs can hide the front overlay without killing the
+ * working left/right renderer.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -53,8 +58,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
 
-        // Positive local Z keeps the stereo media panel just behind GeoGebra.
-        private const val PORTAL_Z = 0.008f
+        // Negative local Z is the already-proven front-overlay direction.
+        private const val PORTAL_Z = -0.006f
     }
 
     private val stereoFrameSurface = StereoFrameSurface()
@@ -63,6 +68,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var geoGebraPanelEntity: Entity? = null
     private var stereoPortalEntity: Entity? = null
     private var pendingStereo = false
+    private var portalPresentationAllowed = true
     private var pendingPortalRect: String? = null
     private var sceneReady = false
     private var vrReady = false
@@ -113,7 +119,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         ),
                         rendering = MediaPanelRenderOptions(
                             stereoMode = StereoMode.LeftRight,
-                            zIndex = -1,
+                            zIndex = 2,
                         ),
                         style = PanelStyleOptions(
                             themeResourceId = R.style.PanelAppThemeTransparent,
@@ -134,6 +140,21 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             if (!enabled) {
                 runOnMainThread {
                     stereoPortalEntity?.setComponent(Visible(false))
+                }
+            }
+        }
+
+        SpatialBridgeBus.onPortalVisibilityChanged = { allowed ->
+            portalPresentationAllowed = allowed
+            StereoDebugState.onPortalPresentationAllowed(allowed)
+            runOnMainThread {
+                val entity = stereoPortalEntity ?: return@runOnMainThread
+                if (!allowed || !pendingStereo) {
+                    entity.setComponent(Visible(false))
+                } else {
+                    pendingPortalRect?.let { applyPortalRect(it) }
+                    entity.setComponent(Visible(true))
+                    StereoDebugState.onPortalVisible()
                 }
             }
         }
@@ -164,7 +185,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 onPresented = {
                     StereoDebugState.onFramePresented()
                     runOnMainThread {
-                        if (pendingStereo) {
+                        if (pendingStereo && portalPresentationAllowed) {
                             pendingPortalRect?.let { applyPortalRect(it) }
                             stereoPortalEntity?.setComponent(Visible(true))
                             StereoDebugState.onPortalVisible()
@@ -222,14 +243,25 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         }
     }
 
-    private fun makePortalNonHittable(entity: Entity) {
-        try {
+    private fun makePortalNonHittable(entity: Entity): Boolean {
+        return try {
             val mesh = entity.getComponent<Mesh>()
             mesh.hittable = MeshCollision.NoCollision
             entity.setComponent(mesh)
+            StereoDebugState.onPortalNonHittable()
+            true
         } catch (_: Throwable) {
-            // VideoSurfacePanelRegistration may attach its mesh slightly later.
+            false
         }
+    }
+
+    private fun schedulePortalNonHittable(entity: Entity, attempt: Int = 0) {
+        if (makePortalNonHittable(entity)) return
+        if (attempt >= 30) return
+        mainHandler.postDelayed(
+            { schedulePortalNonHittable(entity, attempt + 1) },
+            100L,
+        )
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -293,12 +325,10 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
 
-        // The underlay is behind the WebView, but also remove its collision mesh
-        // when the runtime exposes it so it can never become a controller target.
-        makePortalNonHittable(stereoPanel)
-        listOf(50L, 150L, 400L, 1000L).forEach { delay ->
-            mainHandler.postDelayed({ makePortalNonHittable(stereoPanel) }, delay)
-        }
+        // The render surface must be in front for stereo to be visible, but it
+        // must never become the interaction target. Retry until the runtime has
+        // actually attached the media-panel mesh, then remove its collision.
+        schedulePortalNonHittable(stereoPanel)
 
         stereoPortalEntity = stereoPanel
         StereoDebugState.onPortalEntityReady()
