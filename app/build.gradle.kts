@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 60
-        versionName = "0.9.9"
+        versionCode = 61
+        versionName = "0.9.10"
 
         ndkVersion = "27.0.12077973"
     }
@@ -60,15 +60,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.9.9 late real-panel mesh takeover:
-// - startup keeps the known-working LayoutXML/WebView PanelSceneObject untouched;
-// - GeoGebra keeps its permanent 2x-wide full-colour L|R WebGL source buffer;
-// - after scene/VR/WebView/texture/layout are stable, the real PanelSceneObject
-//   mesh is replaced with the eye-aware material;
-// - there is no child stereo portal and no second visual/input surface;
-// - getStereoPassId() is evaluated in the vertex shader and passed to the
-//   fragment shader for per-eye sampling inside only the 3D rectangle;
-// - popup occlusion masking is intentionally disabled in this diagnostic build.
+// v0.9.10 official-stereo diagnostic:
+// - the working GeoGebra LayoutXML/WebView panel is completely untouched;
+// - the patched GeoGebra source still produces permanent full-colour L|R SBS;
+// - a separate synthetic L|R test quad is rendered with Meta's stock
+//   SceneMaterial + StereoMode.LeftRight; no custom stereo shader is involved;
+// - the probe exists only to verify the Spatial SDK/Quest eye compositor path.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
