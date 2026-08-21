@@ -66,9 +66,8 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // v0.9.7: measure the real source-built SBS canvas and report its current
-    // DOM rectangle to the eye-aware material on the same interactive panel.
-    // No WebGL pixels are read or copied.
+    // v0.9.7.1: only measure the existing source-built SBS canvas. The real
+    // WebView panel remains untouched; Spatial creates a visual-only portal later.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -94,7 +93,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.7"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.7.1"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -118,8 +117,6 @@ fun configureGeoGebraWebView(
             }
         }
 
-        // No construction is persisted across application launches. A complete
-        // close/reopen always starts with a new blank GeoGebra construction.
         addJavascriptInterface(QuestBridge(spatialMode), "QuestBridge")
         loadUrl(LOCAL_APP_URL)
     }
