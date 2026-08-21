@@ -17,8 +17,11 @@ git clone --filter=blob:none --no-checkout https://github.com/geogebra/geogebra.
 git -C "$SRC" fetch --depth 1 origin "$GEOGEBRA_COMMIT"
 git -C "$SRC" checkout --detach "$GEOGEBRA_COMMIT"
 
-echo "[GGQ] applying Quest source patches"
+echo "[GGQ] applying Quest full-colour SBS source patches"
 python3 "$ROOT/tools/patch-geogebra-quest.py" "$SRC"
+
+echo "[GGQ] applying v0.9.7 stereo stability patch"
+python3 "$ROOT/tools/patch-geogebra-quest-v097.py" "$SRC"
 
 echo "[GGQ] compiling GeoGebra Web3D and its static runtime resources"
 pushd "$SRC/source/web" >/dev/null
@@ -64,10 +67,13 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
+version=0.9.7
 upstream_commit=$GEOGEBRA_COMMIT
-projection=PROJECTION_GLASSES (render output replaced by full-colour SBS)
+projection=PROJECTION_GLASSES (full-colour SBS, permanent Quest draw path)
 renderer=QuestStereoRenderer
-gwt_module=org.geogebra.web.Web3D
+backing_store=always_2x_width
+viewport=left_eye_then_right_eye
+presentation=Quest eye-aware PanelSceneObject material
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
