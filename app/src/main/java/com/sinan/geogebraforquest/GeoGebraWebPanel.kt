@@ -73,8 +73,9 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // Source-built GeoGebra already runs PROJECTION_QUEST_STEREO.  This script
-    // reports layout only; it never touches WebGL pixels or projection state.
+    // Source-built GeoGebra uses the built-in GLASSES projection identifier,
+    // but the renderer behind it is replaced by full-colour SBS. This script
+    // only reports the 3D canvas rectangle; it never reads WebGL pixels.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -100,7 +101,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.0"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.3"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
