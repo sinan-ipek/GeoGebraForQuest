@@ -22,15 +22,22 @@ import java.util.concurrent.CompletableFuture
 import org.json.JSONObject
 
 /**
- * Zero-copy Quest stereo display for GeoGebra's source-rendered SBS canvas.
+ * Visual-only eye-aware portal for the source-rendered GeoGebra SBS canvas.
  *
- * The source texture is the *existing LayoutXML/WebView panel texture* supplied
- * by Spatial SDK. The custom shader samples the left or right half of the 3D
- * canvas rectangle according to the current Quest eye. There is therefore no
- * GPU -> CPU -> GPU frame transport at all.
+ * The ordinary LayoutXML/WebView panel remains untouched and receives all input.
+ * This child SceneObject has no Panel/Hittable/Grabbable component; it only
+ * samples the already-existing WebView texture over the measured 3D rectangle.
  *
- * This entity intentionally has no Panel/Hittable/Grabbable component. The ray
- * continues to hit the real GeoGebra WebView underneath it.
+ * The current layout payload is produced by quest-stereo-layout.js:
+ * {
+ *   "stereo": { left, top, width, height },
+ *   "viewWidth": ...,
+ *   "viewHeight": ...,
+ *   "occlusions": [...]
+ * }
+ *
+ * If a popup/settings sheet overlaps the 3D rectangle, the portal is hidden so
+ * the normal mono UI underneath remains readable and interactive.
  */
 class QuestStereoPortalRenderer(
     private val activity: AppSystemActivity,
@@ -39,6 +46,9 @@ class QuestStereoPortalRenderer(
 ) {
 
     companion object {
+        // Same small offset used by the earlier portal implementation. The
+        // object is visually separated from the WebView while remaining a child
+        // of the real panel entity.
         private const val PORTAL_Z = -0.006f
     }
 
@@ -52,6 +62,7 @@ class QuestStereoPortalRenderer(
         ).apply {
             setAttribute("sourceRect", Vector4(0f, 0f, 1f, 1f))
             setTexture("albedoSampler", panelTexture)
+            setUnlit(true)
         }
 
     private val entity =
@@ -65,7 +76,7 @@ class QuestStereoPortalRenderer(
     private val sceneObject: SceneObject
 
     @Volatile
-    private var requestedVisible = false
+    private var released = false
 
     init {
         val mesh = createUnitQuad(material)
@@ -80,20 +91,24 @@ class QuestStereoPortalRenderer(
     }
 
     /**
-     * Update both the physical portal rectangle and the source crop in the
-     * underlying WebView panel texture.
+     * Update portal position/size and the source UV crop from the current DOM
+     * measurement. Ordinary popups/settings hide the portal until they close.
      */
-    fun updateRect(
+    fun updateLayout(
         json: String,
         panelWidthMeters: Float,
         panelHeightMeters: Float,
     ) {
+        if (released) return
+
         try {
             val data = JSONObject(json)
-            val left = data.optDouble("left", Double.NaN)
-            val top = data.optDouble("top", Double.NaN)
-            val width = data.optDouble("width", Double.NaN)
-            val height = data.optDouble("height", Double.NaN)
+            val stereo = data.optJSONObject("stereo") ?: return
+
+            val left = stereo.optDouble("left", Double.NaN)
+            val top = stereo.optDouble("top", Double.NaN)
+            val width = stereo.optDouble("width", Double.NaN)
+            val height = stereo.optDouble("height", Double.NaN)
             val viewWidth = data.optDouble("viewWidth", Double.NaN)
             val viewHeight = data.optDouble("viewHeight", Double.NaN)
 
@@ -107,6 +122,7 @@ class QuestStereoPortalRenderer(
 
             val centerXPixels = left + width / 2.0
             val centerYPixels = top + height / 2.0
+
             val centerX =
                 (centerXPixels / viewWidth - 0.5).toFloat() * panelWidthMeters
             val centerY =
@@ -114,8 +130,6 @@ class QuestStereoPortalRenderer(
             val widthMeters = (width / viewWidth).toFloat() * panelWidthMeters
             val heightMeters = (height / viewHeight).toFloat() * panelHeightMeters
 
-            // The quad UV convention below has v=0 at its visual top, matching
-            // DOM getBoundingClientRect() coordinates.
             val sourceRect =
                 Vector4(
                     (left / viewWidth).toFloat(),
@@ -124,7 +138,12 @@ class QuestStereoPortalRenderer(
                     (height / viewHeight).toFloat(),
                 )
 
+            val occlusions = data.optJSONArray("occlusions")
+            val blocked = occlusions != null && occlusions.length() > 0
+
             activity.runOnUiThread {
+                if (released) return@runOnUiThread
+
                 material.setAttribute("sourceRect", sourceRect)
                 entity.setComponent(
                     Transform(Pose(Vector3(centerX, centerY, PORTAL_Z))),
@@ -132,25 +151,32 @@ class QuestStereoPortalRenderer(
                 entity.setComponent(
                     Scale(Vector3(widthMeters, heightMeters, 1f)),
                 )
-                entity.setComponent(Visible(requestedVisible))
+                entity.setComponent(Visible(!blocked))
             }
         } catch (_: Throwable) {
-            // A transient DOM layout rectangle is disposable.
+            // DOM measurements can be transient while GeoGebra is relaying out.
+            // The next layout event replaces this one.
         }
     }
 
     fun setVisible(visible: Boolean) {
-        requestedVisible = visible
+        if (released) return
         activity.runOnUiThread {
-            entity.setComponent(Visible(visible))
+            if (!released) entity.setComponent(Visible(visible))
         }
     }
 
     fun release() {
-        requestedVisible = false
+        if (released) return
+        released = true
+
         activity.runOnUiThread {
-            entity.setComponent(Visible(false))
-            entity.destroy()
+            try {
+                entity.setComponent(Visible(false))
+                entity.destroy()
+            } catch (_: Throwable) {
+                // Runtime owns SceneObject shutdown; nothing else to release.
+            }
         }
     }
 
@@ -178,7 +204,7 @@ class QuestStereoPortalRenderer(
                 0f, 0f, 1f,
             ),
             floatArrayOf(
-                // v=0 is the visual top so sourceRect can use DOM top directly.
+                // Match the DOM convention used for sourceRect.
                 0f, 1f,
                 1f, 1f,
                 1f, 0f,
@@ -191,6 +217,7 @@ class QuestStereoPortalRenderer(
                 Color.WHITE,
             ),
         )
+
         triMesh.updatePrimitives(0, intArrayOf(0, 1, 2, 0, 2, 3))
         return SceneMesh.fromTriangleMesh(triMesh, false)
     }
