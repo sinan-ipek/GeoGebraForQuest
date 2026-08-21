@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 57
-        versionName = "0.9.7"
+        versionCode = 58
+        versionName = "0.9.7.1"
 
         ndkVersion = "27.0.12077973"
     }
@@ -60,10 +60,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.9.7 keeps one real interactive LayoutXML/WebView panel. GeoGebra's source
-// renderer owns a permanent 2x-wide full-colour L|R WebGL backing store. The
-// custom material on that same PanelSceneObject routes only the 3D rectangle to
-// the matching Quest eye; all ordinary GeoGebra UI remains mono and interactive.
+// v0.9.7.1 safe-start architecture:
+// - the ordinary LayoutXML/WebView panel and its mesh are never replaced;
+// - GeoGebra keeps the permanent 2x-wide full-colour L|R source buffer;
+// - a separate non-interactive child SceneObject is created only after scene,
+//   VR, WebView and a valid 3D layout are all ready;
+// - the child portal routes L/R halves to the corresponding Quest eye.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
