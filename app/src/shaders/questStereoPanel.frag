@@ -1,4 +1,4 @@
-#version 400
+#version 430
 #extension GL_ARB_separate_shader_objects: enable
 #extension GL_ARB_shading_language_420pack: enable
 
@@ -6,17 +6,13 @@
 
 layout (std140, set = 3, binding = 0) uniform MaterialUniform {
     vec4 stereoRect;
-    vec4 occlusion0;
-    vec4 occlusion1;
-    vec4 occlusion2;
-    vec4 occlusion3;
-    vec4 layoutInfo;
 } g_MaterialUniform;
 
 layout (set = 3, binding = 1) uniform sampler2D albedoSampler;
 
 layout (location = 0) in struct {
     vec2 uv;
+    float eyePass;
 } vertexOut;
 
 layout (location = 0) out vec4 outColor;
@@ -27,32 +23,21 @@ bool inRect(vec2 p, vec4 r) {
         p.y >= r.y && p.y <= r.y + r.w;
 }
 
-bool inOcclusion(vec2 p) {
-    int count = int(g_MaterialUniform.layoutInfo.x + 0.5);
-    if (count > 0 && inRect(p, g_MaterialUniform.occlusion0)) return true;
-    if (count > 1 && inRect(p, g_MaterialUniform.occlusion1)) return true;
-    if (count > 2 && inRect(p, g_MaterialUniform.occlusion2)) return true;
-    if (count > 3 && inRect(p, g_MaterialUniform.occlusion3)) return true;
-    return false;
-}
-
 void main() {
     vec2 uv = vertexOut.uv;
 
-    // All ordinary GeoGebra UI stays mono. If a popup/dialog overlaps the
-    // stereo rectangle, that overlap also stays mono so UI remains readable.
-    if (g_MaterialUniform.layoutInfo.y < 0.5 ||
-        !inRect(uv, g_MaterialUniform.stereoRect) ||
-        inOcclusion(uv)) {
+    // All normal GeoGebra UI remains mono. Only the measured WebGL 3D canvas
+    // rectangle is interpreted as L|R SBS.
+    if (!inRect(uv, g_MaterialUniform.stereoRect)) {
         outColor = texture(albedoSampler, uv);
         return;
     }
 
-    // The source-built GeoGebra renderer writes full-colour L|R directly into
-    // the 3D canvas. Sample the correct half for the active Quest eye.
-    vec2 local = (uv - g_MaterialUniform.stereoRect.xy) /
+    vec2 local =
+        (uv - g_MaterialUniform.stereoRect.xy) /
         g_MaterialUniform.stereoRect.zw;
-    float eye = float(getStereoPassId());
+
+    float eye = clamp(vertexOut.eyePass, 0.0, 1.0);
 
     vec2 sourceUv;
     sourceUv.x = g_MaterialUniform.stereoRect.x +
@@ -60,5 +45,15 @@ void main() {
     sourceUv.y = g_MaterialUniform.stereoRect.y +
         g_MaterialUniform.stereoRect.w * local.y;
 
-    outColor = texture(albedoSampler, sourceUv);
+    vec4 sampled = texture(albedoSampler, sourceUv);
+
+    // Diagnostic marker: a tiny yellow square at the upper-left corner of the
+    // 3D rectangle proves that the *visible real panel* has switched to this
+    // v0.9.9 material. Remove it after the eye-routing path is confirmed.
+    if (local.x < 0.025 && local.y < 0.035) {
+        outColor = mix(sampled, vec4(1.0, 0.92, 0.05, 1.0), 0.85);
+        return;
+    }
+
+    outColor = sampled;
 }
