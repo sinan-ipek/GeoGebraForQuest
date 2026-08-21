@@ -1,7 +1,6 @@
 package com.sinan.geogebraforquest
 
 import android.annotation.SuppressLint
-import android.content.Context
 import android.graphics.Color
 import android.net.Uri
 import android.view.View
@@ -26,7 +25,6 @@ private const val STEREO_LAYOUT_URL =
     "https://appassets.androidplatform.net/assets/web/quest-stereo-layout.js"
 
 private class QuestBridge(
-    private val context: Context,
     private val spatialMode: Boolean,
 ) {
     @JavascriptInterface
@@ -38,11 +36,6 @@ private class QuestBridge(
 
     @JavascriptInterface
     fun getStereoDebugStatus(): String = StereoDebugState.toJson()
-
-    @JavascriptInterface
-    fun saveConstruction(base64: String) {
-        if (base64.isNotBlank()) GeoGebraSession.save(context, base64)
-    }
 
     @JavascriptInterface
     fun panelReady() {
@@ -73,9 +66,8 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // Source-built GeoGebra uses the built-in GLASSES projection identifier,
-    // but the renderer behind it is replaced by full-colour SBS. This script
-    // only reports the 3D canvas rectangle; it never reads WebGL pixels.
+    // This script only measures the source-built SBS 3D canvas and reports its
+    // rectangle to the Spatial panel material. It never reads WebGL pixels.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -101,7 +93,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.3"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.5"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -122,19 +114,12 @@ fun configureGeoGebraWebView(
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
                 injectQuestScripts(view)
-
-                val state = GeoGebraSession.load(context)
-                if (!state.isNullOrBlank()) {
-                    val quoted = JSONObject.quote(state)
-                    view.evaluateJavascript(
-                        "window.GeoGebraForQuest && window.GeoGebraForQuest.importBase64($quoted);",
-                        null,
-                    )
-                }
             }
         }
 
-        addJavascriptInterface(QuestBridge(context, spatialMode), "QuestBridge")
+        // No construction is persisted across application launches. A complete
+        // close/reopen always starts with a new blank GeoGebra construction.
+        addJavascriptInterface(QuestBridge(spatialMode), "QuestBridge")
         loadUrl(LOCAL_APP_URL)
     }
 }
