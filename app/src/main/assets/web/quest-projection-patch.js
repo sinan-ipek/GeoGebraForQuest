@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqAuto3DV073) return;
-  window.__ggqAuto3DV073 = true;
+  if (window.__ggqAuto3DV074) return;
+  window.__ggqAuto3DV074 = true;
 
   const SIG = {
     orthographic: 'M2117.4l-.86.6M3.6220.44L220M194.77l2.55',
@@ -15,16 +15,16 @@
   let projectionArmed = false;
   let projectionPopupRequested = false;
   let stereoRequested = false;
+  let portalSuppressed = false;
   let missingTicks = 0;
   let lastLog = '';
   let cachedProjection = null;
   let projectionRetryAt = 0;
-  let markedHoleNodes = [];
 
   function log(message) {
     if (message === lastLog) return;
     lastLog = message;
-    console.log('[GGQ Auto3D v0.7.3] ' + message);
+    console.log('[GGQ Auto3D v0.7.4] ' + message);
   }
 
   function cssBackground(element) {
@@ -221,10 +221,18 @@
         }
       }
     } catch (error) {
-      console.error('[GGQ Auto3D v0.7.3 stereo]', error);
+      console.error('[GGQ Auto3D v0.7.4 stereo]', error);
     }
 
     return false;
+  }
+
+  function setPortalVisible(visibleNow) {
+    try {
+      if (window.QuestBridge && typeof window.QuestBridge.setPortalVisible === 'function') {
+        window.QuestBridge.setPortalVisible(!!visibleNow);
+      }
+    } catch (_) {}
   }
 
   function ensureProjectionPopup() {
@@ -275,40 +283,51 @@
     return false;
   }
 
-  function clearStereoHole() {
-    if (activeCanvas) {
+  function markStereoCanvas(canvas) {
+    if (activeCanvas && activeCanvas !== canvas) {
       try { activeCanvas.classList.remove('ggq-stereo-canvas'); } catch (_) {}
     }
-
-    for (const node of markedHoleNodes) {
-      try { node.classList.remove('ggq-stereo-hole'); } catch (_) {}
+    if (canvas) {
+      try { canvas.classList.add('ggq-stereo-canvas'); } catch (_) {}
     }
-
-    markedHoleNodes = [];
   }
 
-  function markStereoHole(canvas) {
-    clearStereoHole();
-    if (!canvas) return;
+  function rectOverlapRatio(a, b) {
+    const left = Math.max(a.left, b.left);
+    const top = Math.max(a.top, b.top);
+    const right = Math.min(a.right, b.right);
+    const bottom = Math.min(a.bottom, b.bottom);
+    const w = Math.max(0, right - left);
+    const h = Math.max(0, bottom - top);
+    const intersection = w * h;
+    const area = Math.max(1, a.width * a.height);
+    return intersection / area;
+  }
 
-    canvas.classList.add('ggq-stereo-canvas');
+  function blockingLayerOverlapsCanvas(canvas) {
+    if (!canvas) return false;
+    const canvasRect = canvas.getBoundingClientRect();
+    const selectors = [
+      '[role="dialog"]', '.Dialog', '.dialog', '.modalDialog', '.modal',
+      '.PropertiesViewW', '.sideSheet', '.popupPanel', '.menuView', '.menuPanel',
+      '.openFileView', '.fileView', '.loginDialog', '.signin', '.signIn',
+      '.examDialog', '.shareDialog', '.saveDialog'
+    ];
 
-    const rect = canvas.getBoundingClientRect();
-    let node = canvas.parentElement;
+    for (const selector of selectors) {
+      for (const element of Array.from(document.querySelectorAll(selector))) {
+        if (!visible(element)) continue;
+        if (element.id && element.id.indexOf('ggq-debug') >= 0) continue;
+        if (element.closest && element.closest('.SelectionTable')) continue;
 
-    for (let i = 0; node && i < 8; i += 1, node = node.parentElement) {
-      try {
-        const r = node.getBoundingClientRect();
-        const closeWidth = r.width <= rect.width * 1.08 && r.width >= rect.width * 0.92;
-        const closeHeight = r.height <= rect.height * 1.08 && r.height >= rect.height * 0.92;
-        if (!closeWidth || !closeHeight) break;
-
-        node.classList.add('ggq-stereo-hole');
-        markedHoleNodes.push(node);
-      } catch (_) {
-        break;
+        try {
+          const rect = element.getBoundingClientRect();
+          if (rectOverlapRatio(canvasRect, rect) > 0.02) return true;
+        } catch (_) {}
       }
     }
+
+    return false;
   }
 
   function scan() {
@@ -317,10 +336,14 @@
     if (!canvas) {
       missingTicks += 1;
       if (missingTicks >= 3) {
-        clearStereoHole();
+        if (activeCanvas) {
+          try { activeCanvas.classList.remove('ggq-stereo-canvas'); } catch (_) {}
+        }
         activeCanvas = null;
         projectionArmed = false;
         projectionPopupRequested = false;
+        portalSuppressed = false;
+        setPortalVisible(false);
         if (stereoRequested || captureEnabled()) setStereo(false);
       }
       return;
@@ -329,15 +352,17 @@
     missingTicks = 0;
 
     if (activeCanvas !== canvas) {
-      clearStereoHole();
+      markStereoCanvas(canvas);
       activeCanvas = canvas;
       projectionArmed = false;
       projectionPopupRequested = false;
+      portalSuppressed = false;
       cachedProjection = null;
       projectionRetryAt = 0;
     }
 
     if (!projectionArmed) {
+      setPortalVisible(false);
       const info = projectionTableInfo() || ensureProjectionPopup();
       if (info) forceGlassesProjection(info);
       return;
@@ -346,24 +371,35 @@
     const info = projectionTableInfo();
     if (info) concealProjectionUi(info);
 
-    // v0.7.3 intentionally does NOT disable stereo when GeoGebra settings,
-    // save, login or other UI layers are visible. The stereo surface is now an
-    // underlay behind the WebView, so those ordinary WebView layers naturally
-    // cover it. Turning stereo off for them caused v0.7.2 to fall back to the
-    // visible anaglyph canvas while the colour helper had Settings open.
-    markStereoHole(canvas);
+    markStereoCanvas(canvas);
     if (!captureEnabled()) setStereo(true);
+
+    const blocked = blockingLayerOverlapsCanvas(canvas);
+    if (blocked) {
+      if (!portalSuppressed) {
+        portalSuppressed = true;
+        setPortalVisible(false);
+        log('GeoGebra UI overlaps 3D -> front stereo portal hidden, capture kept ON');
+      }
+      return;
+    }
+
+    if (portalSuppressed) {
+      portalSuppressed = false;
+      log('3D uncovered -> front stereo portal restored');
+    }
+    setPortalVisible(true);
   }
 
   window.GeoGebraQuestAuto3D = {
     isInstalled: function () { return true; },
     is3DVisible: function () { return !!visibleWebGlCanvas(); },
-    is3DExposed: function () { return !!activeCanvas; },
+    is3DExposed: function () { return !!(activeCanvas && !blockingLayerOverlapsCanvas(activeCanvas)); },
     isProjectionArmed: function () { return projectionArmed; },
     isProjectionPopupRequested: function () { return projectionPopupRequested; },
     isStereoRequested: function () { return stereoRequested; },
-    isPortalSuppressed: function () { return false; },
-    isUnderlayHoleActive: function () {
+    isPortalSuppressed: function () { return portalSuppressed; },
+    isOverlayActive: function () {
       return !!(activeCanvas && activeCanvas.classList.contains('ggq-stereo-canvas'));
     },
     scanNow: scan
