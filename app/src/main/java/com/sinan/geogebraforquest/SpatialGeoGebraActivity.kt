@@ -6,7 +6,9 @@ import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
+import com.meta.spatial.core.SpatialSDKExperimentalAPI
 import com.meta.spatial.core.Vector3
+import com.meta.spatial.core.Vector4
 import com.meta.spatial.runtime.ReferenceSpace
 import com.meta.spatial.runtime.SceneTexture
 import com.meta.spatial.toolkit.AppSystemActivity
@@ -22,13 +24,14 @@ import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.8.0 source-stereo host.
+ * GeoGebraForQuest v0.9.0.
  *
- * GeoGebra itself now renders a full-colour SBS pair directly in its WebGL
- * drawing buffer. Spatial SDK already owns a GPU texture for this WebView panel;
- * QuestStereoPortalRenderer samples that same texture per eye. No frame leaves
- * the GPU, and the old readPixels/JPEG/Base64/Bitmap/VideoSurface path is gone.
+ * There is one GeoGebra panel and one input surface. GeoGebra itself renders
+ * the 3D canvas as full-colour SBS on the GPU. A full-panel, non-hittable visual
+ * mesh samples the live panel SceneTexture per eye; ordinary UI stays mono while
+ * only the 3D rectangle becomes stereo. No 3D-window overlay/panel is created.
  */
+@OptIn(SpatialSDKExperimentalAPI::class)
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
     companion object {
@@ -39,15 +42,17 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
+
+        // Keep the real Android panel composited so its live texture/input path
+        // cannot be optimized away, while making it visually imperceptible.
+        private const val INPUT_LAYER_ALPHA = 0.001f
     }
 
     private var geoGebraPanelEntity: Entity? = null
     private var geoGebraPanelTexture: SceneTexture? = null
-    private var stereoPortal: QuestStereoPortalRenderer? = null
+    private var stereoPanelVisual: QuestStereoPanelRenderer? = null
+    private var pendingStereoLayout: String? = null
 
-    private var pendingStereo = false
-    private var pendingPortalVisible = false
-    private var pendingPortalRect: String? = null
     private var sceneReady = false
     private var vrReady = false
 
@@ -60,20 +65,17 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 layoutIdCreator = { R.layout.spatial_geogebra_panel },
                 settingsCreator = {
                     UIPanelSettings(
-                        shape =
-                            QuadShapeOptions(
-                                width = PANEL_WIDTH_METERS,
-                                height = PANEL_HEIGHT_METERS,
-                            ),
-                        display =
-                            DpDisplayOptions(
-                                width = PANEL_WIDTH_DP,
-                                height = PANEL_HEIGHT_DP,
-                            ),
-                        style =
-                            PanelStyleOptions(
-                                themeResourceId = R.style.PanelAppThemeTransparent,
-                            ),
+                        shape = QuadShapeOptions(
+                            width = PANEL_WIDTH_METERS,
+                            height = PANEL_HEIGHT_METERS,
+                        ),
+                        display = DpDisplayOptions(
+                            width = PANEL_WIDTH_DP,
+                            height = PANEL_HEIGHT_DP,
+                        ),
+                        style = PanelStyleOptions(
+                            themeResourceId = R.style.PanelAppThemeTransparent,
+                        ),
                     )
                 },
                 panelSetupWithRootView = { rootView, panelSceneObject, _ ->
@@ -81,13 +83,24 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     configureGeoGebraWebView(
                         webView = webView,
                         spatialMode = true,
-                        startStereo = false,
+                        startStereo = true,
                     )
 
-                    // Spatial SDK's LayoutXML panel already has a live GPU texture.
-                    // Reuse it directly as the stereo source; there is no copy.
+                    // Spatial SDK already owns the continuously updated GPU
+                    // texture for this Android panel. Reuse it; never read it
+                    // back through CPU memory.
                     geoGebraPanelTexture = panelSceneObject.getTexture()
-                    runOnUiThread { ensureStereoPortal() }
+
+                    // The same PanelSceneObject must stay alive because it is
+                    // the controller/input target. We only suppress its default
+                    // visual layer; QuestStereoPanelRenderer becomes the visible
+                    // representation of this exact same panel.
+                    panelSceneObject.getLayer()?.setColorScaleBias(
+                        Vector4(1f, 1f, 1f, INPUT_LAYER_ALPHA),
+                        Vector4(0f),
+                    )
+
+                    runOnUiThread { ensureStereoPanelVisual() }
                 },
             ),
         )
@@ -97,72 +110,34 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         super.onCreate(savedInstanceState)
         StereoDebugState.reset()
 
-        SpatialBridgeBus.onStereoChanged = { enabled ->
-            pendingStereo = enabled
-            StereoDebugState.onStereoChanged(enabled)
-            runOnUiThread { applyPortalVisibility() }
-        }
-
-        SpatialBridgeBus.onPortalVisibilityChanged = { visible ->
-            pendingPortalVisible = visible
-            StereoDebugState.onPortalPresentationAllowed(visible)
-            runOnUiThread { applyPortalVisibility() }
-        }
-
-        SpatialBridgeBus.onPortalRect = { json ->
-            pendingPortalRect = json
-            StereoDebugState.onPortalRect()
+        SpatialBridgeBus.onStereoLayout = { json ->
+            pendingStereoLayout = json
             runOnUiThread {
-                ensureStereoPortal()
-                stereoPortal?.updateRect(
-                    json = json,
-                    panelWidthMeters = PANEL_WIDTH_METERS,
-                    panelHeightMeters = PANEL_HEIGHT_METERS,
-                )
+                ensureStereoPanelVisual()
+                stereoPanelVisual?.updateLayout(json)
             }
         }
-
-        // v0.8.0 deliberately has no frame callback. The source-rendered SBS
-        // image never crosses JavaScript/Android memory.
-        SpatialBridgeBus.onStereoFrame = null
         SpatialBridgeBus.onPanelReady = {
-            runOnUiThread { ensureStereoPortal() }
+            runOnUiThread { ensureStereoPanelVisual() }
         }
 
         requestScenePermissionIfNeeded()
     }
 
-    private fun ensureStereoPortal() {
-        if (stereoPortal != null) return
+    private fun ensureStereoPanelVisual() {
+        if (stereoPanelVisual != null) return
         val parent = geoGebraPanelEntity ?: return
         val texture = geoGebraPanelTexture ?: return
 
-        stereoPortal =
-            QuestStereoPortalRenderer(
-                activity = this,
-                parent = parent,
-                panelTexture = texture,
-            )
+        stereoPanelVisual = QuestStereoPanelRenderer(
+            activity = this,
+            parent = parent,
+            panelTexture = texture,
+            panelWidthMeters = PANEL_WIDTH_METERS,
+            panelHeightMeters = PANEL_HEIGHT_METERS,
+        )
 
-        StereoDebugState.onPortalEntityReady()
-        StereoDebugState.onSurfaceAttached()
-        StereoDebugState.onPortalNonHittable()
-
-        pendingPortalRect?.let {
-            stereoPortal?.updateRect(
-                json = it,
-                panelWidthMeters = PANEL_WIDTH_METERS,
-                panelHeightMeters = PANEL_HEIGHT_METERS,
-            )
-        }
-        applyPortalVisibility()
-    }
-
-    private fun applyPortalVisibility() {
-        ensureStereoPortal()
-        val visible = pendingStereo && pendingPortalVisible
-        stereoPortal?.setVisible(visible)
-        if (visible) StereoDebugState.onPortalVisible()
+        pendingStereoLayout?.let { stereoPanelVisual?.updateLayout(it) }
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -216,14 +191,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
         geoGebraPanelEntity = geoPanel
-
-        ensureStereoPortal()
+        ensureStereoPanelVisual()
     }
 
     override fun onDestroy() {
         SpatialBridgeBus.clear()
-        stereoPortal?.release()
-        stereoPortal = null
+        stereoPanelVisual?.release()
+        stereoPanelVisual = null
         geoGebraPanelTexture = null
         geoGebraPanelEntity = null
         super.onDestroy()
