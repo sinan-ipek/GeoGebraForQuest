@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Patch a pinned upstream GeoGebra checkout for GeoGebraForQuest v0.9.3.
+"""Patch a pinned upstream GeoGebra checkout for GeoGebraForQuest v0.9.5.
 
-The Quest build deliberately reuses GeoGebra's *existing* GLASSES projection
-identifier and stereo camera mathematics, but replaces the anaglyph output path
-with two independent full-colour RGB eye passes written directly into a 2x-wide
-SBS WebGL drawing buffer.
+This Quest build deliberately reuses GeoGebra's existing PROJECTION_GLASSES
+camera, picking and cursor-depth mathematics, but completely removes the
+anaglyph output policy. The two eyes are rendered as independent full-colour
+RGB passes directly into the two halves of one 2x-wide WebGL drawing buffer.
 
-Why reuse PROJECTION_GLASSES instead of inventing a new projection enum?
-GeoGebra has many internal branches that already understand GLASSES (picking,
-cursor depth, eye distance, perspective setup, XML/settings). Reusing the known
-projection keeps those paths intact and only swaps the final rendering policy.
-
-No readPixels, JPEG, Base64, Bitmap or CPU eye-composition exists here.
+Important consequences:
+- no grayscale conversion
+- no red/cyan color masks
+- no readPixels / JPEG / Base64 / Bitmap pipeline
+- no CPU-side L/R composition
+- GeoGebra's ordinary 3D hit-test and cursor rendering stay intact
 """
 
 from __future__ import annotations
@@ -53,9 +53,9 @@ public final class QuestStereoRenderer {
     public void drawStereoFrame() {
         RendererImpl impl = renderer.getRendererImpl();
 
-        // Renderer.initRenderingValues() has already cleared the complete
-        // 2W x H colour buffer once. Do NOT clear colour between eye passes:
-        // glClear is not clipped by the viewport and would erase the left eye.
+        // Renderer.initRenderingValues() cleared the complete 2W x H colour
+        // buffer once. Do not clear colour between the passes: glClear is not
+        // clipped to a viewport and could erase the eye already rendered.
         impl.setColorMask(ColorMask.ALL);
 
         renderer.eye = Renderer.EYE_LEFT;
@@ -68,7 +68,7 @@ public final class QuestStereoRenderer {
         renderer.setView();
         renderer.draw();
 
-        // Leave a deterministic state for the next frame / any following work.
+        // Deterministic state for the next frame and any work following it.
         impl.setColorMask(ColorMask.ALL);
         renderer.eye = Renderer.EYE_LEFT;
         renderer.setView();
@@ -106,8 +106,9 @@ def patch_settings(root: Path) -> None:
     rel = "source/shared/common/src/main/java/org/geogebra/common/main/settings/EuclidianSettings3D.java"
     text = read(root, rel)
 
-    # Use a projection value GeoGebra already supports everywhere. This avoids
-    # early-startup code encountering an unknown custom enum value.
+    # The settings object starts in a projection GeoGebra already knows. The
+    # view will receive it through its normal settingsChanged() path, which in
+    # turn calls setProjectionGlasses() and initializes eye distance/matrices.
     text = replace_once(
         text,
         "\tprivate int projection;",
@@ -115,10 +116,8 @@ def patch_settings(root: Path) -> None:
         "default glasses projection",
     )
 
-    # This Quest-specific build exposes no projection selector, so any XML or
-    # restored setting that tries to change projection is folded back to the
-    # built-in GLASSES value. The renderer below changes GLASSES *output* from
-    # anaglyph to full-colour SBS.
+    # This Quest-specific build has no projection selector. Any restored XML or
+    # external request is folded back to the known GLASSES projection value.
     text = replace_regex_once(
         text,
         r"\tpublic void setProjection\(int projection\) \{\n\t\tif \(this\.projection != projection\) \{\n\t\t\tthis\.projection = projection;\n\t\t\tsettingChanged\(\);\n\t\t\}\n\t\}",
@@ -137,11 +136,47 @@ def patch_settings(root: Path) -> None:
 def patch_view(root: Path) -> None:
     rel = "source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/EuclidianView3D.java"
     text = read(root, rel)
+
+    # Do NOT change the projection field initializer. Starting the field as
+    # GLASSES bypasses setProjectionGlasses(), which is responsible for setting
+    # the perspective eye distance and updating left/right eye coordinates.
+    # Instead the normal settings path selects GLASSES, and the Web constructor
+    # below repeats setProjectionGlasses() after renderer.init() as a guarantee.
+
+    text = replace_regex_once(
+        text,
+        r"\tpublic boolean isGrayScaled\(\) \{\n\t\treturn projection == PROJECTION_GLASSES\n\t\t\t\t&& !isXREnabled\(\)\n\t\t\t\t&& !getCompanion\(\)\.isStereoBuffered\(\)\n\t\t\t\t&& isGlassesGrayScaled\(\);\n\t\}",
+        "\tpublic boolean isGrayScaled() {\n"
+        "\t\t// Quest stereo keeps the original object colours.\n"
+        "\t\treturn false;\n"
+        "\t}",
+        "disable anaglyph grayscale",
+    )
+
     text = replace_once(
         text,
-        "\tprivate int projection = PROJECTION_ORTHOGRAPHIC;",
-        "\tprivate int projection = PROJECTION_GLASSES;",
-        "view default glasses projection",
+        "\tpublic boolean isShutDownGreen() {\n\t\treturn projection == PROJECTION_GLASSES && isGlassesShutDownGreen();\n\t}",
+        "\tpublic boolean isShutDownGreen() {\n"
+        "\t\t// Quest stereo never removes the green channel.\n"
+        "\t\treturn false;\n"
+        "\t}",
+        "disable anaglyph green shutdown",
+    )
+    write(root, rel, text)
+
+
+def patch_web_view_startup(root: Path) -> None:
+    rel = "source/web/web/src/main/java/org/geogebra/web/geogebra3D/web/euclidian3D/EuclidianView3DW.java"
+    text = read(root, rel)
+    text = replace_once(
+        text,
+        "\t\tgetRenderer().init();\n\t\tinitAriaDefaults();",
+        "\t\tgetRenderer().init();\n"
+        "\t\t// Quest build: initialize the existing stereo camera through the\n"
+        "\t\t// real GeoGebra path, after the renderer itself is initialized.\n"
+        "\t\tsetProjectionGlasses();\n"
+        "\t\tinitAriaDefaults();",
+        "initialize glasses projection after renderer init",
     )
     write(root, rel, text)
 
@@ -189,6 +224,39 @@ def patch_renderer(root: Path) -> None:
         old_glasses_block,
         new_glasses_block,
         "replace anaglyph draw loop with full-colour SBS",
+    )
+
+    # The ordinary draw pipeline calls setColorMask() again while rendering
+    # hiding surfaces. Therefore changing only the outer eye loop is not enough:
+    # the anaglyph red/cyan mask must be removed at the source.
+    text = replace_regex_once(
+        text,
+        r"\tprotected void setColorMask\(\) \{\n\t\tif \(view3D.*?\n\t\}\n\n\t/\*\*\n\t \* export type",
+        "\tprotected void setColorMask() {\n"
+        "\t\t// Quest stereo renders both eyes in full RGBA.\n"
+        "\t\trendererImpl.setColorMask(ColorMask.ALL);\n"
+        "\t}\n\n"
+        "\t/**\n\t * export type",
+        "disable red/cyan color masks",
+    )
+
+    # The original Glasses background is grayscale (and may suppress green).
+    # Keep the real GeoGebra background colour instead.
+    text = replace_regex_once(
+        text,
+        r"\tprivate void updateClearColor\(\) \{\n\t\tif \(transparent\) \{.*?\n\t\trendererImpl\.setClearColor\(r, g, b, 1\.0f\);\n\t\}",
+        "\tprivate void updateClearColor() {\n"
+        "\t\tif (transparent) {\n"
+        "\t\t\trendererImpl.setClearColor(0, 0, 0, 0f);\n"
+        "\t\t\treturn;\n"
+        "\t\t}\n"
+        "\t\tGColor c = view3D.getAppliedBackground();\n"
+        "\t\tfloat r = (float) c.getRed() / 255;\n"
+        "\t\tfloat g = (float) c.getGreen() / 255;\n"
+        "\t\tfloat b = (float) c.getBlue() / 255;\n"
+        "\t\trendererImpl.setClearColor(r, g, b, 1.0f);\n"
+        "\t}",
+        "keep full-colour background",
     )
 
     write(root, rel, text)
@@ -330,12 +398,13 @@ def main() -> None:
 
     patch_settings(root)
     patch_view(root)
+    patch_web_view_startup(root)
     patch_renderer(root)
     patch_web_renderer(root)
     patch_stylebar(root)
     patch_context_menu(root)
     patch_settings_ui(root)
-    print("GeoGebra Quest full-colour SBS patch complete (built-in GLASSES projection reused)")
+    print("GeoGebra Quest v0.9.5 full-colour SBS patch complete")
 
 
 if __name__ == "__main__":
