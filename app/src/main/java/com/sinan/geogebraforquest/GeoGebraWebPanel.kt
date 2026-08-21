@@ -66,8 +66,9 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // This script only measures the source-built SBS 3D canvas and reports its
-    // rectangle to the Spatial panel material. It never reads WebGL pixels.
+    // This script only measures the source-built SBS 3D canvas. v0.9.6 ignores
+    // the reported rectangle on the Spatial side so the corrected source
+    // renderer can be tested without touching the PanelSceneObject material.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -93,7 +94,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.5"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.6"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
