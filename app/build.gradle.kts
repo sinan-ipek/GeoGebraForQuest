@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 38
-        versionName = "0.7.5"
+        versionCode = 39
+        versionName = "0.7.6"
     }
 
     buildFeatures {
@@ -58,11 +58,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.5 keeps the proven front stereo portal from v0.7.4, but fixes the
-// cold-start race. After the restored 3D canvas stabilizes, Glasses projection
-// is selected with capture OFF, the same construction is serialized/reloaded
-// once so the renderer is born in Glasses mode, then stereo capture is enabled.
-// The portal stays hidden until at least three eye pairs have been presented.
+// v0.7.6 removes the v0.7.5 self-reload experiment. The front stereo portal
+// remains unchanged. Auto3D now watches the GeoGebra construction identity and
+// re-arms Glasses only after a newly opened/replaced construction is quiet. The
+// hidden projection launcher remains programmatically reachable instead of being
+// display:none, fixing the restart-only stereo behavior.
 spatial {
     allowUsageDataCollection.set(true)
 }
