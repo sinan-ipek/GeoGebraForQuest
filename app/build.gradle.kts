@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 55
-        versionName = "0.9.5"
+        versionCode = 56
+        versionName = "0.9.6"
 
         ndkVersion = "27.0.12077973"
     }
@@ -60,10 +60,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.9.5 keeps one real interactive PanelSceneObject. Its mesh material is
-// eye-aware: ordinary GeoGebra UI is mono, while the source-built 3D canvas is
-// sampled from the full-colour SBS backing buffer per Quest eye. No front
-// overlay panel and no CPU pixel-transfer pipeline are used.
+// v0.9.6 deliberately keeps the Spatial side on one ordinary interactive
+// LayoutXML/WebView panel. No custom PanelSceneObject mesh/material is installed
+// in this diagnostic revision. The corrected GeoGebra source renderer still
+// produces full-colour L|R SBS directly in its 3D WebGL backing buffer, and
+// persistent construction restore remains removed.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
