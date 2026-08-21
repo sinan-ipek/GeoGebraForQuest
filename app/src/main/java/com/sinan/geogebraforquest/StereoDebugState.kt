@@ -4,13 +4,7 @@ import android.os.SystemClock
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Shared diagnostic counters for the v0.6.7 Quest stereo pipeline test.
- *
- * The WebView can read a compact JSON snapshot through QuestBridge so the user
- * can photograph one small on-screen panel and we can tell exactly how far a
- * GeoGebra eye pair travelled: JavaScript -> bridge -> Spatial surface -> EGL.
- */
+/** Compact diagnostics for the Quest stereo transport and portal composition. */
 object StereoDebugState {
     private val portalRectCount = AtomicInteger(0)
     private val frameReceivedCount = AtomicInteger(0)
@@ -24,6 +18,8 @@ object StereoDebugState {
     @Volatile private var surfaceAttached = false
     @Volatile private var portalEntityReady = false
     @Volatile private var portalVisible = false
+    @Volatile private var portalPresentationAllowed = true
+    @Volatile private var portalNonHittable = false
     @Volatile private var lastEyeWidth = 0
     @Volatile private var lastEyeHeight = 0
     @Volatile private var lastPresentedAtMs = 0L
@@ -40,6 +36,8 @@ object StereoDebugState {
         surfaceAttached = false
         portalEntityReady = false
         portalVisible = false
+        portalPresentationAllowed = true
+        portalNonHittable = false
         lastEyeWidth = 0
         lastEyeHeight = 0
         lastPresentedAtMs = 0L
@@ -56,6 +54,15 @@ object StereoDebugState {
 
     fun onPortalEntityReady() {
         portalEntityReady = true
+    }
+
+    fun onPortalPresentationAllowed(allowed: Boolean) {
+        portalPresentationAllowed = allowed
+        if (!allowed) portalVisible = false
+    }
+
+    fun onPortalNonHittable() {
+        portalNonHittable = true
     }
 
     fun onPortalRect() {
@@ -99,6 +106,8 @@ object StereoDebugState {
             .put("surfaceAttached", surfaceAttached)
             .put("portalEntityReady", portalEntityReady)
             .put("portalVisible", portalVisible)
+            .put("portalPresentationAllowed", portalPresentationAllowed)
+            .put("portalNonHittable", portalNonHittable)
             .put("portalRects", portalRectCount.get())
             .put("framesReceived", frameReceivedCount.get())
             .put("framesAccepted", frameAcceptedCount.get())

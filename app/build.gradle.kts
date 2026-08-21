@@ -13,8 +13,10 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 33
-        versionName = "0.7.0"
+        versionCode = 60
+        versionName = "0.9.9"
+
+        ndkVersion = "27.0.12077973"
     }
 
     buildFeatures {
@@ -58,10 +60,18 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.0 removes projection-mode UI from the user workflow. Whenever a visible
-// GeoGebra 3D WebGL canvas exists, the app automatically selects GeoGebra's
-// Glasses renderer internally and enables Quest stereo capture. When the 3D view
-// disappears, stereo is disabled. No headset/projection click is required.
+// v0.9.9 late real-panel mesh takeover:
+// - startup keeps the known-working LayoutXML/WebView PanelSceneObject untouched;
+// - GeoGebra keeps its permanent 2x-wide full-colour L|R WebGL source buffer;
+// - after scene/VR/WebView/texture/layout are stable, the real PanelSceneObject
+//   mesh is replaced with the eye-aware material;
+// - there is no child stereo portal and no second visual/input surface;
+// - getStereoPassId() is evaluated in the vertex shader and passed to the
+//   fragment shader for per-eye sampling inside only the 3D rectangle;
+// - popup occlusion masking is intentionally disabled in this diagnostic build.
 spatial {
     allowUsageDataCollection.set(true)
+    shaders {
+        sources.add(project.layout.projectDirectory.dir("src/shaders"))
+    }
 }
