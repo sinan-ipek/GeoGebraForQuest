@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 39
-        versionName = "0.7.6"
+        versionCode = 40
+        versionName = "0.7.7"
     }
 
     buildFeatures {
@@ -58,11 +58,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.6 removes the v0.7.5 self-reload experiment. The front stereo portal
-// remains unchanged. Auto3D now watches the GeoGebra construction identity and
-// re-arms Glasses only after a newly opened/replaced construction is quiet. The
-// hidden projection launcher remains programmatically reachable instead of being
-// display:none, fixing the restart-only stereo behavior.
+// v0.7.7 fixes the hidden-surface first-frame deadlock observed in v0.7.5/0.7.6.
+// The first successfully presented SBS eye pair temporarily unlocks the front
+// portal so the Surface consumer starts draining; subsequent frames can then
+// complete and the normal JS presentation gate can settle. Automatic GrayScale
+// settings manipulation is disabled in this diagnostic build to isolate depth.
 spatial {
     allowUsageDataCollection.set(true)
 }
