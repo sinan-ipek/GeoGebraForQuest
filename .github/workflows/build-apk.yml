@@ -52,10 +52,10 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify eye-aware stereo shaders were packaged
+      - name: Verify safe-start stereo portal shader was packaged
         shell: bash
         run: |
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'questStereoPanel\.(vert|frag).*\.spv'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'questStereoPortal\.(vert|frag).*\.spv'
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -74,14 +74,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.7-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.7-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.7-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.7.1-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.7.1-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.7.1-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.7-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.7-debug.apk
+          name: GeoGebraForQuest-v0.9.7.1-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.7.1-debug.apk
           if-no-files-found: error
           retention-days: 30
