@@ -1,16 +1,19 @@
 package com.sinan.geogebraforquest
 
 /**
- * In-process bridge between the GeoGebra WebView panel and the Spatial SDK host.
+ * In-process bridge between the GeoGebra WebView and the Spatial SDK host.
  *
- * v0.6.0 sends a decoded SBS image of only the 3D viewport plus its rectangle.
- * Android captures the ordinary full WebView once, composites the left 3D half
- * into one complete panel image and the right 3D half into another, then sends
- * the resulting full-panel SBS frame to a StereoMode.LeftRight media surface.
+ * Stereo capture state and portal presentation state are intentionally separate:
+ * the eye-pair renderer may keep running while the visual portal is hidden under
+ * a GeoGebra dialog/menu, so reopening the workspace does not have to restart the
+ * Glasses renderer or lose the already-working stereo pipeline.
  */
 object SpatialBridgeBus {
     @Volatile
     var onStereoChanged: ((Boolean) -> Unit)? = null
+
+    @Volatile
+    var onPortalVisibilityChanged: ((Boolean) -> Unit)? = null
 
     @Volatile
     var onPortalRect: ((String) -> Unit)? = null
@@ -23,6 +26,10 @@ object SpatialBridgeBus {
 
     fun stereoChanged(enabled: Boolean) {
         onStereoChanged?.invoke(enabled)
+    }
+
+    fun portalVisibilityChanged(visible: Boolean) {
+        onPortalVisibilityChanged?.invoke(visible)
     }
 
     fun portalRect(json: String) {
@@ -39,6 +46,7 @@ object SpatialBridgeBus {
 
     fun clear() {
         onStereoChanged = null
+        onPortalVisibilityChanged = null
         onPortalRect = null
         onStereoFrame = null
         onPanelReady = null

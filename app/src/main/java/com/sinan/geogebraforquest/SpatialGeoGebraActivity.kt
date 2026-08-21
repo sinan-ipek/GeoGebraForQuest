@@ -2,6 +2,9 @@ package com.sinan.geogebraforquest
 
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
@@ -15,6 +18,8 @@ import com.meta.spatial.toolkit.Grabbable
 import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
 import com.meta.spatial.toolkit.MediaPanelRenderOptions
 import com.meta.spatial.toolkit.MediaPanelSettings
+import com.meta.spatial.toolkit.Mesh
+import com.meta.spatial.toolkit.MeshCollision
 import com.meta.spatial.toolkit.Panel
 import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
@@ -30,13 +35,16 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.6.7 — stereo pipeline diagnostic.
+ * GeoGebraForQuest v0.7.7.
  *
- * The rendering path remains the same as v0.6.6: the normal GeoGebra WebView is
- * visible and the StereoMode.LeftRight media surface covers only the 3D Graphics
- * rectangle. This build adds counters only, so a screenshot can tell us whether
- * a direct eye pair reached Android, was accepted by the EGL writer, was actually
- * presented, and whether the portal entity became visible.
+ * v0.7.6 exposed a native Surface queue deadlock in the presentation gate:
+ * the first stereo frame could be presented while the media panel was hidden,
+ * but the second eglSwapBuffers then waited for the hidden consumer. JavaScript
+ * was waiting for two presented frames before allowing the portal, so the second
+ * frame could never complete. v0.7.7 breaks that cycle natively: the very first
+ * successfully presented eye pair temporarily unlocks and shows the portal for
+ * a short grace period. This lets the Surface consumer drain, the second frame
+ * complete, and the JavaScript gate settle normally.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -49,20 +57,22 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
         private const val PORTAL_Z = -0.006f
+        private const val FIRST_FRAME_UNLOCK_MS = 1400L
     }
 
     private val stereoFrameSurface = StereoFrameSurface()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var geoGebraPanelEntity: Entity? = null
     private var stereoPortalEntity: Entity? = null
     private var pendingStereo = false
+    private var portalPresentationAllowed = true
     private var pendingPortalRect: String? = null
+    private var firstFrameUnlockUntilMs = 0L
     private var sceneReady = false
     private var vrReady = false
 
-    override fun registerFeatures(): List<SpatialFeature> {
-        return listOf(VRFeature(this))
-    }
+    override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
     override fun registerPanels(): List<PanelRegistration> {
         return listOf(
@@ -108,7 +118,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         ),
                         rendering = MediaPanelRenderOptions(
                             stereoMode = StereoMode.LeftRight,
-                            zIndex = 1,
+                            zIndex = 2,
                         ),
                         style = PanelStyleOptions(
                             themeResourceId = R.style.PanelAppThemeTransparent,
@@ -127,8 +137,36 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             pendingStereo = enabled
             StereoDebugState.onStereoChanged(enabled)
             if (!enabled) {
+                firstFrameUnlockUntilMs = 0L
                 runOnMainThread {
                     stereoPortalEntity?.setComponent(Visible(false))
+                }
+            }
+        }
+
+        SpatialBridgeBus.onPortalVisibilityChanged = { allowed ->
+            val now = SystemClock.uptimeMillis()
+            val protectedByFirstFrameUnlock =
+                !allowed && pendingStereo && now < firstFrameUnlockUntilMs
+
+            if (protectedByFirstFrameUnlock) {
+                // Ignore the JS gate's temporary false while the first visible
+                // frame is needed to unblock the media Surface consumer.
+                portalPresentationAllowed = true
+                StereoDebugState.onPortalPresentationAllowed(true)
+            } else {
+                portalPresentationAllowed = allowed
+                StereoDebugState.onPortalPresentationAllowed(allowed)
+            }
+
+            runOnMainThread {
+                val entity = stereoPortalEntity ?: return@runOnMainThread
+                if (!portalPresentationAllowed || !pendingStereo) {
+                    entity.setComponent(Visible(false))
+                } else {
+                    pendingPortalRect?.let { applyPortalRect(it) }
+                    entity.setComponent(Visible(true))
+                    StereoDebugState.onPortalVisible()
                 }
             }
         }
@@ -158,30 +196,34 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 reportedEyeHeight = eyeHeight,
                 onPresented = {
                     StereoDebugState.onFramePresented()
+
+                    // Critical v0.7.7 handshake: once one real eye pair has made
+                    // it through EGL, show the portal immediately for a short
+                    // grace window. With the consumer visible, the Surface queue
+                    // drains and the next eglSwapBuffers can complete.
+                    if (pendingStereo && !portalPresentationAllowed) {
+                        portalPresentationAllowed = true
+                        firstFrameUnlockUntilMs =
+                            SystemClock.uptimeMillis() + FIRST_FRAME_UNLOCK_MS
+                        StereoDebugState.onPortalPresentationAllowed(true)
+                    }
+
                     runOnMainThread {
-                        if (pendingStereo) {
+                        if (pendingStereo && portalPresentationAllowed) {
                             pendingPortalRect?.let { applyPortalRect(it) }
                             stereoPortalEntity?.setComponent(Visible(true))
                             StereoDebugState.onPortalVisible()
                         }
                     }
                 },
-                onFinished = {
-                    StereoDebugState.onFrameFinished()
-                },
+                onFinished = { StereoDebugState.onFrameFinished() },
             )
 
-            if (accepted) {
-                StereoDebugState.onFrameAccepted()
-            } else {
-                StereoDebugState.onFrameDroppedBusy()
-            }
+            if (accepted) StereoDebugState.onFrameAccepted()
+            else StereoDebugState.onFrameDroppedBusy()
         }
 
-        SpatialBridgeBus.onPanelReady = {
-            // No native GeoGebra geometry mirror is used.
-        }
-
+        SpatialBridgeBus.onPanelReady = { }
         requestScenePermissionIfNeeded()
     }
 
@@ -203,54 +245,47 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 !viewWidth.isFinite() || !viewHeight.isFinite() ||
                 width <= 0.0 || height <= 0.0 ||
                 viewWidth <= 0.0 || viewHeight <= 0.0
-            ) {
-                return
-            }
+            ) return
 
             val centerXPixels = left + width / 2.0
             val centerYPixels = top + height / 2.0
-
-            val centerX = (
-                centerXPixels / viewWidth - 0.5
-            ).toFloat() * PANEL_WIDTH_METERS
-
-            val centerY = (
-                0.5 - centerYPixels / viewHeight
-            ).toFloat() * PANEL_HEIGHT_METERS
-
-            val widthMeters = (
-                width / viewWidth
-            ).toFloat() * PANEL_WIDTH_METERS
-
-            val heightMeters = (
-                height / viewHeight
-            ).toFloat() * PANEL_HEIGHT_METERS
+            val centerX = (centerXPixels / viewWidth - 0.5).toFloat() * PANEL_WIDTH_METERS
+            val centerY = (0.5 - centerYPixels / viewHeight).toFloat() * PANEL_HEIGHT_METERS
+            val widthMeters = (width / viewWidth).toFloat() * PANEL_WIDTH_METERS
+            val heightMeters = (height / viewHeight).toFloat() * PANEL_HEIGHT_METERS
 
             runOnMainThread {
                 entity.setComponent(
-                    Transform(
-                        Pose(
-                            Vector3(
-                                centerX,
-                                centerY,
-                                PORTAL_Z,
-                            ),
-                        ),
-                    ),
+                    Transform(Pose(Vector3(centerX, centerY, PORTAL_Z))),
                 )
                 entity.setComponent(
-                    Scale(
-                        Vector3(
-                            widthMeters,
-                            heightMeters,
-                            1f,
-                        ),
-                    ),
+                    Scale(Vector3(widthMeters, heightMeters, 1f)),
                 )
             }
         } catch (_: Throwable) {
-            // Ignore one malformed or transient DOM rectangle.
+            // Ignore one malformed/transient DOM rectangle.
         }
+    }
+
+    private fun makePortalNonHittable(entity: Entity): Boolean {
+        return try {
+            val mesh = entity.getComponent<Mesh>()
+            mesh.hittable = MeshCollision.NoCollision
+            entity.setComponent(mesh)
+            StereoDebugState.onPortalNonHittable()
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun schedulePortalNonHittable(entity: Entity, attempt: Int = 0) {
+        if (makePortalNonHittable(entity)) return
+        if (attempt >= 30) return
+        mainHandler.postDelayed(
+            { schedulePortalNonHittable(entity, attempt + 1) },
+            100L,
+        )
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -277,9 +312,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             requestCode == REQUEST_USE_SCENE &&
             grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
-        ) {
-            enablePassthroughWhenSafe()
-        }
+        ) enablePassthroughWhenSafe()
     }
 
     override fun onSceneReady() {
@@ -315,13 +348,16 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Visible(false),
             ),
         )
+
+        schedulePortalNonHittable(stereoPanel)
+
         stereoPortalEntity = stereoPanel
         StereoDebugState.onPortalEntityReady()
-
         pendingPortalRect?.let { applyPortalRect(it) }
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
         SpatialBridgeBus.clear()
         stereoFrameSurface.release()
         stereoPortalEntity = null

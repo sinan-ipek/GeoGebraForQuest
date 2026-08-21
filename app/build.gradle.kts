@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 33
-        versionName = "0.7.0"
+        versionCode = 40
+        versionName = "0.7.7"
     }
 
     buildFeatures {
@@ -58,10 +58,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.0 removes projection-mode UI from the user workflow. Whenever a visible
-// GeoGebra 3D WebGL canvas exists, the app automatically selects GeoGebra's
-// Glasses renderer internally and enables Quest stereo capture. When the 3D view
-// disappears, stereo is disabled. No headset/projection click is required.
+// v0.7.7 fixes the hidden-surface first-frame deadlock observed in v0.7.5/0.7.6.
+// The first successfully presented SBS eye pair temporarily unlocks the front
+// portal so the Surface consumer starts draining; subsequent frames can then
+// complete and the normal JS presentation gate can settle. Automatic GrayScale
+// settings manipulation is disabled in this diagnostic build to isolate depth.
 spatial {
     allowUsageDataCollection.set(true)
 }
