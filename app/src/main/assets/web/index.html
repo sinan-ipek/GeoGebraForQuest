@@ -53,7 +53,7 @@
   <div id="ggb-element"></div>
 
   <div id="boot-panel">
-    <div id="boot-title">GeoGebraForQuest v0.9.4</div>
+    <div id="boot-title">GeoGebraForQuest v0.9.5</div>
     <div id="status">Yerel stereo GeoGebra hazırlanıyor…</div>
   </div>
 
@@ -71,7 +71,6 @@
 
   let ggb = null;
   let appletReady = false;
-  let autoSaveTimer = null;
   let lastStartupError = '';
 
   function log(...args) {
@@ -97,9 +96,6 @@
     setStatus(message);
   }
 
-  // Keep startup errors visible in-headset. The local source build is intentionally
-  // self-contained, so any missing script/style URL is a packaging bug and should
-  // be shown verbatim instead of turning into a silent white panel.
   window.addEventListener('error', function (event) {
     if (appletReady) return;
     const target = event.target;
@@ -131,38 +127,6 @@
     }
   }
 
-  function saveBase64(callback) {
-    if (!ggb || typeof ggb.getBase64 !== 'function') {
-      callback('');
-      return;
-    }
-    try {
-      ggb.getBase64(function (base64) {
-        callback(base64 || '');
-      });
-    } catch (_) {
-      callback('');
-    }
-  }
-
-  window.GeoGebraForQuest = {
-    importBase64(base64) {
-      if (!base64) return;
-      const tryLoad = function () {
-        if (ggb && appletReady && typeof ggb.setBase64 === 'function') {
-          try {
-            ggb.setBase64(base64);
-          } catch (error) {
-            console.error(error);
-          }
-        } else {
-          setTimeout(tryLoad, 200);
-        }
-      };
-      tryLoad();
-    }
-  };
-
   function appletLoaded(api) {
     ggb = api || window.ggbApplet;
     window.ggbApplet = ggb;
@@ -172,14 +136,6 @@
     status.style.color = '#196b2c';
     setStatus('GeoGebra hazır · tam renkli SBS 3D kaynak renderer aktif');
     bridgeCall('panelReady');
-
-    if (!autoSaveTimer) {
-      autoSaveTimer = setInterval(function () {
-        saveBase64(function (base64) {
-          if (base64) bridgeCall('saveConstruction', base64);
-        });
-      }, 1200);
-    }
 
     setTimeout(function () {
       if (appletReady) bootPanel.style.display = 'none';
@@ -211,10 +167,6 @@
       };
 
       const applet = new GGBApplet(params, true);
-      // The patched source build keeps GeoGebra's native WAR layout intact:
-      // GeoGebra/web3d sits beside GeoGebra/css, GeoGebra/js, keyboard, images,
-      // GIAC and the remaining runtime files. deployggb.js was generated with
-      // moduleBase './', so the Web3D module must be addressed from this root.
       applet.setHTML5Codebase(LOCAL_CODEBASE, true);
       applet.inject('ggb-element');
 
