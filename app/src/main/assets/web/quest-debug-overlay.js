@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqDebugOverlayV074) return;
-  window.__ggqDebugOverlayV074 = true;
+  if (window.__ggqDebugOverlayV075) return;
+  window.__ggqDebugOverlayV075 = true;
 
   const recentLogs = [];
   let panel = null;
@@ -15,8 +15,8 @@
         try { return JSON.stringify(value); } catch (_) { return String(value); }
       }).join(' ');
       if (text.indexOf('GGQ') < 0 && text.indexOf('GeoGebraForQuest') < 0) return;
-      recentLogs.push(text.replace(/\s+/g, ' ').slice(0, 180));
-      while (recentLogs.length > 7) recentLogs.shift();
+      recentLogs.push(text.replace(/\s+/g, ' ').slice(0, 190));
+      while (recentLogs.length > 8) recentLogs.shift();
     } catch (_) {}
   }
 
@@ -36,16 +36,16 @@
   function ensurePanel() {
     if (panel && panel.isConnected) return;
     panel = document.createElement('div');
-    panel.id = 'ggq-debug-overlay-v074';
+    panel.id = 'ggq-debug-overlay-v075';
     panel.style.cssText = [
       'position:fixed','right:10px','top:10px','z-index:2147483647',
-      'width:365px','max-width:48vw','box-sizing:border-box','padding:9px 10px',
+      'width:380px','max-width:49vw','box-sizing:border-box','padding:9px 10px',
       'border-radius:8px','background:rgba(0,0,0,.82)','color:#b8ffbd',
       'font:11px/1.35 monospace','white-space:pre-wrap','pointer-events:none',
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
     ].join(';');
     const title = document.createElement('div');
-    title.textContent = 'GGQ v0.7.4 FRONT-PORTAL DEBUG';
+    title.textContent = 'GGQ v0.7.5 STARTUP-SEQUENCE DEBUG';
     title.style.cssText = 'font-weight:bold;color:#fff;margin-bottom:5px;font-size:12px';
     panel.appendChild(title);
     body = document.createElement('div');
@@ -102,6 +102,9 @@
     let stereoRequested = false;
     let portalSuppressed = false;
     let overlayActive = false;
+    let startupState = 'loading';
+    let stableTicks = 0;
+    let jsPresented = 0;
     try {
       autoInstalled = !!(auto && auto.isInstalled && auto.isInstalled());
       view3D = !!(auto && auto.is3DVisible && auto.is3DVisible());
@@ -111,6 +114,9 @@
       stereoRequested = !!(auto && auto.isStereoRequested && auto.isStereoRequested());
       portalSuppressed = !!(auto && auto.isPortalSuppressed && auto.isPortalSuppressed());
       overlayActive = !!(auto && auto.isOverlayActive && auto.isOverlayActive());
+      startupState = auto && auto.getStartupState ? String(auto.getStartupState()) : 'loading';
+      stableTicks = auto && auto.getStableTicks ? Number(auto.getStableTicks()) || 0 : 0;
+      jsPresented = auto && auto.getPresentedFrames ? Number(auto.getPresentedFrames()) || 0 : 0;
     } catch (_) {}
 
     const color = window.GeoGebraQuestColorPatch;
@@ -148,9 +154,11 @@
     const native = nativeStatus();
     const lines = [];
     lines.push('auto 3D ctl:      ' + yes(autoInstalled));
+    lines.push('startup state:    ' + startupState);
+    lines.push('stable ticks:     ' + stableTicks);
     lines.push('3D visible:       ' + yes(view3D));
     lines.push('3D exposed:       ' + yes(viewExposed));
-    lines.push('glasses forced:   ' + yes(projectionArmed));
+    lines.push('glasses armed:    ' + yes(projectionArmed));
     lines.push('front overlay:    ' + yes(overlayActive));
     lines.push('popup requested:  ' + yes(popupRequested));
     lines.push('portal suppressed:' + yes(portalSuppressed));
@@ -161,6 +169,7 @@
     lines.push('getContext hook:  ' + yes(getContextHook));
     lines.push('GL mask/clear:    ' + yes(glHook) + ' / ' + yes(clearHook));
     lines.push('canvas GL/CSS:    ' + glSize + ' / ' + cssSize);
+    lines.push('presented gate:   ' + jsPresented + ' / 3');
 
     if (native) {
       lines.push('native stereo:    ' + (native.stereoEnabled ? 'ON' : 'off'));
@@ -183,5 +192,5 @@
 
   ensurePanel();
   update();
-  setInterval(update, 350);
+  setInterval(update, 300);
 })();
