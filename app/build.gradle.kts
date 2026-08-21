@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 40
-        versionName = "0.7.7"
+        versionCode = 50
+        versionName = "0.9.0"
     }
 
     buildFeatures {
@@ -58,11 +58,9 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.7 fixes the hidden-surface first-frame deadlock observed in v0.7.5/0.7.6.
-// The first successfully presented SBS eye pair temporarily unlocks the front
-// portal so the Surface consumer starts draining; subsequent frames can then
-// complete and the normal JS presentation gate can settle. Automatic GrayScale
-// settings manipulation is disabled in this diagnostic build to isolate depth.
+// v0.9.0 is a source-built GeoGebra variant. The 3D renderer draws two
+// independent full-colour eye passes directly into one 2x-wide SBS WebGL
+// backing buffer. No readPixels/JPEG/Base64/Bitmap frame transport is used.
 spatial {
     allowUsageDataCollection.set(true)
 }
