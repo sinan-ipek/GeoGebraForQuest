@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqDebugOverlayV075) return;
-  window.__ggqDebugOverlayV075 = true;
+  if (window.__ggqDebugOverlayV076) return;
+  window.__ggqDebugOverlayV076 = true;
 
   const recentLogs = [];
   let panel = null;
@@ -36,41 +36,21 @@
   function ensurePanel() {
     if (panel && panel.isConnected) return;
     panel = document.createElement('div');
-    panel.id = 'ggq-debug-overlay-v075';
+    panel.id = 'ggq-debug-overlay-v076';
     panel.style.cssText = [
       'position:fixed','right:10px','top:10px','z-index:2147483647',
-      'width:380px','max-width:49vw','box-sizing:border-box','padding:9px 10px',
+      'width:390px','max-width:49vw','box-sizing:border-box','padding:9px 10px',
       'border-radius:8px','background:rgba(0,0,0,.82)','color:#b8ffbd',
       'font:11px/1.35 monospace','white-space:pre-wrap','pointer-events:none',
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
     ].join(';');
     const title = document.createElement('div');
-    title.textContent = 'GGQ v0.7.5 STARTUP-SEQUENCE DEBUG';
+    title.textContent = 'GGQ v0.7.6 CONSTRUCTION-REARM DEBUG';
     title.style.cssText = 'font-weight:bold;color:#fff;margin-bottom:5px;font-size:12px';
     panel.appendChild(title);
     body = document.createElement('div');
     panel.appendChild(body);
     (document.body || document.documentElement).appendChild(panel);
-  }
-
-  function largestWebGlCanvas() {
-    const root = document.getElementById('ggb-element') || document;
-    let best = null;
-    let bestArea = 0;
-    for (const canvas of Array.from(root.querySelectorAll('canvas'))) {
-      try {
-        const rect = canvas.getBoundingClientRect();
-        if (rect.width < 100 || rect.height < 100) continue;
-        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-        if (!gl) continue;
-        const area = rect.width * rect.height;
-        if (area > bestArea) {
-          bestArea = area;
-          best = { canvas: canvas, gl: gl, rect: rect };
-        }
-      } catch (_) {}
-    }
-    return best;
   }
 
   function yes(value) { return value ? 'YES' : 'no'; }
@@ -83,65 +63,47 @@
     } catch (_) { return null; }
   }
 
-  function update() {
-    ensurePanel();
-
-    let captureEnabled = false;
+  function captureEnabled() {
     try {
-      captureEnabled = !!(window.GeoGebraQuestStereoCapture &&
+      return !!(window.GeoGebraQuestStereoCapture &&
         typeof window.GeoGebraQuestStereoCapture.isEnabled === 'function' &&
         window.GeoGebraQuestStereoCapture.isEnabled());
-    } catch (_) {}
+    } catch (_) { return false; }
+  }
 
+  function canvasInfo() {
+    const root = document.getElementById('ggb-element') || document;
+    let best = null;
+    let bestArea = 0;
+    for (const canvas of Array.from(root.querySelectorAll('canvas'))) {
+      try {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width < 100 || rect.height < 100) continue;
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) continue;
+        const area = rect.width * rect.height;
+        if (area > bestArea) best = { gl: gl, rect: rect }, bestArea = area;
+      } catch (_) {}
+    }
+    return best;
+  }
+
+  function update() {
+    ensurePanel();
     const auto = window.GeoGebraQuestAuto3D;
-    let autoInstalled = false;
-    let view3D = false;
-    let viewExposed = false;
-    let projectionArmed = false;
-    let popupRequested = false;
-    let stereoRequested = false;
-    let portalSuppressed = false;
-    let overlayActive = false;
-    let startupState = 'loading';
-    let stableTicks = 0;
-    let jsPresented = 0;
-    try {
-      autoInstalled = !!(auto && auto.isInstalled && auto.isInstalled());
-      view3D = !!(auto && auto.is3DVisible && auto.is3DVisible());
-      viewExposed = !!(auto && auto.is3DExposed && auto.is3DExposed());
-      projectionArmed = !!(auto && auto.isProjectionArmed && auto.isProjectionArmed());
-      popupRequested = !!(auto && auto.isProjectionPopupRequested && auto.isProjectionPopupRequested());
-      stereoRequested = !!(auto && auto.isStereoRequested && auto.isStereoRequested());
-      portalSuppressed = !!(auto && auto.isPortalSuppressed && auto.isPortalSuppressed());
-      overlayActive = !!(auto && auto.isOverlayActive && auto.isOverlayActive());
-      startupState = auto && auto.getStartupState ? String(auto.getStartupState()) : 'loading';
-      stableTicks = auto && auto.getStableTicks ? Number(auto.getStableTicks()) || 0 : 0;
-      jsPresented = auto && auto.getPresentedFrames ? Number(auto.getPresentedFrames()) || 0 : 0;
-    } catch (_) {}
-
+    const reset = window.GeoGebraQuestStartupReset;
     const color = window.GeoGebraQuestColorPatch;
-    let colorInstalled = false;
-    let colorConfigured = false;
-    let colorFailed = false;
-    let colorState = 'loading';
+    const native = nativeStatus();
+    const item = canvasInfo();
+
+    let colorText = 'loading';
     try {
-      colorInstalled = !!(color && color.isInstalled && color.isInstalled());
-      colorConfigured = !!(color && color.isConfigured && color.isConfigured());
-      colorFailed = !!(color && color.hasFailed && color.hasFailed());
-      colorState = color && color.getState ? String(color.getState()) : 'loading';
+      if (color && color.isConfigured && color.isConfigured()) colorText = 'YES';
+      else if (color && color.hasFailed && color.hasFailed()) colorText = 'FAILED';
+      else if (color && color.getState) colorText = String(color.getState());
     } catch (_) {}
 
-    let getContextHook = false;
-    try {
-      getContextHook = !!(HTMLCanvasElement.prototype.getContext &&
-        HTMLCanvasElement.prototype.getContext.__ggqStereoGetContextHookV6);
-    } catch (_) {}
-
-    const item = largestWebGlCanvas();
-    let glHook = false;
-    let clearHook = false;
-    let glSize = 'none';
-    let cssSize = 'none';
+    let glHook = false, clearHook = false, glSize = 'none', cssSize = 'none';
     if (item) {
       try {
         glHook = !!(item.gl.colorMask && item.gl.colorMask.__ggqStereoMaskHookV6);
@@ -151,37 +113,45 @@
       } catch (_) {}
     }
 
-    const native = nativeStatus();
+    function call(name, fallback) {
+      try { return auto && typeof auto[name] === 'function' ? auto[name]() : fallback; }
+      catch (_) { return fallback; }
+    }
+
+    let quietMs = 0, constructionGeneration = 0;
+    try {
+      quietMs = reset && reset.getQuietMs ? Math.round(reset.getQuietMs()) : 0;
+      constructionGeneration = reset && reset.getGeneration ? Number(reset.getGeneration()) || 0 : 0;
+    } catch (_) {}
+
     const lines = [];
-    lines.push('auto 3D ctl:      ' + yes(autoInstalled));
-    lines.push('startup state:    ' + startupState);
-    lines.push('stable ticks:     ' + stableTicks);
-    lines.push('3D visible:       ' + yes(view3D));
-    lines.push('3D exposed:       ' + yes(viewExposed));
-    lines.push('glasses armed:    ' + yes(projectionArmed));
-    lines.push('front overlay:    ' + yes(overlayActive));
-    lines.push('popup requested:  ' + yes(popupRequested));
-    lines.push('portal suppressed:' + yes(portalSuppressed));
-    lines.push('full colour:      ' + (colorConfigured ? 'YES' : colorFailed ? 'FAILED' : colorState));
-    lines.push('color patch:      ' + yes(colorInstalled));
-    lines.push('stereo requested: ' + yes(stereoRequested));
-    lines.push('stereo JS:        ' + (captureEnabled ? 'ON' : 'off'));
-    lines.push('getContext hook:  ' + yes(getContextHook));
-    lines.push('GL mask/clear:    ' + yes(glHook) + ' / ' + yes(clearHook));
-    lines.push('canvas GL/CSS:    ' + glSize + ' / ' + cssSize);
-    lines.push('presented gate:   ' + jsPresented + ' / 3');
+    lines.push('auto 3D ctl:       ' + yes(call('isInstalled', false)));
+    lines.push('construction gen:  ' + constructionGeneration);
+    lines.push('construction quiet:' + quietMs + ' ms');
+    lines.push('rearm resets:      ' + Number(call('getResetGeneration', 0)));
+    lines.push('last reset:        ' + String(call('getLastResetReason', '-')));
+    lines.push('stable ticks:      ' + Number(call('getStableTicks', 0)));
+    lines.push('3D visible:        ' + yes(call('is3DVisible', false)));
+    lines.push('3D exposed:        ' + yes(call('is3DExposed', false)));
+    lines.push('glasses armed:     ' + yes(call('isProjectionArmed', false)));
+    lines.push('front overlay:     ' + yes(call('isOverlayActive', false)));
+    lines.push('fresh presented:   ' + Number(call('getPresentedDelta', 0)) + ' / 2');
+    lines.push('portal suppressed: ' + yes(call('isPortalSuppressed', false)));
+    lines.push('full colour:       ' + colorText);
+    lines.push('stereo requested:  ' + yes(call('isStereoRequested', false)));
+    lines.push('stereo JS:         ' + (captureEnabled() ? 'ON' : 'off'));
+    lines.push('GL mask/clear:     ' + yes(glHook) + ' / ' + yes(clearHook));
+    lines.push('canvas GL/CSS:     ' + glSize + ' / ' + cssSize);
 
     if (native) {
-      lines.push('native stereo:    ' + (native.stereoEnabled ? 'ON' : 'off'));
-      lines.push('surface/entity:   ' + yes(native.surfaceAttached) + ' / ' + yes(native.portalEntityReady));
-      lines.push('portal allowed:   ' + yes(native.portalPresentationAllowed));
-      lines.push('portal nonhit:    ' + yes(native.portalNonHittable));
-      lines.push('portal rects:     ' + native.portalRects + ' visible=' + yes(native.portalVisible));
-      lines.push('frames R/A/P:     ' + native.framesReceived + '/' + native.framesAccepted + '/' + native.framesPresented);
-      lines.push('busy/reject:      ' + native.framesDroppedBusy + '/' + native.framesRejected);
-      lines.push('last eye size:    ' + native.lastEyeWidth + 'x' + native.lastEyeHeight);
-    } else {
-      lines.push('native status:    unavailable');
+      lines.push('native stereo:     ' + (native.stereoEnabled ? 'ON' : 'off'));
+      lines.push('surface/entity:    ' + yes(native.surfaceAttached) + ' / ' + yes(native.portalEntityReady));
+      lines.push('portal allowed:    ' + yes(native.portalPresentationAllowed));
+      lines.push('portal nonhit:     ' + yes(native.portalNonHittable));
+      lines.push('portal visible:    ' + yes(native.portalVisible));
+      lines.push('frames R/A/P:      ' + native.framesReceived + '/' + native.framesAccepted + '/' + native.framesPresented);
+      lines.push('busy/reject:       ' + native.framesDroppedBusy + '/' + native.framesRejected);
+      lines.push('last eye size:     ' + native.lastEyeWidth + 'x' + native.lastEyeHeight);
     }
 
     lines.push('--- last GGQ logs ---');
