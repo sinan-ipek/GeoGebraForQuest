@@ -45,6 +45,11 @@ private class QuestBridge(
     }
 
     @JavascriptInterface
+    fun setPortalVisible(visible: Boolean) {
+        if (spatialMode) SpatialBridgeBus.portalVisibilityChanged(visible)
+    }
+
+    @JavascriptInterface
     fun updatePortalRect(json: String) {
         if (spatialMode) SpatialBridgeBus.portalRect(json)
     }
@@ -96,28 +101,27 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 /**
- * v0.7.3 keeps the GeoGebra WebView as the front interaction layer and the
- * stereo media panel as an underlay. The active WebGL canvas remains hittable
- * but becomes almost fully transparent while stereo is active. Same-sized
- * wrappers are made transparent as well so the LeftRight surface can be seen
- * through the 3D rectangle without sacrificing controller input.
+ * v0.7.4 returns to the architecture that actually produced Quest depth:
+ * the LeftRight media portal is rendered in front of the 3D rectangle.
+ *
+ * While stereo is active the original GeoGebra WebGL canvas is made almost
+ * transparent. It stays in the DOM and remains pointer-interactive, so when the
+ * front media panel is made non-hittable the controller ray can continue to the
+ * real GeoGebra canvas behind it. We no longer try to punch alpha through the
+ * complete Android WebView panel; that underlay approach was the reason v0.7.2
+ * and v0.7.3 presented valid eye frames without visible depth.
  */
-private fun injectStereoUnderlayCss(view: WebView) {
+private fun injectStereoOverlayCss(view: WebView) {
     view.evaluateJavascript(
         """
         (function () {
-          if (document.getElementById('ggq-stereo-underlay-css')) return;
+          if (document.getElementById('ggq-stereo-overlay-css')) return;
           var style = document.createElement('style');
-          style.id = 'ggq-stereo-underlay-css';
+          style.id = 'ggq-stereo-overlay-css';
           style.textContent =
             'html[data-ggq-stereo="on"] .ggq-stereo-canvas{' +
               'opacity:0.001!important;' +
-              'background:transparent!important;' +
               'pointer-events:auto!important;' +
-            '}' +
-            'html[data-ggq-stereo="on"] .ggq-stereo-hole{' +
-              'background:transparent!important;' +
-              'background-color:transparent!important;' +
             '}' +
             'html[data-ggq-stereo="off"] .ggq-stereo-canvas{' +
               'opacity:1!important;' +
@@ -149,7 +153,7 @@ private fun installStereoCaptureAtDocumentStart(view: WebView, context: Context)
 }
 
 private fun injectQuestScripts(view: WebView) {
-    injectStereoUnderlayCss(view)
+    injectStereoOverlayCss(view)
     injectAssetScript(view, "ggq-projection-patch", PROJECTION_PATCH_URL)
     injectAssetScript(view, "ggq-color-patch", COLOR_PATCH_URL)
     injectAssetScript(view, "ggq-stereo-capture", STEREO_CAPTURE_URL)
@@ -206,7 +210,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.7.3"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.7.4"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
