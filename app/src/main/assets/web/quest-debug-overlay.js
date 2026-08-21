@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqDebugOverlayV070) return;
-  window.__ggqDebugOverlayV070 = true;
+  if (window.__ggqDebugOverlayV074) return;
+  window.__ggqDebugOverlayV074 = true;
 
   const recentLogs = [];
   let panel = null;
@@ -16,7 +16,7 @@
       }).join(' ');
       if (text.indexOf('GGQ') < 0 && text.indexOf('GeoGebraForQuest') < 0) return;
       recentLogs.push(text.replace(/\s+/g, ' ').slice(0, 180));
-      while (recentLogs.length > 5) recentLogs.shift();
+      while (recentLogs.length > 7) recentLogs.shift();
     } catch (_) {}
   }
 
@@ -36,16 +36,16 @@
   function ensurePanel() {
     if (panel && panel.isConnected) return;
     panel = document.createElement('div');
-    panel.id = 'ggq-debug-overlay-v070';
+    panel.id = 'ggq-debug-overlay-v074';
     panel.style.cssText = [
       'position:fixed','right:10px','top:10px','z-index:2147483647',
-      'width:340px','max-width:44vw','box-sizing:border-box','padding:9px 10px',
+      'width:365px','max-width:48vw','box-sizing:border-box','padding:9px 10px',
       'border-radius:8px','background:rgba(0,0,0,.82)','color:#b8ffbd',
       'font:11px/1.35 monospace','white-space:pre-wrap','pointer-events:none',
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
     ].join(';');
     const title = document.createElement('div');
-    title.textContent = 'GGQ v0.7.0 AUTO-3D DEBUG';
+    title.textContent = 'GGQ v0.7.4 FRONT-PORTAL DEBUG';
     title.style.cssText = 'font-weight:bold;color:#fff;margin-bottom:5px;font-size:12px';
     panel.appendChild(title);
     body = document.createElement('div');
@@ -85,6 +85,7 @@
 
   function update() {
     ensurePanel();
+
     let captureEnabled = false;
     try {
       captureEnabled = !!(window.GeoGebraQuestStereoCapture &&
@@ -95,13 +96,33 @@
     const auto = window.GeoGebraQuestAuto3D;
     let autoInstalled = false;
     let view3D = false;
+    let viewExposed = false;
     let projectionArmed = false;
+    let popupRequested = false;
     let stereoRequested = false;
+    let portalSuppressed = false;
+    let overlayActive = false;
     try {
       autoInstalled = !!(auto && auto.isInstalled && auto.isInstalled());
       view3D = !!(auto && auto.is3DVisible && auto.is3DVisible());
+      viewExposed = !!(auto && auto.is3DExposed && auto.is3DExposed());
       projectionArmed = !!(auto && auto.isProjectionArmed && auto.isProjectionArmed());
+      popupRequested = !!(auto && auto.isProjectionPopupRequested && auto.isProjectionPopupRequested());
       stereoRequested = !!(auto && auto.isStereoRequested && auto.isStereoRequested());
+      portalSuppressed = !!(auto && auto.isPortalSuppressed && auto.isPortalSuppressed());
+      overlayActive = !!(auto && auto.isOverlayActive && auto.isOverlayActive());
+    } catch (_) {}
+
+    const color = window.GeoGebraQuestColorPatch;
+    let colorInstalled = false;
+    let colorConfigured = false;
+    let colorFailed = false;
+    let colorState = 'loading';
+    try {
+      colorInstalled = !!(color && color.isInstalled && color.isInstalled());
+      colorConfigured = !!(color && color.isConfigured && color.isConfigured());
+      colorFailed = !!(color && color.hasFailed && color.hasFailed());
+      colorState = color && color.getState ? String(color.getState()) : 'loading';
     } catch (_) {}
 
     let getContextHook = false;
@@ -128,7 +149,13 @@
     const lines = [];
     lines.push('auto 3D ctl:      ' + yes(autoInstalled));
     lines.push('3D visible:       ' + yes(view3D));
+    lines.push('3D exposed:       ' + yes(viewExposed));
     lines.push('glasses forced:   ' + yes(projectionArmed));
+    lines.push('front overlay:    ' + yes(overlayActive));
+    lines.push('popup requested:  ' + yes(popupRequested));
+    lines.push('portal suppressed:' + yes(portalSuppressed));
+    lines.push('full colour:      ' + (colorConfigured ? 'YES' : colorFailed ? 'FAILED' : colorState));
+    lines.push('color patch:      ' + yes(colorInstalled));
     lines.push('stereo requested: ' + yes(stereoRequested));
     lines.push('stereo JS:        ' + (captureEnabled ? 'ON' : 'off'));
     lines.push('getContext hook:  ' + yes(getContextHook));
@@ -138,6 +165,8 @@
     if (native) {
       lines.push('native stereo:    ' + (native.stereoEnabled ? 'ON' : 'off'));
       lines.push('surface/entity:   ' + yes(native.surfaceAttached) + ' / ' + yes(native.portalEntityReady));
+      lines.push('portal allowed:   ' + yes(native.portalPresentationAllowed));
+      lines.push('portal nonhit:    ' + yes(native.portalNonHittable));
       lines.push('portal rects:     ' + native.portalRects + ' visible=' + yes(native.portalVisible));
       lines.push('frames R/A/P:     ' + native.framesReceived + '/' + native.framesAccepted + '/' + native.framesPresented);
       lines.push('busy/reject:      ' + native.framesDroppedBusy + '/' + native.framesRejected);
@@ -154,5 +183,5 @@
 
   ensurePanel();
   update();
-  setInterval(update, 400);
+  setInterval(update, 350);
 })();
