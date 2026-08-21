@@ -25,7 +25,7 @@
       left: 16px;
       top: 16px;
       z-index: 2147483646;
-      max-width: 72%;
+      max-width: 82%;
       padding: 10px 12px;
       border-radius: 10px;
       background: #ffffff;
@@ -35,6 +35,8 @@
       font-size: 13px;
       line-height: 1.35;
       pointer-events: none;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     #boot-title {
@@ -51,7 +53,7 @@
   <div id="ggb-element"></div>
 
   <div id="boot-panel">
-    <div id="boot-title">GeoGebraForQuest v0.9.0</div>
+    <div id="boot-title">GeoGebraForQuest v0.9.3</div>
     <div id="status">Yerel stereo GeoGebra hazırlanıyor…</div>
   </div>
 
@@ -62,6 +64,7 @@
   const APPASSETS = 'https://appassets.androidplatform.net/assets/web/';
   const LOCAL_DEPLOY = APPASSETS + 'GeoGebra/deployggb.js';
   const LOCAL_CODEBASE = APPASSETS + 'GeoGebra/HTML5/5.0/web3d/';
+  const LOCAL_BOOT = LOCAL_CODEBASE + 'web3d.nocache.js';
 
   const bootPanel = document.getElementById('boot-panel');
   const status = document.getElementById('status');
@@ -69,6 +72,7 @@
   let ggb = null;
   let appletReady = false;
   let autoSaveTimer = null;
+  let lastStartupError = '';
 
   function log(...args) {
     console.log('[GeoGebraForQuest]', ...args);
@@ -79,12 +83,42 @@
     log(message);
   }
 
+  function rememberError(message) {
+    if (message && !lastStartupError) {
+      lastStartupError = String(message);
+    }
+  }
+
   function showError(message) {
+    rememberError(message);
     bootPanel.style.display = 'block';
     bootPanel.style.borderColor = '#d93025';
     status.style.color = '#b3261e';
     setStatus(message);
   }
+
+  // Keep startup errors visible in-headset. In the previous diagnostic build
+  // GeoGebra timed out with no useful reason shown to the user.
+  window.addEventListener('error', function (event) {
+    if (appletReady) return;
+    const target = event.target;
+    if (target && target !== window) {
+      const url = target.src || target.href || target.currentSrc || '';
+      if (url) {
+        showError('Kaynak yüklenemedi: ' + url);
+        return;
+      }
+    }
+    const detail = event.message || (event.error && event.error.message) || 'Bilinmeyen JavaScript hatası';
+    showError('JavaScript hatası: ' + detail);
+  }, true);
+
+  window.addEventListener('unhandledrejection', function (event) {
+    if (appletReady) return;
+    const reason = event.reason;
+    const detail = reason && reason.message ? reason.message : String(reason || 'Bilinmeyen Promise hatası');
+    showError('Başlatma Promise hatası: ' + detail);
+  });
 
   function bridgeCall(name, ...args) {
     try {
@@ -135,7 +169,7 @@
 
     bootPanel.style.borderColor = '#b8d8be';
     status.style.color = '#196b2c';
-    setStatus('GeoGebra hazır · tam renkli SBS 3D');
+    setStatus('GeoGebra hazır · tam renkli SBS 3D kaynak renderer aktif');
     bridgeCall('panelReady');
 
     if (!autoSaveTimer) {
@@ -170,35 +204,51 @@
         enableShiftDragZoom: true,
         enableLabelDrags: true,
         errorDialogsActive: true,
+        showLogging: true,
         useBrowserForJS: false,
         appletOnLoad: appletLoaded
       };
 
       const applet = new GGBApplet(params, true);
-      applet.setHTML5Codebase(LOCAL_CODEBASE);
+      // appassets is an HTTPS URL syntactically, but all files are local APK
+      // assets. Marking it offline prevents GeoGebra's loader from treating the
+      // codebase as an internet-hosted deployment.
+      applet.setHTML5Codebase(LOCAL_CODEBASE, true);
       applet.inject('ggb-element');
 
       setTimeout(function () {
         if (!appletReady) {
-          showError('Yerel GeoGebraForQuest kaynak paketi başlatılamadı.');
+          const suffix = lastStartupError ? ' · Son hata: ' + lastStartupError : '';
+          showError('GeoGebra kaynak paketi 25 sn içinde başlayamadı' + suffix);
         }
-      }, 20000);
+      }, 25000);
     } catch (error) {
       console.error(error);
-      showError('GeoGebra başlatma hatası: ' + error.message);
+      showError('GeoGebra başlatma hatası: ' + (error && error.message ? error.message : String(error)));
     }
   }
 
   function injectGeoGebra() {
-    setStatus('Yerel GeoGebraForQuest betiği yükleniyor…');
+    setStatus('deployggb.js yükleniyor…');
     const script = document.createElement('script');
     script.src = LOCAL_DEPLOY;
     script.onload = function () {
-      setStatus('Tam renkli stereo GeoGebra başlatılıyor…');
-      startApplet();
+      // Explicitly test the GWT module bootstrap file before injection. A failed
+      // fetch now produces a useful in-headset message rather than a blank page.
+      fetch(LOCAL_BOOT, { cache: 'no-store' })
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error('web3d.nocache.js HTTP ' + response.status);
+          }
+          setStatus('Tam renkli SBS GeoGebra başlatılıyor…');
+          startApplet();
+        })
+        .catch(function (error) {
+          showError('Web3D başlatma dosyası okunamadı: ' + error.message);
+        });
     };
     script.onerror = function () {
-      showError('Yerel GeoGebraForQuest betiği yüklenemedi.');
+      showError('deployggb.js yüklenemedi: ' + LOCAL_DEPLOY);
     };
     document.head.appendChild(script);
   }
