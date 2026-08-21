@@ -20,7 +20,7 @@ git -C "$SRC" checkout --detach "$GEOGEBRA_COMMIT"
 echo "[GGQ] applying Quest full-colour SBS source patches"
 python3 "$ROOT/tools/patch-geogebra-quest.py" "$SRC"
 
-echo "[GGQ] applying v0.9.7 stereo stability patch"
+echo "[GGQ] applying permanent stereo backing-store stability patch"
 python3 "$ROOT/tools/patch-geogebra-quest-v097.py" "$SRC"
 
 echo "[GGQ] compiling GeoGebra Web3D and its static runtime resources"
@@ -67,13 +67,13 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.7
+version=0.9.8
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour SBS, permanent Quest draw path)
 renderer=QuestStereoRenderer
 backing_store=always_2x_width
 viewport=left_eye_then_right_eye
-presentation=Quest eye-aware PanelSceneObject material
+presentation=child stereo portal; vertex-stage Quest eye split; popup hole punching
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
