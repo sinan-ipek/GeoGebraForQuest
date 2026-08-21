@@ -6,11 +6,8 @@ import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
-import com.meta.spatial.core.SpatialSDKExperimentalAPI
 import com.meta.spatial.core.Vector3
-import com.meta.spatial.core.Vector4
 import com.meta.spatial.runtime.ReferenceSpace
-import com.meta.spatial.runtime.SceneTexture
 import com.meta.spatial.toolkit.AppSystemActivity
 import com.meta.spatial.toolkit.DpDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
@@ -24,14 +21,18 @@ import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.0.
+ * GeoGebraForQuest v0.9.2 startup-isolation build.
  *
- * There is one GeoGebra panel and one input surface. GeoGebra itself renders
- * the 3D canvas as full-colour SBS on the GPU. A full-panel, non-hittable visual
- * mesh samples the live panel SceneTexture per eye; ordinary UI stays mono while
- * only the 3D rectangle becomes stereo. No 3D-window overlay/panel is created.
+ * This build deliberately keeps the Spatial side as simple as the previously
+ * working releases: one ordinary interactive LayoutXML/WebView panel and no
+ * custom SceneMaterial, custom SceneObject, panel-layer alpha manipulation or
+ * second visual surface.
+ *
+ * The patched GeoGebra source is still used, so its 3D renderer still produces
+ * the new full-colour SBS output. In this diagnostic build that SBS canvas is
+ * shown directly by the ordinary WebView panel. The purpose is to distinguish
+ * a GeoGebra/WebView renderer failure from a Spatial custom-material failure.
  */
-@OptIn(SpatialSDKExperimentalAPI::class)
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
     companion object {
@@ -42,17 +43,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
-
-        // Keep the real Android panel composited so its live texture/input path
-        // cannot be optimized away, while making it visually imperceptible.
-        private const val INPUT_LAYER_ALPHA = 0.001f
     }
 
     private var geoGebraPanelEntity: Entity? = null
-    private var geoGebraPanelTexture: SceneTexture? = null
-    private var stereoPanelVisual: QuestStereoPanelRenderer? = null
-    private var pendingStereoLayout: String? = null
-
     private var sceneReady = false
     private var vrReady = false
 
@@ -78,29 +71,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         ),
                     )
                 },
-                panelSetupWithRootView = { rootView, panelSceneObject, _ ->
+                panelSetupWithRootView = { rootView, _, _ ->
                     val webView = rootView.findViewById<WebView>(R.id.geogebra_webview)
                     configureGeoGebraWebView(
                         webView = webView,
                         spatialMode = true,
                         startStereo = true,
                     )
-
-                    // Spatial SDK already owns the continuously updated GPU
-                    // texture for this Android panel. Reuse it; never read it
-                    // back through CPU memory.
-                    geoGebraPanelTexture = panelSceneObject.getTexture()
-
-                    // The same PanelSceneObject must stay alive because it is
-                    // the controller/input target. We only suppress its default
-                    // visual layer; QuestStereoPanelRenderer becomes the visible
-                    // representation of this exact same panel.
-                    panelSceneObject.getLayer()?.setColorScaleBias(
-                        Vector4(1f, 1f, 1f, INPUT_LAYER_ALPHA),
-                        Vector4(0f),
-                    )
-
-                    runOnUiThread { ensureStereoPanelVisual() }
                 },
             ),
         )
@@ -110,34 +87,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         super.onCreate(savedInstanceState)
         StereoDebugState.reset()
 
-        SpatialBridgeBus.onStereoLayout = { json ->
-            pendingStereoLayout = json
-            runOnUiThread {
-                ensureStereoPanelVisual()
-                stereoPanelVisual?.updateLayout(json)
-            }
-        }
-        SpatialBridgeBus.onPanelReady = {
-            runOnUiThread { ensureStereoPanelVisual() }
-        }
+        // Keep bridge callbacks harmless in this isolation build. The WebView may
+        // still report its 3D rectangle, but no Spatial custom stereo material is
+        // created from it.
+        SpatialBridgeBus.onStereoLayout = { _ -> }
+        SpatialBridgeBus.onPanelReady = { }
 
         requestScenePermissionIfNeeded()
-    }
-
-    private fun ensureStereoPanelVisual() {
-        if (stereoPanelVisual != null) return
-        val parent = geoGebraPanelEntity ?: return
-        val texture = geoGebraPanelTexture ?: return
-
-        stereoPanelVisual = QuestStereoPanelRenderer(
-            activity = this,
-            parent = parent,
-            panelTexture = texture,
-            panelWidthMeters = PANEL_WIDTH_METERS,
-            panelHeightMeters = PANEL_HEIGHT_METERS,
-        )
-
-        pendingStereoLayout?.let { stereoPanelVisual?.updateLayout(it) }
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -191,14 +147,10 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
         geoGebraPanelEntity = geoPanel
-        ensureStereoPanelVisual()
     }
 
     override fun onDestroy() {
         SpatialBridgeBus.clear()
-        stereoPanelVisual?.release()
-        stereoPanelVisual = null
-        geoGebraPanelTexture = null
         geoGebraPanelEntity = null
         super.onDestroy()
     }
