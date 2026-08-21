@@ -53,7 +53,7 @@
   <div id="ggb-element"></div>
 
   <div id="boot-panel">
-    <div id="boot-title">GeoGebraForQuest v0.9.3</div>
+    <div id="boot-title">GeoGebraForQuest v0.9.4</div>
     <div id="status">Yerel stereo GeoGebra hazırlanıyor…</div>
   </div>
 
@@ -63,7 +63,7 @@
 
   const APPASSETS = 'https://appassets.androidplatform.net/assets/web/';
   const LOCAL_DEPLOY = APPASSETS + 'GeoGebra/deployggb.js';
-  const LOCAL_CODEBASE = APPASSETS + 'GeoGebra/HTML5/5.0/web3d/';
+  const LOCAL_CODEBASE = APPASSETS + 'GeoGebra/web3d/';
   const LOCAL_BOOT = LOCAL_CODEBASE + 'web3d.nocache.js';
 
   const bootPanel = document.getElementById('boot-panel');
@@ -97,8 +97,9 @@
     setStatus(message);
   }
 
-  // Keep startup errors visible in-headset. In the previous diagnostic build
-  // GeoGebra timed out with no useful reason shown to the user.
+  // Keep startup errors visible in-headset. The local source build is intentionally
+  // self-contained, so any missing script/style URL is a packaging bug and should
+  // be shown verbatim instead of turning into a silent white panel.
   window.addEventListener('error', function (event) {
     if (appletReady) return;
     const target = event.target;
@@ -210,9 +211,10 @@
       };
 
       const applet = new GGBApplet(params, true);
-      // appassets is an HTTPS URL syntactically, but all files are local APK
-      // assets. Marking it offline prevents GeoGebra's loader from treating the
-      // codebase as an internet-hosted deployment.
+      // The patched source build keeps GeoGebra's native WAR layout intact:
+      // GeoGebra/web3d sits beside GeoGebra/css, GeoGebra/js, keyboard, images,
+      // GIAC and the remaining runtime files. deployggb.js was generated with
+      // moduleBase './', so the Web3D module must be addressed from this root.
       applet.setHTML5Codebase(LOCAL_CODEBASE, true);
       applet.inject('ggb-element');
 
@@ -233,8 +235,6 @@
     const script = document.createElement('script');
     script.src = LOCAL_DEPLOY;
     script.onload = function () {
-      // Explicitly test the GWT module bootstrap file before injection. A failed
-      // fetch now produces a useful in-headset message rather than a blank page.
       fetch(LOCAL_BOOT, { cache: 'no-store' })
         .then(function (response) {
           if (!response.ok) {
