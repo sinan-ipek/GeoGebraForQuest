@@ -27,7 +27,7 @@ pushd "$SRC/source/web" >/dev/null
   :web:copyHtml \
   :web:mergeDeploy \
   -Pgmodule=org.geogebra.web.Web3D \
-  -PdeployggbRoot=./HTML5/5.0/ \
+  -PdeployggbRoot=./ \
   --no-daemon \
   --stacktrace
 popd >/dev/null
@@ -43,22 +43,24 @@ WAR="$SRC/source/web/web/war"
   find "$WAR" -maxdepth 2 -type f | head -n 120 || true
   exit 1
 }
+[ -f "$WAR/css/bundles/bundle.css" ] || {
+  echo "[GGQ] bundle.css missing"
+  find "$WAR/css" -maxdepth 2 -type f | head -n 120 || true
+  exit 1
+}
 
-# copyHtml is important: besides generating HTML/CSS it copies GeoGebra's
-# resources/war tree and GIAC runtime files into war/. Earlier source builds
-# copied only deployggb.js + web3d and therefore produced an incomplete local
-# Math Apps runtime package on Quest.
+# Keep the source build's native war layout intact. deployggb.js is generated
+# with -PdeployggbRoot=./, therefore all runtime URLs resolve naturally as:
+#   GeoGebra/web3d/...
+#   GeoGebra/css/...
+#   GeoGebra/js/...
+#   GeoGebra/keyboard/...
+# and so on. Do not move only web3d into HTML5/5.0: that leaves CSS and other
+# resources behind at the package root and causes the local loader to request
+# non-existent paths such as HTML5/5.0/css/bundles/bundle.css.
 rm -rf "$DEST"
 mkdir -p "$DEST"
 cp -R "$WAR"/. "$DEST"/
-
-# deployggb.js in our wrapper is deliberately configured to use the historical
-# Math Apps Bundle layout: GeoGebra/HTML5/5.0/web3d/. Keep one canonical copy of
-# the compiled GWT module there and remove the temporary root module directory.
-mkdir -p "$DEST/HTML5/5.0"
-rm -rf "$DEST/HTML5/5.0/web3d"
-cp -R "$WAR/web3d" "$DEST/HTML5/5.0/web3d"
-rm -rf "$DEST/web3d"
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
@@ -66,11 +68,14 @@ upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (render output replaced by full-colour SBS)
 renderer=QuestStereoRenderer
 gwt_module=org.geogebra.web.Web3D
+runtime_layout=source-war-root
+module_base=./
 static_runtime=copyHtml/resources-war included
 EOF
 
 echo "[GGQ] patched GeoGebra installed at $DEST"
-echo "[GGQ] top-level package entries:"
-find "$DEST" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort | head -n 120
-echo "[GGQ] Web3D bootstrap:"
-ls -lh "$DEST/HTML5/5.0/web3d/web3d.nocache.js"
+echo "[GGQ] required runtime files:"
+ls -lh \
+  "$DEST/deployggb.js" \
+  "$DEST/web3d/web3d.nocache.js" \
+  "$DEST/css/bundles/bundle.css"
