@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 33
-        versionName = "0.7.0"
+        versionCode = 39
+        versionName = "0.7.6"
     }
 
     buildFeatures {
@@ -58,10 +58,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.0 removes projection-mode UI from the user workflow. Whenever a visible
-// GeoGebra 3D WebGL canvas exists, the app automatically selects GeoGebra's
-// Glasses renderer internally and enables Quest stereo capture. When the 3D view
-// disappears, stereo is disabled. No headset/projection click is required.
+// v0.7.6 removes the v0.7.5 self-reload experiment. The front stereo portal
+// remains unchanged. Auto3D now watches the GeoGebra construction identity and
+// re-arms Glasses only after a newly opened/replaced construction is quiet. The
+// hidden projection launcher remains programmatically reachable instead of being
+// display:none, fixing the restart-only stereo behavior.
 spatial {
     allowUsageDataCollection.set(true)
 }
