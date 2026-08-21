@@ -53,8 +53,8 @@
   <div id="ggb-element"></div>
 
   <div id="boot-panel">
-    <div id="boot-title">GeoGebraForQuest v0.9.6</div>
-    <div id="status">Tam renkli SBS kaynak renderer hazırlanıyor…</div>
+    <div id="boot-title">GeoGebraForQuest v0.9.7</div>
+    <div id="status">Kalıcı tam renkli SBS + Quest göz ayrımı hazırlanıyor…</div>
   </div>
 
 <script>
@@ -134,7 +134,7 @@
 
     bootPanel.style.borderColor = '#b8d8be';
     status.style.color = '#196b2c';
-    setStatus('GeoGebra hazır · ham tam renkli L|R SBS 3D aktif');
+    setStatus('GeoGebra hazır · kalıcı L|R SBS + Quest göz ayrımı aktif');
     bridgeCall('panelReady');
 
     setTimeout(function () {
@@ -192,7 +192,7 @@
           if (!response.ok) {
             throw new Error('web3d.nocache.js HTTP ' + response.status);
           }
-          setStatus('Tam renkli SBS GeoGebra başlatılıyor…');
+          setStatus('Kalıcı tam renkli SBS GeoGebra başlatılıyor…');
           startApplet();
         })
         .catch(function (error) {
