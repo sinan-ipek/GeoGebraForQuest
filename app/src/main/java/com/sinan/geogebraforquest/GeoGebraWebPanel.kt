@@ -18,56 +18,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
-import androidx.webkit.WebViewCompat
-import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 
 private const val LOCAL_APP_URL =
     "https://appassets.androidplatform.net/assets/web/index.html"
-private const val STARTUP_RESET_URL =
-    "https://appassets.androidplatform.net/assets/web/quest-startup-reset.js"
-private const val PROJECTION_PATCH_URL =
-    "https://appassets.androidplatform.net/assets/web/quest-projection-patch.js"
-private const val COLOR_PATCH_URL =
-    "https://appassets.androidplatform.net/assets/web/quest-color-patch.js"
-private const val STEREO_CAPTURE_URL =
-    "https://appassets.androidplatform.net/assets/web/quest-stereo-capture.js"
-private const val DEBUG_OVERLAY_URL =
-    "https://appassets.androidplatform.net/assets/web/quest-debug-overlay.js"
-private const val STEREO_CAPTURE_ASSET = "web/quest-stereo-capture.js"
-private const val APPASSETS_ORIGIN = "https://appassets.androidplatform.net"
+private const val STEREO_LAYOUT_URL =
+    "https://appassets.androidplatform.net/assets/web/quest-stereo-layout.js"
 
 private class QuestBridge(
     private val context: Context,
     private val spatialMode: Boolean,
 ) {
     @JavascriptInterface
-    fun setStereoEnabled(enabled: Boolean) {
-        if (spatialMode) SpatialBridgeBus.stereoChanged(enabled)
-    }
-
-    @JavascriptInterface
-    fun setPortalVisible(visible: Boolean) {
-        if (spatialMode) SpatialBridgeBus.portalVisibilityChanged(visible)
-    }
-
-    @JavascriptInterface
-    fun updatePortalRect(json: String) {
-        if (spatialMode) SpatialBridgeBus.portalRect(json)
-    }
-
-    @JavascriptInterface
-    fun submitStereoFrame(dataUrl: String, eyeWidth: Int, eyeHeight: Int) {
-        if (spatialMode && dataUrl.isNotBlank()) {
-            SpatialBridgeBus.stereoFrame(dataUrl, eyeWidth, eyeHeight)
+    fun updateStereoLayout(json: String) {
+        if (spatialMode && json.isNotBlank()) {
+            SpatialBridgeBus.stereoLayout(json)
         }
     }
 
     @JavascriptInterface
     fun getStereoDebugStatus(): String = StereoDebugState.toJson()
-
-    @JavascriptInterface
-    fun updateScene(@Suppress("UNUSED_PARAMETER") json: String) = Unit
 
     @JavascriptInterface
     fun saveConstruction(base64: String) {
@@ -102,92 +72,17 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
     )
 }
 
-private fun injectStereoOverlayCss(view: WebView) {
-    view.evaluateJavascript(
-        """
-        (function () {
-          if (document.getElementById('ggq-stereo-overlay-css')) return;
-          var style = document.createElement('style');
-          style.id = 'ggq-stereo-overlay-css';
-          style.textContent =
-            'html[data-ggq-stereo="on"] .ggq-stereo-canvas{' +
-              'opacity:0.001!important;' +
-              'pointer-events:auto!important;' +
-            '}' +
-            'html[data-ggq-stereo="off"] .ggq-stereo-canvas{' +
-              'opacity:1!important;' +
-            '}';
-          (document.head || document.documentElement).appendChild(style);
-        })();
-        """.trimIndent(),
-        null,
-    )
-}
-
-private fun installStereoCaptureAtDocumentStart(view: WebView, context: Context) {
-    if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
-
-    try {
-        val script = context.assets
-            .open(STEREO_CAPTURE_ASSET)
-            .bufferedReader(Charsets.UTF_8)
-            .use { it.readText() }
-
-        WebViewCompat.addDocumentStartJavaScript(
-            view,
-            script,
-            setOf(APPASSETS_ORIGIN),
-        )
-    } catch (_: Throwable) {
-        // onPageFinished injects the same script as fallback.
-    }
-}
-
 private fun injectQuestScripts(view: WebView) {
-    injectStereoOverlayCss(view)
-    // Construction identity must be watched before the Auto3D controller starts.
-    // This is what lets us re-arm Glasses when the user opens/replaces a .ggb
-    // without requiring a whole app restart.
-    injectAssetScript(view, "ggq-startup-reset", STARTUP_RESET_URL)
-    injectAssetScript(view, "ggq-projection-patch", PROJECTION_PATCH_URL)
-    injectAssetScript(view, "ggq-color-patch", COLOR_PATCH_URL)
-    injectAssetScript(view, "ggq-stereo-capture", STEREO_CAPTURE_URL)
-    injectAssetScript(view, "ggq-debug-overlay", DEBUG_OVERLAY_URL)
-}
-
-private fun bootStereoWhenReady(view: WebView) {
-    view.evaluateJavascript(
-        """
-        (function () {
-          if (window.__ggqStereoBootTimer) clearInterval(window.__ggqStereoBootTimer);
-          var attempts = 0;
-          window.__ggqStereoBootTimer = setInterval(function () {
-            attempts++;
-            try {
-              if (window.GeoGebraQuestStereoCapture &&
-                  typeof window.GeoGebraQuestStereoCapture.enable === 'function') {
-                window.GeoGebraQuestStereoCapture.enable();
-              } else if (window.GeoGebraForQuest &&
-                         typeof window.GeoGebraForQuest.setStereoEnabled === 'function') {
-                window.GeoGebraForQuest.setStereoEnabled(true);
-              }
-              if (document.documentElement.dataset.ggqStereo === 'on' || attempts > 100) {
-                clearInterval(window.__ggqStereoBootTimer);
-                window.__ggqStereoBootTimer = null;
-              }
-            } catch (_) {}
-          }, 250);
-        })();
-        """.trimIndent(),
-        null,
-    )
+    // Source-built GeoGebra already runs PROJECTION_QUEST_STEREO.  This script
+    // reports layout only; it never touches WebGL pixels or projection state.
+    injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 fun configureGeoGebraWebView(
     webView: WebView,
     spatialMode: Boolean,
-    startStereo: Boolean,
+    @Suppress("UNUSED_PARAMETER") startStereo: Boolean,
 ) {
     val context = webView.context
     val assetLoader = WebViewAssetLoader.Builder()
@@ -196,7 +91,7 @@ fun configureGeoGebraWebView(
 
     webView.apply {
         setLayerType(View.LAYER_TYPE_HARDWARE, null)
-        setBackgroundColor(if (spatialMode) Color.TRANSPARENT else Color.WHITE)
+        setBackgroundColor(Color.WHITE)
 
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
@@ -205,7 +100,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.7.6"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.0"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -235,13 +130,10 @@ fun configureGeoGebraWebView(
                         null,
                     )
                 }
-
-                if (spatialMode && startStereo) bootStereoWhenReady(view)
             }
         }
 
         addJavascriptInterface(QuestBridge(context, spatialMode), "QuestBridge")
-        installStereoCaptureAtDocumentStart(this, context)
         loadUrl(LOCAL_APP_URL)
     }
 }
