@@ -67,13 +67,13 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.8
+version=0.9.9
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour SBS, permanent Quest draw path)
 renderer=QuestStereoRenderer
 backing_store=always_2x_width
 viewport=left_eye_then_right_eye
-presentation=child stereo portal; vertex-stage Quest eye split; popup hole punching
+presentation=late real PanelSceneObject mesh takeover; vertex-stage Quest eye id; no child portal
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
