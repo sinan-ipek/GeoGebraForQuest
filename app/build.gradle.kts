@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 37
-        versionName = "0.7.4"
+        versionCode = 38
+        versionName = "0.7.5"
     }
 
     buildFeatures {
@@ -58,9 +58,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.4 returns to the proven front stereo portal. Capture and portal visibility
-// are now separate, and the front media mesh is forced non-hittable so rays can
-// reach the real GeoGebra WebView behind it.
+// v0.7.5 keeps the proven front stereo portal from v0.7.4, but fixes the
+// cold-start race. After the restored 3D canvas stabilizes, Glasses projection
+// is selected with capture OFF, the same construction is serialized/reloaded
+// once so the renderer is born in Glasses mode, then stereo capture is enabled.
+// The portal stays hidden until at least three eye pairs have been presented.
 spatial {
     allowUsageDataCollection.set(true)
 }
