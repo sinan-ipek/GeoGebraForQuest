@@ -1,47 +1,32 @@
 package com.sinan.geogebraforquest
 
 import android.graphics.Color
-import com.meta.spatial.core.Entity
-import com.meta.spatial.core.Pose
-import com.meta.spatial.core.Vector3
 import com.meta.spatial.core.Vector4
+import com.meta.spatial.runtime.PanelSceneObject
 import com.meta.spatial.runtime.SceneMaterial
 import com.meta.spatial.runtime.SceneMaterialAttribute
 import com.meta.spatial.runtime.SceneMaterialDataType
 import com.meta.spatial.runtime.SceneMesh
-import com.meta.spatial.runtime.SceneObject
 import com.meta.spatial.runtime.SceneTexture
 import com.meta.spatial.runtime.TriangleMesh
 import com.meta.spatial.toolkit.AppSystemActivity
-import com.meta.spatial.toolkit.SceneObjectSystem
-import com.meta.spatial.toolkit.Transform
-import com.meta.spatial.toolkit.TransformParent
-import com.meta.spatial.toolkit.Visible
-import java.util.concurrent.CompletableFuture
 import org.json.JSONObject
 
 /**
- * Visual renderer for the one and only GeoGebra panel.
+ * Eye-aware material installed directly on GeoGebra's real PanelSceneObject.
  *
- * The real LayoutXML panel remains the input surface. Its live SceneTexture is
- * sampled here without copying. Outside the 3D view the same mono UI pixels are
- * shown to both eyes. Inside the 3D view, the source-built GeoGebra canvas is an
- * SBS image and the shader selects the correct half for the current Quest eye.
- *
- * This entity deliberately has no Panel, Hittable or Grabbable component, so it
- * is not a second UI surface and cannot steal controller input from GeoGebra.
+ * There is no second panel, no front overlay and no second hit surface. The
+ * LayoutXML panel remains the sole visual object and the sole input target.
+ * Its live WebView texture is sampled normally for all 2D UI; only the source
+ * rectangle occupied by the GeoGebra 3D canvas is interpreted as L|R SBS.
  */
 class QuestStereoPanelRenderer(
     private val activity: AppSystemActivity,
-    parent: Entity,
+    private val panelSceneObject: PanelSceneObject,
     panelTexture: SceneTexture,
     panelWidthMeters: Float,
     panelHeightMeters: Float,
 ) {
-    companion object {
-        private const val VISUAL_Z = -0.0015f
-    }
-
     private val material =
         SceneMaterial.custom(
             "questStereoPanel",
@@ -65,30 +50,17 @@ class QuestStereoPanelRenderer(
             setUnlit(true)
         }
 
-    private val entity =
-        Entity.create(
-            TransformParent(parent),
-            Transform(Pose(Vector3(0f, 0f, VISUAL_Z))),
-            Visible(true),
-        )
-
-    private val sceneObject: SceneObject
-
     init {
-        val mesh = createPanelQuad(material, panelWidthMeters, panelHeightMeters)
-        sceneObject = SceneObject(activity.scene, mesh, "ggq-stereo-panel-visual", entity)
-        activity.systemManager
-            .findSystem<SceneObjectSystem>()
-            .addSceneObject(
-                entity,
-                CompletableFuture<SceneObject>().apply { complete(sceneObject) },
-            )
+        // Replace only the render mesh of the *same* PanelSceneObject. The
+        // PanelSceneObject itself, its Android surface and its input mapping are
+        // unchanged, so controller/ray events still go to the GeoGebra WebView.
+        panelSceneObject.mesh = createPanelQuad(material, panelWidthMeters, panelHeightMeters)
     }
 
     /**
-     * Accept DOM coordinates in CSS pixels and convert them to panel-normalized
-     * texture coordinates. Up to four intersecting popups/dialogs are forced to
-     * mono so GeoGebra UI can safely cover the 3D view.
+     * Convert the measured DOM rectangle of the 3D canvas to panel-normalized
+     * UVs. Popup/dialog overlaps stay mono so ordinary GeoGebra UI remains
+     * readable in both eyes.
      */
     fun updateLayout(json: String) {
         try {
@@ -136,15 +108,14 @@ class QuestStereoPanelRenderer(
                 material.setAttribute("layoutInfo", Vector4(count.toFloat(), 1f, 0f, 0f))
             }
         } catch (_: Throwable) {
-            // A layout measurement can become stale while GeoGebra rearranges.
+            // Layout can change while the DOM is being measured; the next event
+            // will supply a fresh rectangle.
         }
     }
 
     fun release() {
-        activity.runOnUiThread {
-            entity.setComponent(Visible(false))
-            entity.destroy()
-        }
+        // The PanelSceneObject is owned by the panel registration/runtime.
+        // Nothing separate was created, so there is no overlay entity to destroy.
     }
 
     private fun createPanelQuad(
@@ -170,7 +141,7 @@ class QuestStereoPanelRenderer(
                 0f, 0f, 1f,
             ),
             floatArrayOf(
-                // v=0 is visual top, matching DOM getBoundingClientRect().
+                // Match Android/DOM orientation: top-left=(0,0).
                 0f, 1f,
                 1f, 1f,
                 1f, 0f,
