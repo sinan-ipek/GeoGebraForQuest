@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
@@ -34,18 +35,16 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.7.4.
+ * GeoGebraForQuest v0.7.7.
  *
- * v0.7.2/v0.7.3 proved that a media panel behind an Android WebView can receive
- * valid eye pairs but is not actually visible through per-pixel CSS alpha in the
- * Spatial panel texture. v0.7.4 therefore returns the stereo media surface to the
- * front, which is the composition that already produced real Quest depth.
- *
- * Input is handled independently: the media panel's mesh is repeatedly forced to
- * MeshCollision.NoCollision, allowing controller/hand rays to continue to the
- * real GeoGebra WebView behind it. Portal visibility is also independent from
- * stereo capture, so dialogs can hide the front overlay without killing the
- * working left/right renderer.
+ * v0.7.6 exposed a native Surface queue deadlock in the presentation gate:
+ * the first stereo frame could be presented while the media panel was hidden,
+ * but the second eglSwapBuffers then waited for the hidden consumer. JavaScript
+ * was waiting for two presented frames before allowing the portal, so the second
+ * frame could never complete. v0.7.7 breaks that cycle natively: the very first
+ * successfully presented eye pair temporarily unlocks and shows the portal for
+ * a short grace period. This lets the Surface consumer drain, the second frame
+ * complete, and the JavaScript gate settle normally.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -57,9 +56,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
-
-        // Negative local Z is the already-proven front-overlay direction.
         private const val PORTAL_Z = -0.006f
+        private const val FIRST_FRAME_UNLOCK_MS = 1400L
     }
 
     private val stereoFrameSurface = StereoFrameSurface()
@@ -70,6 +68,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var pendingStereo = false
     private var portalPresentationAllowed = true
     private var pendingPortalRect: String? = null
+    private var firstFrameUnlockUntilMs = 0L
     private var sceneReady = false
     private var vrReady = false
 
@@ -138,6 +137,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             pendingStereo = enabled
             StereoDebugState.onStereoChanged(enabled)
             if (!enabled) {
+                firstFrameUnlockUntilMs = 0L
                 runOnMainThread {
                     stereoPortalEntity?.setComponent(Visible(false))
                 }
@@ -145,11 +145,23 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         }
 
         SpatialBridgeBus.onPortalVisibilityChanged = { allowed ->
-            portalPresentationAllowed = allowed
-            StereoDebugState.onPortalPresentationAllowed(allowed)
+            val now = SystemClock.uptimeMillis()
+            val protectedByFirstFrameUnlock =
+                !allowed && pendingStereo && now < firstFrameUnlockUntilMs
+
+            if (protectedByFirstFrameUnlock) {
+                // Ignore the JS gate's temporary false while the first visible
+                // frame is needed to unblock the media Surface consumer.
+                portalPresentationAllowed = true
+                StereoDebugState.onPortalPresentationAllowed(true)
+            } else {
+                portalPresentationAllowed = allowed
+                StereoDebugState.onPortalPresentationAllowed(allowed)
+            }
+
             runOnMainThread {
                 val entity = stereoPortalEntity ?: return@runOnMainThread
-                if (!allowed || !pendingStereo) {
+                if (!portalPresentationAllowed || !pendingStereo) {
                     entity.setComponent(Visible(false))
                 } else {
                     pendingPortalRect?.let { applyPortalRect(it) }
@@ -184,6 +196,18 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 reportedEyeHeight = eyeHeight,
                 onPresented = {
                     StereoDebugState.onFramePresented()
+
+                    // Critical v0.7.7 handshake: once one real eye pair has made
+                    // it through EGL, show the portal immediately for a short
+                    // grace window. With the consumer visible, the Surface queue
+                    // drains and the next eglSwapBuffers can complete.
+                    if (pendingStereo && !portalPresentationAllowed) {
+                        portalPresentationAllowed = true
+                        firstFrameUnlockUntilMs =
+                            SystemClock.uptimeMillis() + FIRST_FRAME_UNLOCK_MS
+                        StereoDebugState.onPortalPresentationAllowed(true)
+                    }
+
                     runOnMainThread {
                         if (pendingStereo && portalPresentationAllowed) {
                             pendingPortalRect?.let { applyPortalRect(it) }
@@ -325,9 +349,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
 
-        // The render surface must be in front for stereo to be visible, but it
-        // must never become the interaction target. Retry until the runtime has
-        // actually attached the media-panel mesh, then remove its collision.
         schedulePortalNonHittable(stereoPanel)
 
         stereoPortalEntity = stereoPanel
