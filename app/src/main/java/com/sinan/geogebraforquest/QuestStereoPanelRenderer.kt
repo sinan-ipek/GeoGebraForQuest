@@ -1,6 +1,7 @@
 package com.sinan.geogebraforquest
 
 import android.graphics.Color
+import android.util.Log
 import com.meta.spatial.core.Vector4
 import com.meta.spatial.runtime.PanelSceneObject
 import com.meta.spatial.runtime.SceneMaterial
@@ -13,12 +14,21 @@ import com.meta.spatial.toolkit.AppSystemActivity
 import org.json.JSONObject
 
 /**
- * Eye-aware material installed directly on GeoGebra's real PanelSceneObject.
+ * GeoGebraForQuest v0.9.9 late panel-mesh stereo renderer.
  *
- * There is no second panel, no front overlay and no second hit surface. The
- * LayoutXML panel remains the sole visual object and the sole input target.
- * Its live WebView texture is sampled normally for all 2D UI; only the source
- * rectangle occupied by the GeoGebra 3D canvas is interpreted as L|R SBS.
+ * Unlike v0.9.7.1/v0.9.8, this class does not create a child/overlay SceneObject.
+ * It replaces the render mesh of the already-running real PanelSceneObject only
+ * after the Spatial scene, VR panel, WebView texture and GeoGebra 3D layout are
+ * all stable. The Android/WebView surface and the panel input target remain the
+ * same object, so controller/ray interaction continues to hit GeoGebra.
+ *
+ * Ordinary GeoGebra UI is sampled mono. Only the measured 3D-canvas rectangle
+ * is interpreted as a full-colour L|R SBS source. Eye selection is obtained in
+ * the vertex shader and passed to the fragment shader.
+ *
+ * v0.9.9 intentionally ignores popup/settings occlusion masking. First we need
+ * to prove that the real visible panel is definitely going through our stereo
+ * material. A tiny diagnostic marker in the shader makes that unambiguous.
  */
 class QuestStereoPanelRenderer(
     private val activity: AppSystemActivity,
@@ -27,95 +37,113 @@ class QuestStereoPanelRenderer(
     panelWidthMeters: Float,
     panelHeightMeters: Float,
 ) {
+    companion object {
+        private const val TAG = "GeoGebraForQuest"
+    }
+
     private val material =
         SceneMaterial.custom(
             "questStereoPanel",
             arrayOf(
                 SceneMaterialAttribute("stereoRect", SceneMaterialDataType.Vector4),
-                SceneMaterialAttribute("occlusion0", SceneMaterialDataType.Vector4),
-                SceneMaterialAttribute("occlusion1", SceneMaterialDataType.Vector4),
-                SceneMaterialAttribute("occlusion2", SceneMaterialDataType.Vector4),
-                SceneMaterialAttribute("occlusion3", SceneMaterialDataType.Vector4),
-                SceneMaterialAttribute("layoutInfo", SceneMaterialDataType.Vector4),
                 SceneMaterialAttribute("albedoSampler", SceneMaterialDataType.Texture2D),
             ),
         ).apply {
             setAttribute("stereoRect", Vector4(0f, 0f, 0f, 0f))
-            setAttribute("occlusion0", Vector4(0f))
-            setAttribute("occlusion1", Vector4(0f))
-            setAttribute("occlusion2", Vector4(0f))
-            setAttribute("occlusion3", Vector4(0f))
-            setAttribute("layoutInfo", Vector4(0f, 0f, 0f, 0f))
             setTexture("albedoSampler", panelTexture)
             setUnlit(true)
         }
 
+    @Volatile
+    private var released = false
+
     init {
-        // Replace only the render mesh of the *same* PanelSceneObject. The
-        // PanelSceneObject itself, its Android surface and its input mapping are
-        // unchanged, so controller/ray events still go to the GeoGebra WebView.
-        panelSceneObject.mesh = createPanelQuad(material, panelWidthMeters, panelHeightMeters)
+        // GGQ_PANEL_MESH_TAKEOVER
+        // Important: SpatialGeoGebraActivity creates this renderer only after a
+        // deliberate late-start delay. v0.9.7 changed the mesh during panel
+        // setup and could crash the app before the panel was fully initialized.
+        panelSceneObject.mesh =
+            createPanelQuad(
+                material = material,
+                width = panelWidthMeters,
+                height = panelHeightMeters,
+            )
+        Log.i(TAG, "v0.9.9 real PanelSceneObject mesh switched to stereo material")
     }
 
     /**
-     * Convert the measured DOM rectangle of the 3D canvas to panel-normalized
-     * UVs. Popup/dialog overlaps stay mono so ordinary GeoGebra UI remains
-     * readable in both eyes.
+     * Convert the measured DOM rectangle of GeoGebra's 3D canvas to normalized
+     * panel UVs. Occlusion data is deliberately ignored in this diagnostic build.
      */
     fun updateLayout(json: String) {
+        if (released) return
+
         try {
             val data = JSONObject(json)
             val stereo = data.optJSONObject("stereo") ?: return
             val viewWidth = data.optDouble("viewWidth", Double.NaN)
             val viewHeight = data.optDouble("viewHeight", Double.NaN)
-            if (!viewWidth.isFinite() || !viewHeight.isFinite() || viewWidth <= 0.0 || viewHeight <= 0.0) {
+
+            if (
+                !viewWidth.isFinite() ||
+                !viewHeight.isFinite() ||
+                viewWidth <= 0.0 ||
+                viewHeight <= 0.0
+            ) {
                 return
             }
 
-            fun normalizedRect(rect: JSONObject?): Vector4 {
-                if (rect == null) return Vector4(0f)
-                val left = rect.optDouble("left", Double.NaN)
-                val top = rect.optDouble("top", Double.NaN)
-                val width = rect.optDouble("width", Double.NaN)
-                val height = rect.optDouble("height", Double.NaN)
-                if (!left.isFinite() || !top.isFinite() || !width.isFinite() || !height.isFinite()) {
-                    return Vector4(0f)
-                }
-                return Vector4(
+            val left = stereo.optDouble("left", Double.NaN)
+            val top = stereo.optDouble("top", Double.NaN)
+            val width = stereo.optDouble("width", Double.NaN)
+            val height = stereo.optDouble("height", Double.NaN)
+
+            if (
+                !left.isFinite() ||
+                !top.isFinite() ||
+                !width.isFinite() ||
+                !height.isFinite() ||
+                width <= 0.0 ||
+                height <= 0.0
+            ) {
+                return
+            }
+
+            val stereoRect =
+                Vector4(
                     (left / viewWidth).toFloat(),
                     (top / viewHeight).toFloat(),
                     (width / viewWidth).toFloat(),
                     (height / viewHeight).toFloat(),
                 )
-            }
 
-            val stereoRect = normalizedRect(stereo)
-            if (stereoRect.z <= 0f || stereoRect.w <= 0f) return
-
-            val occlusionArray = data.optJSONArray("occlusions")
-            val occlusions = Array(4) { Vector4(0f) }
-            val count = minOf(4, occlusionArray?.length() ?: 0)
-            for (i in 0 until count) {
-                occlusions[i] = normalizedRect(occlusionArray?.optJSONObject(i))
+            if (
+                stereoRect.x < -0.01f ||
+                stereoRect.y < -0.01f ||
+                stereoRect.z <= 0f ||
+                stereoRect.w <= 0f ||
+                stereoRect.x + stereoRect.z > 1.01f ||
+                stereoRect.y + stereoRect.w > 1.01f
+            ) {
+                Log.w(TAG, "Ignoring invalid stereoRect=$stereoRect")
+                return
             }
 
             activity.runOnUiThread {
-                material.setAttribute("stereoRect", stereoRect)
-                material.setAttribute("occlusion0", occlusions[0])
-                material.setAttribute("occlusion1", occlusions[1])
-                material.setAttribute("occlusion2", occlusions[2])
-                material.setAttribute("occlusion3", occlusions[3])
-                material.setAttribute("layoutInfo", Vector4(count.toFloat(), 1f, 0f, 0f))
+                if (!released) {
+                    material.setAttribute("stereoRect", stereoRect)
+                    Log.d(TAG, "v0.9.9 stereoRect=$stereoRect")
+                }
             }
-        } catch (_: Throwable) {
-            // Layout can change while the DOM is being measured; the next event
-            // will supply a fresh rectangle.
+        } catch (error: Throwable) {
+            Log.w(TAG, "Transient v0.9.9 stereo layout parse failure", error)
         }
     }
 
     fun release() {
-        // The PanelSceneObject is owned by the panel registration/runtime.
-        // Nothing separate was created, so there is no overlay entity to destroy.
+        // The real PanelSceneObject is owned by Spatial's panel runtime. We do
+        // not destroy it and we do not create any secondary input/render entity.
+        released = true
     }
 
     private fun createPanelQuad(
@@ -125,7 +153,17 @@ class QuestStereoPanelRenderer(
     ): SceneMesh {
         val halfWidth = width / 2f
         val halfHeight = height / 2f
-        val triMesh = TriangleMesh(4, 6, intArrayOf(6), arrayOf(material))
+
+        // Both triangle windings are included. This removes back-face culling as
+        // a variable while diagnosing the eye-routing path.
+        val triMesh =
+            TriangleMesh(
+                4,
+                12,
+                intArrayOf(12),
+                arrayOf(material),
+            )
+
         triMesh.updateGeometry(
             0,
             floatArrayOf(
@@ -141,15 +179,30 @@ class QuestStereoPanelRenderer(
                 0f, 0f, 1f,
             ),
             floatArrayOf(
-                // Match Android/DOM orientation: top-left=(0,0).
+                // Keep the same orientation that the working panel renderers use.
                 0f, 1f,
                 1f, 1f,
                 1f, 0f,
                 0f, 0f,
             ),
-            intArrayOf(Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE),
+            intArrayOf(
+                Color.WHITE,
+                Color.WHITE,
+                Color.WHITE,
+                Color.WHITE,
+            ),
         )
-        triMesh.updatePrimitives(0, intArrayOf(0, 1, 2, 0, 2, 3))
+
+        triMesh.updatePrimitives(
+            0,
+            intArrayOf(
+                0, 1, 2,
+                0, 2, 3,
+                0, 2, 1,
+                0, 3, 2,
+            ),
+        )
+
         return SceneMesh.fromTriangleMesh(triMesh, false)
     }
 }
