@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqDebugOverlayV076) return;
-  window.__ggqDebugOverlayV076 = true;
+  if (window.__ggqDebugOverlayV077) return;
+  window.__ggqDebugOverlayV077 = true;
 
   const recentLogs = [];
   let panel = null;
@@ -36,7 +36,7 @@
   function ensurePanel() {
     if (panel && panel.isConnected) return;
     panel = document.createElement('div');
-    panel.id = 'ggq-debug-overlay-v076';
+    panel.id = 'ggq-debug-overlay-v077';
     panel.style.cssText = [
       'position:fixed','right:10px','top:10px','z-index:2147483647',
       'width:390px','max-width:49vw','box-sizing:border-box','padding:9px 10px',
@@ -45,7 +45,7 @@
       'box-shadow:0 2px 12px rgba(0,0,0,.35)'
     ].join(';');
     const title = document.createElement('div');
-    title.textContent = 'GGQ v0.7.6 CONSTRUCTION-REARM DEBUG';
+    title.textContent = 'GGQ v0.7.7 FIRST-FRAME-UNLOCK DEBUG';
     title.style.cssText = 'font-weight:bold;color:#fff;margin-bottom:5px;font-size:12px';
     panel.appendChild(title);
     body = document.createElement('div');
@@ -124,6 +124,7 @@
       constructionGeneration = reset && reset.getGeneration ? Number(reset.getGeneration()) || 0 : 0;
     } catch (_) {}
 
+    const fresh = Number(call('getPresentedDelta', 0));
     const lines = [];
     lines.push('auto 3D ctl:       ' + yes(call('isInstalled', false)));
     lines.push('construction gen:  ' + constructionGeneration);
@@ -135,7 +136,7 @@
     lines.push('3D exposed:        ' + yes(call('is3DExposed', false)));
     lines.push('glasses armed:     ' + yes(call('isProjectionArmed', false)));
     lines.push('front overlay:     ' + yes(call('isOverlayActive', false)));
-    lines.push('fresh presented:   ' + Number(call('getPresentedDelta', 0)) + ' / 2');
+    lines.push('fresh presented:   ' + fresh + ' / 1 first-frame unlock');
     lines.push('portal suppressed: ' + yes(call('isPortalSuppressed', false)));
     lines.push('full colour:       ' + colorText);
     lines.push('stereo requested:  ' + yes(call('isStereoRequested', false)));
