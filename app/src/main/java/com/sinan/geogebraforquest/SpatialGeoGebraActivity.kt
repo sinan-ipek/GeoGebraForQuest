@@ -10,9 +10,7 @@ import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector3
-import com.meta.spatial.runtime.PanelSceneObject
 import com.meta.spatial.runtime.ReferenceSpace
-import com.meta.spatial.runtime.SceneTexture
 import com.meta.spatial.toolkit.AppSystemActivity
 import com.meta.spatial.toolkit.DpDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
@@ -26,17 +24,17 @@ import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.9 late panel-mesh stereo build.
+ * GeoGebraForQuest v0.9.10 official-stereo diagnostic build.
  *
- * v0.9.7.1/v0.9.8 used a separate child SceneObject as a visual stereo portal.
- * The Quest recordings showed no visible difference between those releases,
- * which means that overlay never became the layer the user was actually seeing.
+ * The GeoGebra panel is intentionally left on the known-working v0.9.6-style
+ * LayoutXML/WebView path. No portal is created from its texture and its render
+ * mesh is never replaced.
  *
- * v0.9.9 therefore removes the overlay architecture. Startup is still the known
- * working single LayoutXML/WebView panel. Only after the scene, VR, WebView,
- * live panel texture and measured 3D rectangle have all been stable for several
- * seconds do we replace the render mesh of that *same* PanelSceneObject with the
- * stereo material. The WebView surface and input target stay unchanged.
+ * Separately, after Spatial scene + VR are ready, a small world-space probe is
+ * created using only Meta Spatial SDK's stock SceneMaterial and
+ * StereoMode.LeftRight. The probe source is a synthetic L|R bitmap, so this
+ * release answers one narrow question without any GeoGebra/WebView variables:
+ * does the SDK actually route L to the left Quest eye and R to the right eye?
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -49,25 +47,15 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
-
-        // v0.9.7 changed the mesh during panel setup and could crash at startup.
-        // Wait until the complete Spatial/Web/GeoGebra stack is settled.
-        private const val STEREO_MESH_START_DELAY_MS = 3500L
-        private const val TEXTURE_RETRY_MS = 250L
+        private const val PROBE_START_DELAY_MS = 1800L
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var geoGebraPanelSceneObject: PanelSceneObject? = null
-    private var panelTexture: SceneTexture? = null
-    private var stereoPanelRenderer: QuestStereoPanelRenderer? = null
-    private var pendingStereoLayout: String? = null
-
     private var sceneReady = false
     private var vrReady = false
-    private var webPanelReady = false
-    private var stereoStartScheduled = false
-    private var stereoDisabledForLaunch = false
+    private var probeScheduled = false
+    private var stereoProbe: OfficialStereoProbeRenderer? = null
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -91,19 +79,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         ),
                     )
                 },
-                panelSetupWithRootView = { rootView, panelSceneObject, _ ->
+                panelSetupWithRootView = { rootView, _, _ ->
                     val webView = rootView.findViewById<WebView>(R.id.geogebra_webview)
                     configureGeoGebraWebView(
                         webView = webView,
                         spatialMode = true,
                         startStereo = true,
                     )
-
-                    // Keep startup identical to the working ordinary panel.
-                    // Do not change panelSceneObject.mesh here.
-                    geoGebraPanelSceneObject = panelSceneObject
-                    panelTexture = panelSceneObject.getTexture()
-                    scheduleStereoMeshIfReady()
+                    // v0.9.10 diagnostic rule: do not touch the panel SceneObject.
                 },
             ),
         )
@@ -112,99 +95,32 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         StereoDebugState.reset()
-
-        SpatialBridgeBus.onStereoLayout = { layout ->
-            if (layout.isNotBlank()) {
-                pendingStereoLayout = layout
-
-                val renderer = stereoPanelRenderer
-                if (renderer != null) {
-                    renderer.updateLayout(layout)
-                } else {
-                    scheduleStereoMeshIfReady()
-                }
-            }
-        }
-
-        SpatialBridgeBus.onPanelReady = {
-            webPanelReady = true
-            scheduleStereoMeshIfReady()
-        }
-
+        SpatialBridgeBus.clear()
         requestScenePermissionIfNeeded()
     }
 
-    private fun scheduleStereoMeshIfReady() {
-        if (
-            stereoDisabledForLaunch ||
-            stereoPanelRenderer != null ||
-            stereoStartScheduled
-        ) {
-            return
-        }
+    private fun scheduleProbeIfReady() {
+        if (stereoProbe != null || probeScheduled) return
+        if (!sceneReady || !vrReady) return
 
-        if (!sceneReady || !vrReady || !webPanelReady) return
-        if (geoGebraPanelSceneObject == null || pendingStereoLayout.isNullOrBlank()) return
-
-        if (panelTexture == null) {
-            panelTexture = geoGebraPanelSceneObject?.getTexture()
-        }
-
-        if (panelTexture == null) {
-            stereoStartScheduled = true
-            mainHandler.postDelayed(
-                {
-                    stereoStartScheduled = false
-                    scheduleStereoMeshIfReady()
-                },
-                TEXTURE_RETRY_MS,
-            )
-            return
-        }
-
-        stereoStartScheduled = true
+        probeScheduled = true
         mainHandler.postDelayed(
             {
-                stereoStartScheduled = false
-                createLateStereoPanelRenderer()
+                probeScheduled = false
+                createOfficialStereoProbe()
             },
-            STEREO_MESH_START_DELAY_MS,
+            PROBE_START_DELAY_MS,
         )
     }
 
-    private fun createLateStereoPanelRenderer() {
-        if (stereoDisabledForLaunch || stereoPanelRenderer != null) return
-        if (!sceneReady || !vrReady || !webPanelReady) return
-
-        val panelSceneObject = geoGebraPanelSceneObject ?: return
-        val texture =
-            panelTexture ?: panelSceneObject.getTexture() ?: run {
-                scheduleStereoMeshIfReady()
-                return
-            }
-        panelTexture = texture
-
-        val layout = pendingStereoLayout ?: return
+    private fun createOfficialStereoProbe() {
+        if (stereoProbe != null || !sceneReady || !vrReady) return
 
         try {
-            val renderer =
-                QuestStereoPanelRenderer(
-                    activity = this,
-                    panelSceneObject = panelSceneObject,
-                    panelTexture = texture,
-                    panelWidthMeters = PANEL_WIDTH_METERS,
-                    panelHeightMeters = PANEL_HEIGHT_METERS,
-                )
-
-            stereoPanelRenderer = renderer
-            renderer.updateLayout(layout)
-            Log.i(TAG, "v0.9.9 late stereo mesh takeover active")
+            stereoProbe = OfficialStereoProbeRenderer(this)
+            Log.i(TAG, "v0.9.10 official StereoMode.LeftRight probe active")
         } catch (error: Throwable) {
-            // If Spatial rejects the late mesh swap as a normal runtime
-            // exception, leave the already-working WebView panel alive.
-            stereoDisabledForLaunch = true
-            stereoPanelRenderer = null
-            Log.e(TAG, "v0.9.9 late stereo mesh takeover disabled", error)
+            Log.e(TAG, "v0.9.10 official stereo probe creation failed", error)
         }
     }
 
@@ -243,7 +159,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
         scene.setViewOrigin(0f, 0f, 0f, 0f)
         enablePassthroughWhenSafe()
-        scheduleStereoMeshIfReady()
+        scheduleProbeIfReady()
     }
 
     override fun onVRReady() {
@@ -259,18 +175,15 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
 
-        scheduleStereoMeshIfReady()
+        scheduleProbeIfReady()
     }
 
     override fun onDestroy() {
-        SpatialBridgeBus.clear()
         mainHandler.removeCallbacksAndMessages(null)
+        SpatialBridgeBus.clear()
 
-        stereoPanelRenderer?.release()
-        stereoPanelRenderer = null
-        pendingStereoLayout = null
-        panelTexture = null
-        geoGebraPanelSceneObject = null
+        stereoProbe?.release()
+        stereoProbe = null
 
         super.onDestroy()
     }
