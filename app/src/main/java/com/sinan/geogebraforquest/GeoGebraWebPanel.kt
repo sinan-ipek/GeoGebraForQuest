@@ -24,6 +24,8 @@ import org.json.JSONObject
 
 private const val LOCAL_APP_URL =
     "https://appassets.androidplatform.net/assets/web/index.html"
+private const val STARTUP_RESET_URL =
+    "https://appassets.androidplatform.net/assets/web/quest-startup-reset.js"
 private const val PROJECTION_PATCH_URL =
     "https://appassets.androidplatform.net/assets/web/quest-projection-patch.js"
 private const val COLOR_PATCH_URL =
@@ -100,17 +102,6 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
     )
 }
 
-/**
- * v0.7.4 returns to the architecture that actually produced Quest depth:
- * the LeftRight media portal is rendered in front of the 3D rectangle.
- *
- * While stereo is active the original GeoGebra WebGL canvas is made almost
- * transparent. It stays in the DOM and remains pointer-interactive, so when the
- * front media panel is made non-hittable the controller ray can continue to the
- * real GeoGebra canvas behind it. We no longer try to punch alpha through the
- * complete Android WebView panel; that underlay approach was the reason v0.7.2
- * and v0.7.3 presented valid eye frames without visible depth.
- */
 private fun injectStereoOverlayCss(view: WebView) {
     view.evaluateJavascript(
         """
@@ -154,6 +145,10 @@ private fun installStereoCaptureAtDocumentStart(view: WebView, context: Context)
 
 private fun injectQuestScripts(view: WebView) {
     injectStereoOverlayCss(view)
+    // Construction identity must be watched before the Auto3D controller starts.
+    // This is what lets us re-arm Glasses when the user opens/replaces a .ggb
+    // without requiring a whole app restart.
+    injectAssetScript(view, "ggq-startup-reset", STARTUP_RESET_URL)
     injectAssetScript(view, "ggq-projection-patch", PROJECTION_PATCH_URL)
     injectAssetScript(view, "ggq-color-patch", COLOR_PATCH_URL)
     injectAssetScript(view, "ggq-stereo-capture", STEREO_CAPTURE_URL)
@@ -210,7 +205,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.7.4"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.7.6"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
