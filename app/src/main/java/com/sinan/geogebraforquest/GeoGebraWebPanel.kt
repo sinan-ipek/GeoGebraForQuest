@@ -66,8 +66,8 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // v0.9.7.1: only measure the existing source-built SBS canvas. The real
-    // WebView panel remains untouched; Spatial creates a visual-only portal later.
+    // Keep the layout observer available for later integration work, but the
+    // v0.9.10 official-stereo probe deliberately does not depend on it.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -93,7 +93,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.7.1"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.10"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
