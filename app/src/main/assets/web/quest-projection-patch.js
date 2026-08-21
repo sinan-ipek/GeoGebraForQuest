@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqAuto3DV074) return;
-  window.__ggqAuto3DV074 = true;
+  if (window.__ggqAuto3DV075) return;
+  window.__ggqAuto3DV075 = true;
 
   const SIG = {
     orthographic: 'M2117.4l-.86.6M3.6220.44L220M194.77l2.55',
@@ -11,7 +11,13 @@
     oblique: 'M72L27v15h15l5-5V2'
   };
 
+  const MIN_INITIAL_STABLE_MS = 1500;
+  const MIN_STABLE_TICKS = 6;
+  const MIN_PRESENTED_FRAMES = 3;
+  const REBUILD_TIMEOUT_MS = 3500;
+
   let activeCanvas = null;
+  let glassesSelected = false;
   let projectionArmed = false;
   let projectionPopupRequested = false;
   let stereoRequested = false;
@@ -21,10 +27,20 @@
   let cachedProjection = null;
   let projectionRetryAt = 0;
 
+  let firstCanvasSeenAt = 0;
+  let stableCanvasTicks = 0;
+  let lastCanvasSignature = '';
+
+  let warmRebuildState = 'idle';
+  let warmRebuildStartedAt = 0;
+  let warmRebuildTimeout = 0;
+  let rendererKickStartedAt = 0;
+  let rendererReselectDone = false;
+
   function log(message) {
     if (message === lastLog) return;
     lastLog = message;
-    console.log('[GGQ Auto3D v0.7.4] ' + message);
+    console.log('[GGQ Auto3D v0.7.5] ' + message);
   }
 
   function cssBackground(element) {
@@ -106,6 +122,36 @@
     }
 
     return best;
+  }
+
+  function canvasSignature(canvas) {
+    if (!canvas) return '';
+    try {
+      const r = canvas.getBoundingClientRect();
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      return [
+        Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height),
+        gl ? gl.drawingBufferWidth : 0, gl ? gl.drawingBufferHeight : 0
+      ].join(':');
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function updateCanvasStability(canvas) {
+    const signature = canvasSignature(canvas);
+    if (!firstCanvasSeenAt) firstCanvasSeenAt = performance.now();
+    if (signature && signature === lastCanvasSignature) stableCanvasTicks += 1;
+    else {
+      lastCanvasSignature = signature;
+      stableCanvasTicks = 1;
+    }
+  }
+
+  function initialCanvasStable() {
+    return firstCanvasSeenAt > 0 &&
+      performance.now() - firstCanvasSeenAt >= MIN_INITIAL_STABLE_MS &&
+      stableCanvasTicks >= MIN_STABLE_TICKS;
   }
 
   function projectionTableInfo() {
@@ -221,7 +267,7 @@
         }
       }
     } catch (error) {
-      console.error('[GGQ Auto3D v0.7.4 stereo]', error);
+      console.error('[GGQ Auto3D v0.7.5 stereo]', error);
     }
 
     return false;
@@ -235,6 +281,34 @@
     } catch (_) {}
   }
 
+  function nativeStatus() {
+    try {
+      if (!window.QuestBridge || typeof window.QuestBridge.getStereoDebugStatus !== 'function') return null;
+      const raw = window.QuestBridge.getStereoDebugStatus();
+      return raw ? JSON.parse(String(raw)) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function nativePresentedFrames() {
+    const status = nativeStatus();
+    const value = status && Number(status.framesPresented);
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function refreshViewsBurst() {
+    const ggb = window.ggbApplet;
+    if (!ggb || typeof ggb.refreshViews !== 'function') return;
+
+    [0, 60, 120, 220, 350, 550, 800, 1150].forEach(function (delay) {
+      setTimeout(function () {
+        try { ggb.refreshViews(); } catch (_) {}
+        try { window.dispatchEvent(new Event('resize')); } catch (_) {}
+      }, delay);
+    });
+  }
+
   function ensureProjectionPopup() {
     const info = projectionTableInfo();
     if (info) return info;
@@ -246,16 +320,105 @@
     const launcher = projectionLauncher();
     if (launcher && synthesizeActivation(launcher)) {
       projectionPopupRequested = true;
-      log('3D detected -> opening projection selector internally');
+      log('stable 3D detected -> opening projection selector internally');
     }
 
     return null;
   }
 
+  function finishWarmRebuild(success) {
+    if (warmRebuildTimeout) {
+      clearTimeout(warmRebuildTimeout);
+      warmRebuildTimeout = 0;
+    }
+
+    warmRebuildState = success ? 'settling' : 'fallback';
+    cachedProjection = null;
+    projectionRetryAt = 0;
+    firstCanvasSeenAt = performance.now();
+    stableCanvasTicks = 0;
+    lastCanvasSignature = '';
+    activeCanvas = null;
+    setPortalVisible(false);
+
+    if (success) log('Glasses state reloaded -> waiting for rebuilt 3D canvas');
+    else log('warm rebuild unavailable -> continuing with live renderer');
+
+    refreshViewsBurst();
+  }
+
+  function startWarmRebuild() {
+    if (warmRebuildState !== 'idle') return;
+
+    warmRebuildState = 'saving';
+    warmRebuildStartedAt = performance.now();
+    setPortalVisible(false);
+    if (captureEnabled() || stereoRequested) setStereo(false);
+
+    const ggb = window.ggbApplet;
+    if (!ggb || typeof ggb.getBase64 !== 'function' || typeof ggb.setBase64 !== 'function') {
+      finishWarmRebuild(false);
+      return;
+    }
+
+    log('Glasses selected -> serializing once to remove cold-start race');
+
+    warmRebuildTimeout = setTimeout(function () {
+      if (warmRebuildState === 'saving' || warmRebuildState === 'reloading') {
+        finishWarmRebuild(false);
+      }
+    }, REBUILD_TIMEOUT_MS);
+
+    setTimeout(function () {
+      try {
+        if (typeof ggb.refreshViews === 'function') ggb.refreshViews();
+        ggb.getBase64(function (base64) {
+          if (!base64 || warmRebuildState !== 'saving') {
+            finishWarmRebuild(false);
+            return;
+          }
+
+          warmRebuildState = 'reloading';
+          log('reloading same construction with Glasses already persisted');
+
+          let callbackFired = false;
+          const done = function () {
+            if (callbackFired) return;
+            callbackFired = true;
+            finishWarmRebuild(true);
+            setTimeout(scan, 0);
+            setTimeout(scan, 120);
+            setTimeout(scan, 300);
+          };
+
+          try {
+            // GeoGebra Web API supports setBase64(base64, callback). This is the
+            // same rebuild that happened naturally on the user's successful
+            // second launch, but we perform it once inside the first launch.
+            ggb.setBase64(base64, done);
+          } catch (_) {
+            try {
+              ggb.setBase64(base64);
+              setTimeout(done, 700);
+            } catch (_) {
+              finishWarmRebuild(false);
+            }
+          }
+        });
+      } catch (_) {
+        finishWarmRebuild(false);
+      }
+    }, 180);
+  }
+
   function forceGlassesProjection(info) {
     if (!info || !info.glasses) return false;
 
-    if (!captureEnabled()) setStereo(true);
+    // Do not start capture yet. The cold-start bug was caused by asking the
+    // original renderer for stereo while the restored construction was still
+    // replacing/rebuilding its WebGL view.
+    setPortalVisible(false);
+    if (captureEnabled() || stereoRequested) setStereo(false);
 
     const table = info.table;
     const oldVisibility = table.style.visibility;
@@ -273,10 +436,11 @@
     table.style.pointerEvents = oldPointerEvents;
 
     if (ok) {
-      projectionArmed = true;
+      glassesSelected = true;
       projectionPopupRequested = false;
       concealProjectionUi(info);
-      log('Glasses projection selected automatically');
+      log('Glasses projection selected automatically; capture held OFF');
+      setTimeout(startWarmRebuild, 180);
       return true;
     }
 
@@ -330,41 +494,119 @@
     return false;
   }
 
+  function resetForNew3D() {
+    if (activeCanvas) {
+      try { activeCanvas.classList.remove('ggq-stereo-canvas'); } catch (_) {}
+    }
+    activeCanvas = null;
+    glassesSelected = false;
+    projectionArmed = false;
+    projectionPopupRequested = false;
+    stereoRequested = false;
+    portalSuppressed = false;
+    cachedProjection = null;
+    projectionRetryAt = 0;
+    firstCanvasSeenAt = 0;
+    stableCanvasTicks = 0;
+    lastCanvasSignature = '';
+    warmRebuildState = 'idle';
+    warmRebuildStartedAt = 0;
+    rendererKickStartedAt = 0;
+    rendererReselectDone = false;
+    setPortalVisible(false);
+    if (captureEnabled()) setStereo(false);
+  }
+
+  function settleWarmRebuild(canvas) {
+    updateCanvasStability(canvas);
+    if (stableCanvasTicks < MIN_STABLE_TICKS) return false;
+
+    projectionArmed = true;
+    warmRebuildState = 'done';
+    rendererKickStartedAt = performance.now();
+    rendererReselectDone = false;
+    markStereoCanvas(canvas);
+    setStereo(true);
+    refreshViewsBurst();
+    log('rebuilt 3D stable -> stereo capture ON; waiting for 3 presented frames');
+    return true;
+  }
+
+  function kickRendererIfNeeded() {
+    const presented = nativePresentedFrames();
+    if (presented >= MIN_PRESENTED_FRAMES) return;
+
+    const elapsed = rendererKickStartedAt ? performance.now() - rendererKickStartedAt : 0;
+    if (elapsed > 250) {
+      try {
+        if (window.ggbApplet && typeof window.ggbApplet.refreshViews === 'function') {
+          window.ggbApplet.refreshViews();
+        }
+      } catch (_) {}
+    }
+
+    if (elapsed > 1200 && presented === 0 && !rendererReselectDone) {
+      const info = projectionTableInfo();
+      if (info && info.glasses) {
+        rendererReselectDone = true;
+        synthesizeActivation(info.glasses);
+        refreshViewsBurst();
+        log('renderer kick -> reselected Glasses once because no stereo frame was presented');
+      }
+    }
+  }
+
   function scan() {
     const canvas = visibleWebGlCanvas();
 
     if (!canvas) {
-      missingTicks += 1;
-      if (missingTicks >= 3) {
-        if (activeCanvas) {
-          try { activeCanvas.classList.remove('ggq-stereo-canvas'); } catch (_) {}
-        }
-        activeCanvas = null;
-        projectionArmed = false;
-        projectionPopupRequested = false;
-        portalSuppressed = false;
+      // setBase64 temporarily destroys/recreates the 3D canvas. That is expected
+      // during the warm rebuild and must not reset the startup state.
+      if (warmRebuildState === 'saving' || warmRebuildState === 'reloading' ||
+          warmRebuildState === 'settling') {
         setPortalVisible(false);
-        if (stereoRequested || captureEnabled()) setStereo(false);
+        return;
       }
+
+      missingTicks += 1;
+      if (missingTicks >= 3) resetForNew3D();
       return;
     }
 
     missingTicks = 0;
+    updateCanvasStability(canvas);
 
     if (activeCanvas !== canvas) {
       markStereoCanvas(canvas);
       activeCanvas = canvas;
-      projectionArmed = false;
-      projectionPopupRequested = false;
-      portalSuppressed = false;
       cachedProjection = null;
       projectionRetryAt = 0;
+
+      if (warmRebuildState !== 'settling' && warmRebuildState !== 'fallback' &&
+          warmRebuildState !== 'done') {
+        firstCanvasSeenAt = performance.now();
+        stableCanvasTicks = 1;
+        lastCanvasSignature = canvasSignature(canvas);
+      }
+    }
+
+    if (!glassesSelected) {
+      setPortalVisible(false);
+      if (!initialCanvasStable()) {
+        log('waiting for restored 3D canvas to become stable before Glasses');
+        return;
+      }
+
+      const info = projectionTableInfo() || ensureProjectionPopup();
+      if (info) forceGlassesProjection(info);
+      return;
     }
 
     if (!projectionArmed) {
       setPortalVisible(false);
-      const info = projectionTableInfo() || ensureProjectionPopup();
-      if (info) forceGlassesProjection(info);
+      if (warmRebuildState === 'settling' || warmRebuildState === 'fallback') {
+        settleWarmRebuild(canvas);
+      }
       return;
     }
 
@@ -372,7 +614,21 @@
     if (info) concealProjectionUi(info);
 
     markStereoCanvas(canvas);
-    if (!captureEnabled()) setStereo(true);
+    if (!captureEnabled()) {
+      setStereo(true);
+      rendererKickStartedAt = performance.now();
+      refreshViewsBurst();
+    }
+
+    kickRendererIfNeeded();
+
+    // Do not expose the front stereo portal until several distinct eye pairs
+    // have made it all the way through EGL. This prevents the one-frame cold
+    // start seen in v0.7.4 from covering the WebView with a stale/blank surface.
+    if (nativePresentedFrames() < MIN_PRESENTED_FRAMES) {
+      setPortalVisible(false);
+      return;
+    }
 
     const blocked = blockingLayerOverlapsCanvas(canvas);
     if (blocked) {
@@ -402,6 +658,9 @@
     isOverlayActive: function () {
       return !!(activeCanvas && activeCanvas.classList.contains('ggq-stereo-canvas'));
     },
+    getStartupState: function () { return warmRebuildState; },
+    getStableTicks: function () { return stableCanvasTicks; },
+    getPresentedFrames: function () { return nativePresentedFrames(); },
     scanNow: scan
   };
 
