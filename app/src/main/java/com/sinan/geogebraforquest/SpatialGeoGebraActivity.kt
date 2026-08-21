@@ -114,18 +114,19 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         StereoDebugState.reset()
 
         SpatialBridgeBus.onStereoLayout = { layout ->
-            if (layout.isBlank()) return@onStereoLayout
-            pendingStereoLayout = layout
+            if (layout.isNotBlank()) {
+                pendingStereoLayout = layout
 
-            val renderer = stereoPortalRenderer
-            if (renderer != null) {
-                renderer.updateLayout(
-                    json = layout,
-                    panelWidthMeters = PANEL_WIDTH_METERS,
-                    panelHeightMeters = PANEL_HEIGHT_METERS,
-                )
-            } else {
-                schedulePortalStartIfReady()
+                val renderer = stereoPortalRenderer
+                if (renderer != null) {
+                    renderer.updateLayout(
+                        json = layout,
+                        panelWidthMeters = PANEL_WIDTH_METERS,
+                        panelHeightMeters = PANEL_HEIGHT_METERS,
+                    )
+                } else {
+                    schedulePortalStartIfReady()
+                }
             }
         }
 
