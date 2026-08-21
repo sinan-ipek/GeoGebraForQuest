@@ -20,10 +20,11 @@ git -C "$SRC" checkout --detach "$GEOGEBRA_COMMIT"
 echo "[GGQ] applying Quest source patches"
 python3 "$ROOT/tools/patch-geogebra-quest.py" "$SRC"
 
-echo "[GGQ] compiling GeoGebra Web3D from patched source"
+echo "[GGQ] compiling GeoGebra Web3D and its static runtime resources"
 pushd "$SRC/source/web" >/dev/null
 ../../gradlew \
   :web:gwtCompile \
+  :web:copyHtml \
   :web:mergeDeploy \
   -Pgmodule=org.geogebra.web.Web3D \
   -PdeployggbRoot=./HTML5/5.0/ \
@@ -37,33 +38,39 @@ WAR="$SRC/source/web/web/war"
   find "$WAR" -maxdepth 2 -type f | head -n 80 || true
   exit 1
 }
-[ -d "$WAR/web3d" ] || {
-  echo "[GGQ] web3d output missing"
-  find "$WAR" -maxdepth 2 -type d | sort | head -n 120 || true
+[ -f "$WAR/web3d/web3d.nocache.js" ] || {
+  echo "[GGQ] web3d bootstrap missing"
+  find "$WAR" -maxdepth 2 -type f | head -n 120 || true
   exit 1
 }
 
+# copyHtml is important: besides generating HTML/CSS it copies GeoGebra's
+# resources/war tree and GIAC runtime files into war/. Earlier source builds
+# copied only deployggb.js + web3d and therefore produced an incomplete local
+# Math Apps runtime package on Quest.
 rm -rf "$DEST"
-mkdir -p "$DEST/HTML5/5.0"
-cp "$WAR/deployggb.js" "$DEST/deployggb.js"
-cp -R "$WAR/web3d" "$DEST/HTML5/5.0/web3d"
+mkdir -p "$DEST"
+cp -R "$WAR"/. "$DEST"/
 
-# Some applet UI resources are resolved beside deployggb.js / the compiled module.
-# Copy the generated/static web resources when they exist, while keeping the
-# canonical Web3D directory above.
-for name in css js images keyboard sounds; do
-  if [ -d "$WAR/$name" ]; then
-    cp -R "$WAR/$name" "$DEST/$name"
-  fi
-done
+# deployggb.js in our wrapper is deliberately configured to use the historical
+# Math Apps Bundle layout: GeoGebra/HTML5/5.0/web3d/. Keep one canonical copy of
+# the compiled GWT module there and remove the temporary root module directory.
+mkdir -p "$DEST/HTML5/5.0"
+rm -rf "$DEST/HTML5/5.0/web3d"
+cp -R "$WAR/web3d" "$DEST/HTML5/5.0/web3d"
+rm -rf "$DEST/web3d"
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
 upstream_commit=$GEOGEBRA_COMMIT
-projection=PROJECTION_QUEST_STEREO
+projection=PROJECTION_GLASSES (render output replaced by full-colour SBS)
 renderer=QuestStereoRenderer
 gwt_module=org.geogebra.web.Web3D
+static_runtime=copyHtml/resources-war included
 EOF
 
 echo "[GGQ] patched GeoGebra installed at $DEST"
-find "$DEST" -maxdepth 3 -type f | head -n 30
+echo "[GGQ] top-level package entries:"
+find "$DEST" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort | head -n 120
+echo "[GGQ] Web3D bootstrap:"
+ls -lh "$DEST/HTML5/5.0/web3d/web3d.nocache.js"
