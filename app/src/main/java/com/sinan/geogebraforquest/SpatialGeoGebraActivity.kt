@@ -26,18 +26,17 @@ import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.8 eye-pass stereo build.
+ * GeoGebraForQuest v0.9.9 late panel-mesh stereo build.
  *
- * The stable startup architecture remains unchanged: one ordinary interactive
- * LayoutXML/WebView panel is created and its PanelSceneObject mesh is never
- * replaced. GeoGebra's source renderer writes full-colour L|R SBS into the 3D
- * WebGL backing store.
+ * v0.9.7.1/v0.9.8 used a separate child SceneObject as a visual stereo portal.
+ * The Quest recordings showed no visible difference between those releases,
+ * which means that overlay never became the layer the user was actually seeing.
  *
- * After the scene, VR, WebView, live panel texture and measured 3D rectangle are
- * all ready, a non-interactive child SceneObject is placed over only the 3D
- * rectangle. Its shader sends the left SBS half to the left Quest eye and the
- * right SBS half to the right Quest eye. Popup/settings overlaps are punched out
- * locally by the portal shader; they no longer disable the whole stereo layer.
+ * v0.9.9 therefore removes the overlay architecture. Startup is still the known
+ * working single LayoutXML/WebView panel. Only after the scene, VR, WebView,
+ * live panel texture and measured 3D rectangle have all been stable for several
+ * seconds do we replace the render mesh of that *same* PanelSceneObject with the
+ * stereo material. The WebView surface and input target stay unchanged.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -50,23 +49,25 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
-        private const val PORTAL_START_DELAY_MS = 1500L
-        private const val PORTAL_TEXTURE_RETRY_MS = 250L
+
+        // v0.9.7 changed the mesh during panel setup and could crash at startup.
+        // Wait until the complete Spatial/Web/GeoGebra stack is settled.
+        private const val STEREO_MESH_START_DELAY_MS = 3500L
+        private const val TEXTURE_RETRY_MS = 250L
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var geoGebraPanelEntity: Entity? = null
     private var geoGebraPanelSceneObject: PanelSceneObject? = null
     private var panelTexture: SceneTexture? = null
-    private var stereoPortalRenderer: QuestStereoPortalRenderer? = null
+    private var stereoPanelRenderer: QuestStereoPanelRenderer? = null
     private var pendingStereoLayout: String? = null
 
     private var sceneReady = false
     private var vrReady = false
     private var webPanelReady = false
-    private var portalStartScheduled = false
-    private var portalDisabledForLaunch = false
+    private var stereoStartScheduled = false
+    private var stereoDisabledForLaunch = false
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -98,12 +99,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         startStereo = true,
                     )
 
-                    // Never replace the interactive panel's own mesh. Keep a
-                    // reference so getTexture() can be retried if the first call
-                    // happens before Spatial has produced the live panel texture.
+                    // Keep startup identical to the working ordinary panel.
+                    // Do not change panelSceneObject.mesh here.
                     geoGebraPanelSceneObject = panelSceneObject
                     panelTexture = panelSceneObject.getTexture()
-                    schedulePortalStartIfReady()
+                    scheduleStereoMeshIfReady()
                 },
             ),
         )
@@ -117,93 +117,94 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             if (layout.isNotBlank()) {
                 pendingStereoLayout = layout
 
-                val renderer = stereoPortalRenderer
+                val renderer = stereoPanelRenderer
                 if (renderer != null) {
-                    renderer.updateLayout(
-                        json = layout,
-                        panelWidthMeters = PANEL_WIDTH_METERS,
-                        panelHeightMeters = PANEL_HEIGHT_METERS,
-                    )
+                    renderer.updateLayout(layout)
                 } else {
-                    schedulePortalStartIfReady()
+                    scheduleStereoMeshIfReady()
                 }
             }
         }
 
         SpatialBridgeBus.onPanelReady = {
             webPanelReady = true
-            schedulePortalStartIfReady()
+            scheduleStereoMeshIfReady()
         }
 
         requestScenePermissionIfNeeded()
     }
 
-    private fun schedulePortalStartIfReady() {
-        if (portalDisabledForLaunch || stereoPortalRenderer != null || portalStartScheduled) return
+    private fun scheduleStereoMeshIfReady() {
+        if (
+            stereoDisabledForLaunch ||
+            stereoPanelRenderer != null ||
+            stereoStartScheduled
+        ) {
+            return
+        }
+
         if (!sceneReady || !vrReady || !webPanelReady) return
-        if (geoGebraPanelEntity == null || pendingStereoLayout.isNullOrBlank()) return
+        if (geoGebraPanelSceneObject == null || pendingStereoLayout.isNullOrBlank()) return
 
         if (panelTexture == null) {
             panelTexture = geoGebraPanelSceneObject?.getTexture()
         }
 
         if (panelTexture == null) {
-            // v0.9.7.1 gave up forever if getTexture() returned null once.
-            // Keep the normal panel alive and retry until Spatial publishes it.
-            portalStartScheduled = true
+            stereoStartScheduled = true
             mainHandler.postDelayed(
                 {
-                    portalStartScheduled = false
-                    schedulePortalStartIfReady()
+                    stereoStartScheduled = false
+                    scheduleStereoMeshIfReady()
                 },
-                PORTAL_TEXTURE_RETRY_MS,
+                TEXTURE_RETRY_MS,
             )
             return
         }
 
-        portalStartScheduled = true
+        stereoStartScheduled = true
         mainHandler.postDelayed(
             {
-                portalStartScheduled = false
-                createPortalIfStillReady()
+                stereoStartScheduled = false
+                createLateStereoPanelRenderer()
             },
-            PORTAL_START_DELAY_MS,
+            STEREO_MESH_START_DELAY_MS,
         )
     }
 
-    private fun createPortalIfStillReady() {
-        if (portalDisabledForLaunch || stereoPortalRenderer != null) return
+    private fun createLateStereoPanelRenderer() {
+        if (stereoDisabledForLaunch || stereoPanelRenderer != null) return
         if (!sceneReady || !vrReady || !webPanelReady) return
 
-        val parent = geoGebraPanelEntity ?: return
-        val texture = panelTexture ?: geoGebraPanelSceneObject?.getTexture() ?: run {
-            schedulePortalStartIfReady()
-            return
-        }
+        val panelSceneObject = geoGebraPanelSceneObject ?: return
+        val texture =
+            panelTexture ?: panelSceneObject.getTexture() ?: run {
+                scheduleStereoMeshIfReady()
+                return
+            }
         panelTexture = texture
 
         val layout = pendingStereoLayout ?: return
 
         try {
             val renderer =
-                QuestStereoPortalRenderer(
+                QuestStereoPanelRenderer(
                     activity = this,
-                    parent = parent,
+                    panelSceneObject = panelSceneObject,
                     panelTexture = texture,
+                    panelWidthMeters = PANEL_WIDTH_METERS,
+                    panelHeightMeters = PANEL_HEIGHT_METERS,
                 )
 
-            stereoPortalRenderer = renderer
-            renderer.updateLayout(
-                json = layout,
-                panelWidthMeters = PANEL_WIDTH_METERS,
-                panelHeightMeters = PANEL_HEIGHT_METERS,
-            )
-            Log.i(TAG, "Stereo eye-pass portal active")
+            stereoPanelRenderer = renderer
+            renderer.updateLayout(layout)
+            Log.i(TAG, "v0.9.9 late stereo mesh takeover active")
         } catch (error: Throwable) {
-            // Never sacrifice the working WebView panel to the stereo overlay.
-            portalDisabledForLaunch = true
-            stereoPortalRenderer = null
-            Log.e(TAG, "Stereo portal disabled for this launch", error)
+            // If Spatial rejects the late mesh swap as a normal runtime
+            // exception, leave the already-working WebView panel alive.
+            stereoDisabledForLaunch = true
+            stereoPanelRenderer = null
+            Log.e(TAG, "v0.9.9 late stereo mesh takeover disabled", error)
         }
     }
 
@@ -242,7 +243,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
         scene.setViewOrigin(0f, 0f, 0f, 0f)
         enablePassthroughWhenSafe()
-        schedulePortalStartIfReady()
+        scheduleStereoMeshIfReady()
     }
 
     override fun onVRReady() {
@@ -250,28 +251,26 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         if (vrReady) return
         vrReady = true
 
-        val geoPanel = Entity(R.id.geogebra_panel)
-        geoPanel.setComponents(
+        Entity(R.id.geogebra_panel).setComponents(
             listOf(
                 Panel(R.id.geogebra_panel),
                 Transform(Pose(Vector3(0f, 1.25f, 1.50f))),
                 Grabbable(),
             ),
         )
-        geoGebraPanelEntity = geoPanel
-        schedulePortalStartIfReady()
+
+        scheduleStereoMeshIfReady()
     }
 
     override fun onDestroy() {
         SpatialBridgeBus.clear()
         mainHandler.removeCallbacksAndMessages(null)
 
-        stereoPortalRenderer?.release()
-        stereoPortalRenderer = null
+        stereoPanelRenderer?.release()
+        stereoPanelRenderer = null
         pendingStereoLayout = null
         panelTexture = null
         geoGebraPanelSceneObject = null
-        geoGebraPanelEntity = null
 
         super.onDestroy()
     }
