@@ -2,12 +2,15 @@ package com.sinan.geogebraforquest
 
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector3
 import com.meta.spatial.runtime.ReferenceSpace
+import com.meta.spatial.runtime.SceneTexture
 import com.meta.spatial.toolkit.AppSystemActivity
 import com.meta.spatial.toolkit.DpDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
@@ -21,14 +24,24 @@ import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.7.
+ * GeoGebraForQuest v0.9.7.1 safe-start stereo build.
  *
- * GeoGebra's patched WebGL renderer writes a permanent full-colour L|R SBS
- * image into the 3D canvas backing store. The real interactive WebView panel is
- * kept as the only panel and input surface. Its PanelSceneObject mesh uses an
- * eye-aware shader: normal UI stays mono in both eyes, while only the measured
- * 3D canvas rectangle is expanded from its left/right SBS halves and routed to
- * the corresponding Quest eye.
+ * The working v0.9.6 architecture is preserved at startup: one ordinary,
+ * interactive LayoutXML/WebView panel is created and its PanelSceneObject mesh
+ * is never replaced. GeoGebra's patched source renderer still writes a stable,
+ * full-colour L|R SBS image into the 3D WebGL backing store.
+ *
+ * Only after all of these are true:
+ * - the Spatial scene is ready,
+ * - VR is ready and the real GeoGebra panel entity exists,
+ * - the WebView/GeoGebra applet reports ready,
+ * - a valid 3D-canvas layout has been measured,
+ *
+ * a non-interactive child SceneObject is created above the 3D rectangle. That
+ * visual-only portal samples the left SBS half for the left Quest eye and the
+ * right SBS half for the right Quest eye. If portal construction throws a
+ * normal runtime exception, stereo is disabled for that launch and the working
+ * mono/SBS WebView panel remains usable instead of taking the app down.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -40,13 +53,21 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
+        private const val PORTAL_START_DELAY_MS = 1500L
     }
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     private var geoGebraPanelEntity: Entity? = null
-    private var stereoPanelRenderer: QuestStereoPanelRenderer? = null
+    private var panelTexture: SceneTexture? = null
+    private var stereoPortalRenderer: QuestStereoPortalRenderer? = null
     private var pendingStereoLayout: String? = null
+
     private var sceneReady = false
     private var vrReady = false
+    private var webPanelReady = false
+    private var portalStartScheduled = false
+    private var portalDisabledForLaunch = false
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -78,21 +99,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         startStereo = true,
                     )
 
-                    val texture = panelSceneObject.getTexture()
-                    if (texture != null) {
-                        stereoPanelRenderer =
-                            QuestStereoPanelRenderer(
-                                activity = this,
-                                panelSceneObject = panelSceneObject,
-                                panelTexture = texture,
-                                panelWidthMeters = PANEL_WIDTH_METERS,
-                                panelHeightMeters = PANEL_HEIGHT_METERS,
-                            )
-                        pendingStereoLayout?.let { layout ->
-                            stereoPanelRenderer?.updateLayout(layout)
-                            pendingStereoLayout = null
-                        }
-                    }
+                    // Safe-start rule: do NOT replace panelSceneObject.mesh here.
+                    // We only retain its live WebView texture for a later visual
+                    // child portal created after the whole Spatial/Web stack is ready.
+                    panelTexture = panelSceneObject.getTexture()
+                    schedulePortalStartIfReady()
                 },
             ),
         )
@@ -103,16 +114,73 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         StereoDebugState.reset()
 
         SpatialBridgeBus.onStereoLayout = { layout ->
-            val renderer = stereoPanelRenderer
+            if (layout.isBlank()) return@onStereoLayout
+            pendingStereoLayout = layout
+
+            val renderer = stereoPortalRenderer
             if (renderer != null) {
-                renderer.updateLayout(layout)
+                renderer.updateLayout(
+                    json = layout,
+                    panelWidthMeters = PANEL_WIDTH_METERS,
+                    panelHeightMeters = PANEL_HEIGHT_METERS,
+                )
             } else {
-                pendingStereoLayout = layout
+                schedulePortalStartIfReady()
             }
         }
-        SpatialBridgeBus.onPanelReady = { }
+
+        SpatialBridgeBus.onPanelReady = {
+            webPanelReady = true
+            schedulePortalStartIfReady()
+        }
 
         requestScenePermissionIfNeeded()
+    }
+
+    private fun schedulePortalStartIfReady() {
+        if (portalDisabledForLaunch || stereoPortalRenderer != null || portalStartScheduled) return
+        if (!sceneReady || !vrReady || !webPanelReady) return
+        if (geoGebraPanelEntity == null || panelTexture == null || pendingStereoLayout.isNullOrBlank()) return
+
+        portalStartScheduled = true
+        mainHandler.postDelayed(
+            {
+                portalStartScheduled = false
+                createPortalIfStillReady()
+            },
+            PORTAL_START_DELAY_MS,
+        )
+    }
+
+    private fun createPortalIfStillReady() {
+        if (portalDisabledForLaunch || stereoPortalRenderer != null) return
+        if (!sceneReady || !vrReady || !webPanelReady) return
+
+        val parent = geoGebraPanelEntity ?: return
+        val texture = panelTexture ?: return
+        val layout = pendingStereoLayout ?: return
+
+        try {
+            val renderer =
+                QuestStereoPortalRenderer(
+                    activity = this,
+                    parent = parent,
+                    panelTexture = texture,
+                )
+
+            stereoPortalRenderer = renderer
+            renderer.updateLayout(
+                json = layout,
+                panelWidthMeters = PANEL_WIDTH_METERS,
+                panelHeightMeters = PANEL_HEIGHT_METERS,
+            )
+        } catch (error: Throwable) {
+            // Do not repeatedly touch Spatial rendering after a normal runtime
+            // failure. The ordinary 9.6-style panel remains intact and usable.
+            portalDisabledForLaunch = true
+            stereoPortalRenderer = null
+            android.util.Log.e("GeoGebraForQuest", "Stereo portal disabled for this launch", error)
+        }
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -150,6 +218,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
         scene.setViewOrigin(0f, 0f, 0f, 0f)
         enablePassthroughWhenSafe()
+        schedulePortalStartIfReady()
     }
 
     override fun onVRReady() {
@@ -166,14 +235,19 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
         geoGebraPanelEntity = geoPanel
+        schedulePortalStartIfReady()
     }
 
     override fun onDestroy() {
         SpatialBridgeBus.clear()
-        stereoPanelRenderer?.release()
-        stereoPanelRenderer = null
+        mainHandler.removeCallbacksAndMessages(null)
+
+        stereoPortalRenderer?.release()
+        stereoPortalRenderer = null
         pendingStereoLayout = null
+        panelTexture = null
         geoGebraPanelEntity = null
+
         super.onDestroy()
     }
 }
