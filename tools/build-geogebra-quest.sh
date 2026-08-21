@@ -20,20 +20,28 @@ git -C "$SRC" checkout --detach "$GEOGEBRA_COMMIT"
 echo "[GGQ] applying Quest source patches"
 python3 "$ROOT/tools/patch-geogebra-quest.py" "$SRC"
 
-echo "[GGQ] compiling GeoGebra web3d from patched source"
+echo "[GGQ] compiling GeoGebra Web3D from patched source"
 pushd "$SRC/source/web" >/dev/null
 ../../gradlew \
   :web:gwtCompile \
   :web:mergeDeploy \
-  -Pgmodule=org.geogebra.web.Tablet3D \
+  -Pgmodule=org.geogebra.web.Web3D \
   -PdeployggbRoot=./HTML5/5.0/ \
   --no-daemon \
   --stacktrace
 popd >/dev/null
 
 WAR="$SRC/source/web/web/war"
-[ -f "$WAR/deployggb.js" ] || { echo "[GGQ] deployggb.js missing"; exit 1; }
-[ -d "$WAR/web3d" ] || { echo "[GGQ] web3d output missing"; exit 1; }
+[ -f "$WAR/deployggb.js" ] || {
+  echo "[GGQ] deployggb.js missing"
+  find "$WAR" -maxdepth 2 -type f | head -n 80 || true
+  exit 1
+}
+[ -d "$WAR/web3d" ] || {
+  echo "[GGQ] web3d output missing"
+  find "$WAR" -maxdepth 2 -type d | sort | head -n 120 || true
+  exit 1
+}
 
 rm -rf "$DEST"
 mkdir -p "$DEST/HTML5/5.0"
@@ -41,8 +49,8 @@ cp "$WAR/deployggb.js" "$DEST/deployggb.js"
 cp -R "$WAR/web3d" "$DEST/HTML5/5.0/web3d"
 
 # Some applet UI resources are resolved beside deployggb.js / the compiled module.
-# Copy the small generated/static web resources when they exist, while keeping the
-# canonical web3d directory above.
+# Copy the generated/static web resources when they exist, while keeping the
+# canonical Web3D directory above.
 for name in css js images keyboard sounds; do
   if [ -d "$WAR/$name" ]; then
     cp -R "$WAR/$name" "$DEST/$name"
@@ -54,6 +62,7 @@ GeoGebraForQuest source build
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_QUEST_STEREO
 renderer=QuestStereoRenderer
+gwt_module=org.geogebra.web.Web3D
 EOF
 
 echo "[GGQ] patched GeoGebra installed at $DEST"
