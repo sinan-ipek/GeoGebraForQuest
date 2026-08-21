@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  if (window.__ggqAuto3DV075) return;
-  window.__ggqAuto3DV075 = true;
+  if (window.__ggqAuto3DV076) return;
+  window.__ggqAuto3DV076 = true;
 
   const SIG = {
     orthographic: 'M2117.4l-.86.6M3.6220.44L220M194.77l2.55',
@@ -11,36 +11,30 @@
     oblique: 'M72L27v15h15l5-5V2'
   };
 
-  const MIN_INITIAL_STABLE_MS = 1500;
-  const MIN_STABLE_TICKS = 6;
-  const MIN_PRESENTED_FRAMES = 3;
-  const REBUILD_TIMEOUT_MS = 3500;
+  const CONSTRUCTION_QUIET_MS = 1200;
+  const CANVAS_STABLE_TICKS = 5;
+  const PRESENT_GATE = 2;
 
   let activeCanvas = null;
-  let glassesSelected = false;
   let projectionArmed = false;
   let projectionPopupRequested = false;
   let stereoRequested = false;
   let portalSuppressed = false;
-  let missingTicks = 0;
-  let lastLog = '';
   let cachedProjection = null;
   let projectionRetryAt = 0;
-
-  let firstCanvasSeenAt = 0;
-  let stableCanvasTicks = 0;
+  let stableTicks = 0;
   let lastCanvasSignature = '';
-
-  let warmRebuildState = 'idle';
-  let warmRebuildStartedAt = 0;
-  let warmRebuildTimeout = 0;
-  let rendererKickStartedAt = 0;
-  let rendererReselectDone = false;
+  let presentedBaseline = 0;
+  let armStartedAt = 0;
+  let rendererKickCount = 0;
+  let resetGeneration = 0;
+  let lastResetReason = 'startup';
+  let lastLog = '';
 
   function log(message) {
     if (message === lastLog) return;
     lastLog = message;
-    console.log('[GGQ Auto3D v0.7.5] ' + message);
+    console.log('[GGQ Auto3D v0.7.6] ' + message);
   }
 
   function cssBackground(element) {
@@ -88,18 +82,15 @@
       const style = getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.display !== 'none' && style.visibility !== 'hidden' &&
-        Number(style.opacity || 1) > 0 && rect.width > 2 && rect.height > 2 &&
-        rect.bottom > 0 && rect.right > 0 && rect.left < innerWidth && rect.top < innerHeight;
-    } catch (_) {
-      return false;
-    }
+        rect.width > 2 && rect.height > 2 && rect.bottom > 0 && rect.right > 0 &&
+        rect.left < innerWidth && rect.top < innerHeight;
+    } catch (_) { return false; }
   }
 
   function visibleWebGlCanvas() {
     const root = document.getElementById('ggb-element') || document;
     let best = null;
     let bestArea = 0;
-
     for (const canvas of Array.from(root.querySelectorAll('canvas'))) {
       try {
         const rect = canvas.getBoundingClientRect();
@@ -107,12 +98,8 @@
         if (style.display === 'none' || style.visibility === 'hidden') continue;
         if (rect.width < 160 || rect.height < 140) continue;
         if (rect.right <= 0 || rect.bottom <= 0 || rect.left >= innerWidth || rect.top >= innerHeight) continue;
-
-        const gl = canvas.getContext('webgl2') ||
-          canvas.getContext('webgl') ||
-          canvas.getContext('experimental-webgl');
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
         if (!gl) continue;
-
         const area = rect.width * rect.height;
         if (area > bestArea) {
           best = canvas;
@@ -120,7 +107,6 @@
         }
       } catch (_) {}
     }
-
     return best;
   }
 
@@ -129,95 +115,80 @@
     try {
       const r = canvas.getBoundingClientRect();
       const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-      return [
-        Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height),
-        gl ? gl.drawingBufferWidth : 0, gl ? gl.drawingBufferHeight : 0
-      ].join(':');
-    } catch (_) {
-      return '';
-    }
+      return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height),
+        gl ? gl.drawingBufferWidth : 0, gl ? gl.drawingBufferHeight : 0].join(':');
+    } catch (_) { return ''; }
   }
 
-  function updateCanvasStability(canvas) {
-    const signature = canvasSignature(canvas);
-    if (!firstCanvasSeenAt) firstCanvasSeenAt = performance.now();
-    if (signature && signature === lastCanvasSignature) stableCanvasTicks += 1;
+  function updateStability(canvas) {
+    const sig = canvasSignature(canvas);
+    if (sig && sig === lastCanvasSignature) stableTicks += 1;
     else {
-      lastCanvasSignature = signature;
-      stableCanvasTicks = 1;
+      lastCanvasSignature = sig;
+      stableTicks = 1;
     }
   }
 
-  function initialCanvasStable() {
-    return firstCanvasSeenAt > 0 &&
-      performance.now() - firstCanvasSeenAt >= MIN_INITIAL_STABLE_MS &&
-      stableCanvasTicks >= MIN_STABLE_TICKS;
+  function constructionQuiet() {
+    try {
+      const helper = window.GeoGebraQuestStartupReset;
+      if (helper && typeof helper.isQuiet === 'function') {
+        return !!helper.isQuiet(CONSTRUCTION_QUIET_MS);
+      }
+    } catch (_) {}
+    return true;
   }
 
   function projectionTableInfo() {
     if (cachedProjection && cachedProjection.table && cachedProjection.table.isConnected &&
-        cachedProjection.glasses && cachedProjection.glasses.isConnected) {
-      return cachedProjection;
-    }
-
+        cachedProjection.glasses && cachedProjection.glasses.isConnected) return cachedProjection;
     cachedProjection = null;
-
     for (const table of Array.from(document.querySelectorAll('.SelectionTable'))) {
       const icons = Array.from(table.querySelectorAll('.stylebarButton'))
         .filter(function (element) { return !!cssBackground(element); });
       if (icons.length !== 4) continue;
-
       const kinds = icons.map(kindOf);
       if (kinds[0] === 'orthographic' && kinds[1] === 'perspective' &&
           kinds[2] === 'glasses' && kinds[3] === 'oblique') {
-        cachedProjection = {
-          table: table,
-          glasses: icons[2],
-          icons: icons
-        };
+        cachedProjection = { table: table, glasses: icons[2], icons: icons };
         return cachedProjection;
       }
     }
-
     return null;
   }
 
   function projectionLauncher() {
+    const tagged = document.querySelector('[data-ggq-projection-launcher="1"]');
+    if (tagged && tagged.isConnected) return tagged;
+
     const candidates = Array.from(document.querySelectorAll(
       '.stylebarButton,button,[role="button"],[style*="background-image"]'
     ));
-
     for (const element of candidates) {
       if (element.closest && element.closest('.SelectionTable')) continue;
-      if (!kindOf(element) || !visible(element)) continue;
+      if (!kindOf(element)) continue;
+      if (!visible(element)) continue;
+      element.setAttribute('data-ggq-projection-launcher', '1');
       return element;
     }
-
     return null;
   }
 
   function synthesizeActivation(target) {
     if (!target) return false;
-
     try {
       const mouse = function (type) {
         target.dispatchEvent(new MouseEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          button: 0,
-          buttons: type === 'mousedown' ? 1 : 0
+          bubbles: true, cancelable: true, view: window,
+          button: 0, buttons: type === 'mousedown' ? 1 : 0
         }));
       };
-
       mouse('mousedown');
       mouse('mouseup');
       if (typeof target.click === 'function') target.click();
       else mouse('click');
       return true;
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { return false; }
   }
 
   function concealProjectionUi(info) {
@@ -228,9 +199,14 @@
       info.table.setAttribute('aria-hidden', 'true');
     }
 
+    // Important: do NOT display:none this launcher. v0.7.4 did that, so after
+    // opening a new construction the same hidden DOM button could never be found
+    // and Glasses could not be selected again until the whole app restarted.
     const launcher = projectionLauncher();
     if (launcher) {
-      launcher.style.setProperty('display', 'none', 'important');
+      launcher.setAttribute('data-ggq-projection-launcher', '1');
+      launcher.style.setProperty('opacity', '0', 'important');
+      launcher.style.setProperty('pointer-events', 'none', 'important');
       launcher.setAttribute('aria-hidden', 'true');
     }
   }
@@ -240,9 +216,7 @@
       return !!(window.GeoGebraQuestStereoCapture &&
         typeof window.GeoGebraQuestStereoCapture.isEnabled === 'function' &&
         window.GeoGebraQuestStereoCapture.isEnabled());
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { return false; }
   }
 
   function setStereo(enabled) {
@@ -252,14 +226,12 @@
         stereoRequested = !!enabled;
         return true;
       }
-
       if (window.GeoGebraQuestStereoCapture) {
         if (enabled && typeof window.GeoGebraQuestStereoCapture.enable === 'function') {
           window.GeoGebraQuestStereoCapture.enable();
           stereoRequested = true;
           return true;
         }
-
         if (!enabled && typeof window.GeoGebraQuestStereoCapture.disable === 'function') {
           window.GeoGebraQuestStereoCapture.disable(true);
           stereoRequested = false;
@@ -267,16 +239,15 @@
         }
       }
     } catch (error) {
-      console.error('[GGQ Auto3D v0.7.5 stereo]', error);
+      console.error('[GGQ Auto3D v0.7.6 stereo]', error);
     }
-
     return false;
   }
 
-  function setPortalVisible(visibleNow) {
+  function setPortalVisible(value) {
     try {
       if (window.QuestBridge && typeof window.QuestBridge.setPortalVisible === 'function') {
-        window.QuestBridge.setPortalVisible(!!visibleNow);
+        window.QuestBridge.setPortalVisible(!!value);
       }
     } catch (_) {}
   }
@@ -286,24 +257,20 @@
       if (!window.QuestBridge || typeof window.QuestBridge.getStereoDebugStatus !== 'function') return null;
       const raw = window.QuestBridge.getStereoDebugStatus();
       return raw ? JSON.parse(String(raw)) : null;
-    } catch (_) {
-      return null;
-    }
+    } catch (_) { return null; }
   }
 
-  function nativePresentedFrames() {
+  function presentedFrames() {
     const status = nativeStatus();
     const value = status && Number(status.framesPresented);
     return Number.isFinite(value) ? value : 0;
   }
 
   function refreshViewsBurst() {
-    const ggb = window.ggbApplet;
-    if (!ggb || typeof ggb.refreshViews !== 'function') return;
-
-    [0, 60, 120, 220, 350, 550, 800, 1150].forEach(function (delay) {
+    const api = window.ggbApplet;
+    [0, 80, 180, 320, 520, 800].forEach(function (delay) {
       setTimeout(function () {
-        try { ggb.refreshViews(); } catch (_) {}
+        try { if (api && typeof api.refreshViews === 'function') api.refreshViews(); } catch (_) {}
         try { window.dispatchEvent(new Event('resize')); } catch (_) {}
       }, delay);
     });
@@ -312,139 +279,45 @@
   function ensureProjectionPopup() {
     const info = projectionTableInfo();
     if (info) return info;
-
     const now = performance.now();
     if (now < projectionRetryAt) return null;
-    projectionRetryAt = now + 220;
-
+    projectionRetryAt = now + 250;
     const launcher = projectionLauncher();
     if (launcher && synthesizeActivation(launcher)) {
       projectionPopupRequested = true;
-      log('stable 3D detected -> opening projection selector internally');
+      log('projection selector opened internally');
     }
-
     return null;
-  }
-
-  function finishWarmRebuild(success) {
-    if (warmRebuildTimeout) {
-      clearTimeout(warmRebuildTimeout);
-      warmRebuildTimeout = 0;
-    }
-
-    warmRebuildState = success ? 'settling' : 'fallback';
-    cachedProjection = null;
-    projectionRetryAt = 0;
-    firstCanvasSeenAt = performance.now();
-    stableCanvasTicks = 0;
-    lastCanvasSignature = '';
-    activeCanvas = null;
-    setPortalVisible(false);
-
-    if (success) log('Glasses state reloaded -> waiting for rebuilt 3D canvas');
-    else log('warm rebuild unavailable -> continuing with live renderer');
-
-    refreshViewsBurst();
-  }
-
-  function startWarmRebuild() {
-    if (warmRebuildState !== 'idle') return;
-
-    warmRebuildState = 'saving';
-    warmRebuildStartedAt = performance.now();
-    setPortalVisible(false);
-    if (captureEnabled() || stereoRequested) setStereo(false);
-
-    const ggb = window.ggbApplet;
-    if (!ggb || typeof ggb.getBase64 !== 'function' || typeof ggb.setBase64 !== 'function') {
-      finishWarmRebuild(false);
-      return;
-    }
-
-    log('Glasses selected -> serializing once to remove cold-start race');
-
-    warmRebuildTimeout = setTimeout(function () {
-      if (warmRebuildState === 'saving' || warmRebuildState === 'reloading') {
-        finishWarmRebuild(false);
-      }
-    }, REBUILD_TIMEOUT_MS);
-
-    setTimeout(function () {
-      try {
-        if (typeof ggb.refreshViews === 'function') ggb.refreshViews();
-        ggb.getBase64(function (base64) {
-          if (!base64 || warmRebuildState !== 'saving') {
-            finishWarmRebuild(false);
-            return;
-          }
-
-          warmRebuildState = 'reloading';
-          log('reloading same construction with Glasses already persisted');
-
-          let callbackFired = false;
-          const done = function () {
-            if (callbackFired) return;
-            callbackFired = true;
-            finishWarmRebuild(true);
-            setTimeout(scan, 0);
-            setTimeout(scan, 120);
-            setTimeout(scan, 300);
-          };
-
-          try {
-            // GeoGebra Web API supports setBase64(base64, callback). This is the
-            // same rebuild that happened naturally on the user's successful
-            // second launch, but we perform it once inside the first launch.
-            ggb.setBase64(base64, done);
-          } catch (_) {
-            try {
-              ggb.setBase64(base64);
-              setTimeout(done, 700);
-            } catch (_) {
-              finishWarmRebuild(false);
-            }
-          }
-        });
-      } catch (_) {
-        finishWarmRebuild(false);
-      }
-    }, 180);
   }
 
   function forceGlassesProjection(info) {
     if (!info || !info.glasses) return false;
-
-    // Do not start capture yet. The cold-start bug was caused by asking the
-    // original renderer for stereo while the restored construction was still
-    // replacing/rebuilding its WebGL view.
     setPortalVisible(false);
-    if (captureEnabled() || stereoRequested) setStereo(false);
 
     const table = info.table;
     const oldVisibility = table.style.visibility;
     const oldOpacity = table.style.opacity;
     const oldPointerEvents = table.style.pointerEvents;
-
     table.style.visibility = 'visible';
     table.style.opacity = '0';
     table.style.pointerEvents = 'none';
-
     const ok = synthesizeActivation(info.glasses);
-
     table.style.visibility = oldVisibility;
     table.style.opacity = oldOpacity;
     table.style.pointerEvents = oldPointerEvents;
 
-    if (ok) {
-      glassesSelected = true;
-      projectionPopupRequested = false;
-      concealProjectionUi(info);
-      log('Glasses projection selected automatically; capture held OFF');
-      setTimeout(startWarmRebuild, 180);
-      return true;
-    }
+    if (!ok) return false;
 
-    return false;
+    projectionArmed = true;
+    projectionPopupRequested = false;
+    presentedBaseline = presentedFrames();
+    armStartedAt = performance.now();
+    rendererKickCount = 0;
+    concealProjectionUi(info);
+    if (!captureEnabled()) setStereo(true);
+    refreshViewsBurst();
+    log('Glasses selected after construction became quiet -> stereo ON');
+    return true;
   }
 
   function markStereoCanvas(canvas) {
@@ -463,9 +336,7 @@
     const bottom = Math.min(a.bottom, b.bottom);
     const w = Math.max(0, right - left);
     const h = Math.max(0, bottom - top);
-    const intersection = w * h;
-    const area = Math.max(1, a.width * a.height);
-    return intersection / area;
+    return (w * h) / Math.max(1, a.width * a.height);
   }
 
   function blockingLayerOverlapsCanvas(canvas) {
@@ -477,174 +348,107 @@
       '.openFileView', '.fileView', '.loginDialog', '.signin', '.signIn',
       '.examDialog', '.shareDialog', '.saveDialog'
     ];
-
     for (const selector of selectors) {
       for (const element of Array.from(document.querySelectorAll(selector))) {
         if (!visible(element)) continue;
         if (element.id && element.id.indexOf('ggq-debug') >= 0) continue;
         if (element.closest && element.closest('.SelectionTable')) continue;
-
         try {
-          const rect = element.getBoundingClientRect();
-          if (rectOverlapRatio(canvasRect, rect) > 0.02) return true;
+          if (rectOverlapRatio(canvasRect, element.getBoundingClientRect()) > 0.02) return true;
         } catch (_) {}
       }
     }
-
     return false;
   }
 
-  function resetForNew3D() {
-    if (activeCanvas) {
-      try { activeCanvas.classList.remove('ggq-stereo-canvas'); } catch (_) {}
-    }
-    activeCanvas = null;
-    glassesSelected = false;
+  function resetForConstructionChange(reason) {
+    resetGeneration += 1;
+    lastResetReason = String(reason || 'construction-change');
     projectionArmed = false;
     projectionPopupRequested = false;
-    stereoRequested = false;
     portalSuppressed = false;
     cachedProjection = null;
     projectionRetryAt = 0;
-    firstCanvasSeenAt = 0;
-    stableCanvasTicks = 0;
+    stableTicks = 0;
     lastCanvasSignature = '';
-    warmRebuildState = 'idle';
-    warmRebuildStartedAt = 0;
-    rendererKickStartedAt = 0;
-    rendererReselectDone = false;
+    presentedBaseline = presentedFrames();
+    armStartedAt = 0;
+    rendererKickCount = 0;
     setPortalVisible(false);
-    if (captureEnabled()) setStereo(false);
-  }
-
-  function settleWarmRebuild(canvas) {
-    updateCanvasStability(canvas);
-    if (stableCanvasTicks < MIN_STABLE_TICKS) return false;
-
-    projectionArmed = true;
-    warmRebuildState = 'done';
-    rendererKickStartedAt = performance.now();
-    rendererReselectDone = false;
-    markStereoCanvas(canvas);
-    setStereo(true);
-    refreshViewsBurst();
-    log('rebuilt 3D stable -> stereo capture ON; waiting for 3 presented frames');
-    return true;
+    if (captureEnabled() || stereoRequested) setStereo(false);
+    log('stereo disarmed for new construction: ' + lastResetReason);
   }
 
   function kickRendererIfNeeded() {
-    const presented = nativePresentedFrames();
-    if (presented >= MIN_PRESENTED_FRAMES) return;
+    if (!projectionArmed || !armStartedAt) return;
+    const delta = presentedFrames() - presentedBaseline;
+    if (delta >= PRESENT_GATE) return;
+    const elapsed = performance.now() - armStartedAt;
 
-    const elapsed = rendererKickStartedAt ? performance.now() - rendererKickStartedAt : 0;
-    if (elapsed > 250) {
-      try {
-        if (window.ggbApplet && typeof window.ggbApplet.refreshViews === 'function') {
-          window.ggbApplet.refreshViews();
-        }
-      } catch (_) {}
-    }
-
-    if (elapsed > 1200 && presented === 0 && !rendererReselectDone) {
-      const info = projectionTableInfo();
-      if (info && info.glasses) {
-        rendererReselectDone = true;
-        synthesizeActivation(info.glasses);
+    if (elapsed > 1400 && rendererKickCount === 0) {
+      rendererKickCount = 1;
+      const info = projectionTableInfo() || ensureProjectionPopup();
+      if (info && info.glasses) synthesizeActivation(info.glasses);
+      refreshViewsBurst();
+      log('no fresh stereo pair yet -> reselected Glasses once');
+    } else if (elapsed > 2800 && rendererKickCount === 1) {
+      rendererKickCount = 2;
+      setStereo(false);
+      setTimeout(function () {
+        setStereo(true);
+        const info = projectionTableInfo() || ensureProjectionPopup();
+        if (info && info.glasses) synthesizeActivation(info.glasses);
         refreshViewsBurst();
-        log('renderer kick -> reselected Glasses once because no stereo frame was presented');
-      }
+      }, 120);
+      log('stereo capture restarted once because presentation gate stayed at zero');
     }
   }
 
   function scan() {
     const canvas = visibleWebGlCanvas();
-
     if (!canvas) {
-      // setBase64 temporarily destroys/recreates the 3D canvas. That is expected
-      // during the warm rebuild and must not reset the startup state.
-      if (warmRebuildState === 'saving' || warmRebuildState === 'reloading' ||
-          warmRebuildState === 'settling') {
-        setPortalVisible(false);
-        return;
-      }
-
-      missingTicks += 1;
-      if (missingTicks >= 3) resetForNew3D();
+      setPortalVisible(false);
       return;
     }
-
-    missingTicks = 0;
-    updateCanvasStability(canvas);
 
     if (activeCanvas !== canvas) {
       markStereoCanvas(canvas);
       activeCanvas = canvas;
       cachedProjection = null;
       projectionRetryAt = 0;
-
-      if (warmRebuildState !== 'settling' && warmRebuildState !== 'fallback' &&
-          warmRebuildState !== 'done') {
-        firstCanvasSeenAt = performance.now();
-        stableCanvasTicks = 1;
-        lastCanvasSignature = canvasSignature(canvas);
-      }
+      stableTicks = 0;
+      lastCanvasSignature = '';
+      if (projectionArmed) resetForConstructionChange('3D-canvas-replaced');
     }
 
-    if (!glassesSelected) {
-      setPortalVisible(false);
-      if (!initialCanvasStable()) {
-        log('waiting for restored 3D canvas to become stable before Glasses');
-        return;
-      }
+    updateStability(canvas);
+    markStereoCanvas(canvas);
 
+    if (!projectionArmed) {
+      setPortalVisible(false);
+      if (!constructionQuiet()) return;
+      if (stableTicks < CANVAS_STABLE_TICKS) return;
       const info = projectionTableInfo() || ensureProjectionPopup();
       if (info) forceGlassesProjection(info);
       return;
     }
 
-    if (!projectionArmed) {
-      setPortalVisible(false);
-      if (warmRebuildState === 'settling' || warmRebuildState === 'fallback') {
-        settleWarmRebuild(canvas);
-      }
-      return;
-    }
-
     const info = projectionTableInfo();
     if (info) concealProjectionUi(info);
-
-    markStereoCanvas(canvas);
-    if (!captureEnabled()) {
-      setStereo(true);
-      rendererKickStartedAt = performance.now();
-      refreshViewsBurst();
-    }
+    if (!captureEnabled()) setStereo(true);
 
     kickRendererIfNeeded();
 
-    // Do not expose the front stereo portal until several distinct eye pairs
-    // have made it all the way through EGL. This prevents the one-frame cold
-    // start seen in v0.7.4 from covering the WebView with a stale/blank surface.
-    if (nativePresentedFrames() < MIN_PRESENTED_FRAMES) {
+    const blocked = blockingLayerOverlapsCanvas(canvas);
+    if (blocked) {
+      portalSuppressed = true;
       setPortalVisible(false);
       return;
     }
+    portalSuppressed = false;
 
-    const blocked = blockingLayerOverlapsCanvas(canvas);
-    if (blocked) {
-      if (!portalSuppressed) {
-        portalSuppressed = true;
-        setPortalVisible(false);
-        log('GeoGebra UI overlaps 3D -> front stereo portal hidden, capture kept ON');
-      }
-      return;
-    }
-
-    if (portalSuppressed) {
-      portalSuppressed = false;
-      log('3D uncovered -> front stereo portal restored');
-    }
-    setPortalVisible(true);
+    const freshPresented = presentedFrames() - presentedBaseline;
+    setPortalVisible(freshPresented >= PRESENT_GATE);
   }
 
   window.GeoGebraQuestAuto3D = {
@@ -655,19 +459,16 @@
     isProjectionPopupRequested: function () { return projectionPopupRequested; },
     isStereoRequested: function () { return stereoRequested; },
     isPortalSuppressed: function () { return portalSuppressed; },
-    isOverlayActive: function () {
-      return !!(activeCanvas && activeCanvas.classList.contains('ggq-stereo-canvas'));
-    },
-    getStartupState: function () { return warmRebuildState; },
-    getStableTicks: function () { return stableCanvasTicks; },
-    getPresentedFrames: function () { return nativePresentedFrames(); },
+    isOverlayActive: function () { return !!(activeCanvas && activeCanvas.classList.contains('ggq-stereo-canvas')); },
+    resetForConstructionChange: resetForConstructionChange,
+    getStableTicks: function () { return stableTicks; },
+    getPresentedDelta: function () { return Math.max(0, presentedFrames() - presentedBaseline); },
+    getResetGeneration: function () { return resetGeneration; },
+    getLastResetReason: function () { return lastResetReason; },
     scanNow: scan
   };
 
-  const observer = new MutationObserver(function () {
-    setTimeout(scan, 0);
-  });
-
+  const observer = new MutationObserver(function () { setTimeout(scan, 0); });
   observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
