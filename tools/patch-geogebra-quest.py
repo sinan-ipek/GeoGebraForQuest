@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""Patch a pinned upstream GeoGebra checkout for GeoGebraForQuest v0.9.0.
+"""Patch a pinned upstream GeoGebra checkout for GeoGebraForQuest v0.9.3.
 
-The Quest build adds a dedicated full-colour SBS projection. It reuses
-GeoGebra's stereo camera and picking mathematics, but not its anaglyph colour
-masking. Left and right eye passes render directly into independent halves of a
-2x-wide WebGL drawing buffer. No GPU readback or CPU eye composition exists.
+The Quest build deliberately reuses GeoGebra's *existing* GLASSES projection
+identifier and stereo camera mathematics, but replaces the anaglyph output path
+with two independent full-colour RGB eye passes written directly into a 2x-wide
+SBS WebGL drawing buffer.
+
+Why reuse PROJECTION_GLASSES instead of inventing a new projection enum?
+GeoGebra has many internal branches that already understand GLASSES (picking,
+cursor depth, eye distance, perspective setup, XML/settings). Reusing the known
+projection keeps those paths intact and only swaps the final rendering policy.
+
+No readPixels, JPEG, Base64, Bitmap or CPU eye-composition exists here.
 """
 
 from __future__ import annotations
@@ -17,15 +24,16 @@ import re
 QUEST_STEREO_CLASS = r'''/*
  * GeoGebraForQuest source extension.
  *
- * Dedicated full-colour SBS renderer. This is not the anaglyph renderer:
- * both passes keep all RGBA channels and render straight into independent
- * halves of the same GPU drawing buffer.
+ * Full-colour SBS replacement for GeoGebra's anaglyph output. The existing
+ * PROJECTION_GLASSES camera / hit-test / cursor-depth maths is intentionally
+ * retained, but both eye passes keep all RGBA channels and render directly
+ * into independent halves of one GPU drawing buffer.
  */
 package org.geogebra.common.geogebra3D.euclidian3D.openGL;
 
 import org.geogebra.common.euclidian3D.EuclidianView3DInterface;
 
-/** Full-colour left/right renderer used by the Quest build. */
+/** Quest full-colour left/right renderer. */
 public final class QuestStereoRenderer {
 
     private final Renderer renderer;
@@ -35,29 +43,32 @@ public final class QuestStereoRenderer {
         this.renderer = renderer;
     }
 
-    /** @return whether the dedicated Quest projection is active */
+    /** @return whether the Quest build's stereo projection is active */
     public boolean isActive() {
         return renderer.getView().getProjection()
-                == EuclidianView3DInterface.PROJECTION_QUEST_STEREO;
+                == EuclidianView3DInterface.PROJECTION_GLASSES;
     }
 
     /** Draw one complete full-colour SBS frame. */
     public void drawStereoFrame() {
         RendererImpl impl = renderer.getRendererImpl();
+
+        // Renderer.initRenderingValues() has already cleared the complete
+        // 2W x H colour buffer once. Do NOT clear colour between eye passes:
+        // glClear is not clipped by the viewport and would erase the left eye.
         impl.setColorMask(ColorMask.ALL);
 
         renderer.eye = Renderer.EYE_LEFT;
-        renderer.setView();
-        renderer.clearColorBuffer();
         impl.clearDepthBuffer();
+        renderer.setView();
         renderer.draw();
 
         renderer.eye = Renderer.EYE_RIGHT;
-        renderer.setView();
-        renderer.clearColorBuffer();
         impl.clearDepthBuffer();
+        renderer.setView();
         renderer.draw();
 
+        // Leave a deterministic state for the next frame / any following work.
         impl.setColorMask(ColorMask.ALL);
         renderer.eye = Renderer.EYE_LEFT;
         renderer.setView();
@@ -91,41 +102,34 @@ def write(root: Path, rel: str, text: str) -> None:
     print(f"patched: {rel}")
 
 
-def patch_interface(root: Path) -> None:
-    rel = "source/shared/common/src/main/java/org/geogebra/common/euclidian3D/EuclidianView3DInterface.java"
-    text = read(root, rel)
-    text = replace_once(
-        text,
-        "    int PROJECTION_OBLIQUE = 3;",
-        "    int PROJECTION_OBLIQUE = 3;\n"
-        "    /** GeoGebraForQuest: full-colour SBS stereo projection. */\n"
-        "    int PROJECTION_QUEST_STEREO = 4;",
-        "projection constant",
-    )
-    write(root, rel, text)
-
-
 def patch_settings(root: Path) -> None:
     rel = "source/shared/common/src/main/java/org/geogebra/common/main/settings/EuclidianSettings3D.java"
     text = read(root, rel)
+
+    # Use a projection value GeoGebra already supports everywhere. This avoids
+    # early-startup code encountering an unknown custom enum value.
     text = replace_once(
         text,
         "\tprivate int projection;",
-        "\tprivate int projection = EuclidianView3DInterface.PROJECTION_QUEST_STEREO;",
-        "default Quest projection",
+        "\tprivate int projection = EuclidianView3DInterface.PROJECTION_GLASSES;",
+        "default glasses projection",
     )
+
+    # This Quest-specific build exposes no projection selector, so any XML or
+    # restored setting that tries to change projection is folded back to the
+    # built-in GLASSES value. The renderer below changes GLASSES *output* from
+    # anaglyph to full-colour SBS.
     text = replace_regex_once(
         text,
         r"\tpublic void setProjection\(int projection\) \{\n\t\tif \(this\.projection != projection\) \{\n\t\t\tthis\.projection = projection;\n\t\t\tsettingChanged\(\);\n\t\t\}\n\t\}",
         "\tpublic void setProjection(int projection) {\n"
-        "\t\t// Quest build exposes one projection: native full-colour stereo.\n"
-        "\t\tint questProjection = EuclidianView3DInterface.PROJECTION_QUEST_STEREO;\n"
+        "\t\tint questProjection = EuclidianView3DInterface.PROJECTION_GLASSES;\n"
         "\t\tif (this.projection != questProjection) {\n"
         "\t\t\tthis.projection = questProjection;\n"
         "\t\t\tsettingChanged();\n"
         "\t\t}\n"
         "\t}",
-        "force Quest projection in settings",
+        "force built-in glasses projection",
     )
     write(root, rel, text)
 
@@ -136,87 +140,8 @@ def patch_view(root: Path) -> None:
     text = replace_once(
         text,
         "\tprivate int projection = PROJECTION_ORTHOGRAPHIC;",
-        "\tprivate int projection = PROJECTION_QUEST_STEREO;",
-        "view default projection",
-    )
-    text = replace_once(
-        text,
-        "\t\tcase PROJECTION_GLASSES:\n\t\t\tsetProjectionGlasses();\n\t\t\tbreak;\n\t\tcase PROJECTION_OBLIQUE:",
-        "\t\tcase PROJECTION_GLASSES:\n\t\t\tsetProjectionGlasses();\n\t\t\tbreak;\n"
-        "\t\tcase PROJECTION_QUEST_STEREO:\n\t\t\tsetProjectionQuestStereo();\n\t\t\tbreak;\n"
-        "\t\tcase PROJECTION_OBLIQUE:",
-        "Quest projection switch",
-    )
-    text = replace_once(
-        text,
-        "\tpublic void setProjectionGlasses() {\n"
-        "\t\tupdateProjectionPerspectiveEyeDistance();\n"
-        "\t\trenderer.updateGlassesValues();\n"
-        "\t\tsetProjectionValues(PROJECTION_GLASSES);\n"
-        "\t\tsetCursor(EuclidianCursor.TRANSPARENT);\n"
-        "\t}",
-        "\tpublic void setProjectionGlasses() {\n"
-        "\t\tupdateProjectionPerspectiveEyeDistance();\n"
-        "\t\trenderer.updateGlassesValues();\n"
-        "\t\tsetProjectionValues(PROJECTION_GLASSES);\n"
-        "\t\tsetCursor(EuclidianCursor.TRANSPARENT);\n"
-        "\t}\n\n"
-        "\t/** Set the GeoGebraForQuest full-colour SBS projection. */\n"
-        "\tpublic void setProjectionQuestStereo() {\n"
-        "\t\tupdateProjectionPerspectiveEyeDistance();\n"
-        "\t\trenderer.updateGlassesValues();\n"
-        "\t\tsetProjectionValues(PROJECTION_QUEST_STEREO);\n"
-        "\t\tsetCursor(EuclidianCursor.TRANSPARENT);\n"
-        "\t}",
-        "Quest projection setter",
-    )
-
-    text = text.replace(
-        "projection == PROJECTION_PERSPECTIVE\n\t\t\t\t|| projection == PROJECTION_GLASSES",
-        "projection == PROJECTION_PERSPECTIVE\n\t\t\t\t|| projection == PROJECTION_GLASSES\n"
-        "\t\t\t\t|| projection == PROJECTION_QUEST_STEREO",
-    )
-    text = text.replace(
-        "getProjection() == PROJECTION_GLASSES) {\n\t\t\tsetCursor(EuclidianCursor.TRANSPARENT)",
-        "(getProjection() == PROJECTION_GLASSES\n"
-        "\t\t\t\t|| getProjection() == PROJECTION_QUEST_STEREO)) {\n"
-        "\t\t\tsetCursor(EuclidianCursor.TRANSPARENT)",
-    )
-    text = text.replace(
-        "projection != PROJECTION_PERSPECTIVE\n\t\t\t\t&& projection != PROJECTION_GLASSES",
-        "projection != PROJECTION_PERSPECTIVE\n\t\t\t\t&& projection != PROJECTION_GLASSES\n"
-        "\t\t\t\t&& projection != PROJECTION_QUEST_STEREO",
-    )
-    text = text.replace(
-        "if (projection == PROJECTION_GLASSES) { // also update",
-        "if (projection == PROJECTION_GLASSES\n"
-        "\t\t\t\t|| projection == PROJECTION_QUEST_STEREO) { // also update",
-    )
-    write(root, rel, text)
-
-
-def patch_view_companion(root: Path) -> None:
-    rel = "source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/EuclidianView3DCompanion.java"
-    text = read(root, rel)
-    text = replace_once(
-        text,
-        "\t\tif (getView()\n\t\t\t\t.getProjection() != EuclidianView3DInterface.PROJECTION_GLASSES) {\n\t\t\treturn;\n\t\t}",
-        "\t\tint projection = getView().getProjection();\n"
-        "\t\tif (projection != EuclidianView3DInterface.PROJECTION_GLASSES\n"
-        "\t\t\t\t&& projection != EuclidianView3DInterface.PROJECTION_QUEST_STEREO) {\n"
-        "\t\t\treturn;\n"
-        "\t\t}",
-        "Quest depth cursor",
-    )
-    text = text.replace(
-        "getProjection() == EuclidianView3DInterface.PROJECTION_GLASSES) {",
-        "getProjection() == EuclidianView3DInterface.PROJECTION_GLASSES\n"
-        "\t\t\t\t|| getView().getProjection() == EuclidianView3DInterface.PROJECTION_QUEST_STEREO) {",
-    )
-    text = text.replace(
-        "projection == EuclidianView3DInterface.PROJECTION_GLASSES) {",
-        "projection == EuclidianView3DInterface.PROJECTION_GLASSES\n"
-        "\t\t\t\t|| projection == EuclidianView3DInterface.PROJECTION_QUEST_STEREO) {",
+        "\tprivate int projection = PROJECTION_GLASSES;",
+        "view default glasses projection",
     )
     write(root, rel, text)
 
@@ -238,42 +163,32 @@ def patch_renderer(root: Path) -> None:
         "\t\tquestStereoRenderer = new QuestStereoRenderer(this);",
         "Quest renderer construction",
     )
-    text = replace_once(
-        text,
-        "\t\tif (view3D\n\t\t\t\t.getProjection() == EuclidianView3DInterface.PROJECTION_GLASSES) {",
+
+    old_glasses_block = (
+        "\t\tif (view3D\n"
+        "\t\t\t\t.getProjection() == EuclidianView3DInterface.PROJECTION_GLASSES) {\n\n"
+        "\t\t\t// left eye\n"
+        "\t\t\tsetDrawLeft();\n"
+        "\t\t\trendererImpl.clearDepthBuffer();\n"
+        "\t\t\tsetView();\n"
+        "\t\t\tdraw();\n\n"
+        "\t\t\t// right eye\n"
+        "\t\t\tsetDrawRight();\n"
+        "\t\t\trendererImpl.clearDepthBufferForSecondAnaglyphFilter();\n"
+        "\t\t\tsetView();\n"
+        "\t\t\tdraw();\n\n"
+        "\t\t} else {"
+    )
+    new_glasses_block = (
         "\t\tif (questStereoRenderer != null && questStereoRenderer.isActive()) {\n"
         "\t\t\tquestStereoRenderer.drawStereoFrame();\n\n"
-        "\t\t} else if (view3D\n\t\t\t\t.getProjection() == EuclidianView3DInterface.PROJECTION_GLASSES) {",
-        "drawScene Quest branch",
+        "\t\t} else {"
     )
-
     text = replace_once(
         text,
-        "\t\t\tcase EuclidianView3DInterface.PROJECTION_GLASSES:\n"
-        "\t\t\t\trendererImpl.viewGlasses();\n"
-        "\t\t\t\t\tbreak;",
-        "\t\t\tcase EuclidianView3DInterface.PROJECTION_GLASSES:\n"
-        "\t\t\tcase EuclidianView3DInterface.PROJECTION_QUEST_STEREO:\n"
-        "\t\t\t\trendererImpl.viewGlasses();\n"
-        "\t\t\t\t\tbreak;",
-        "projection matrix Quest glasses math",
-    )
-
-    text = replace_once(
-        text,
-        "\t\tcase EuclidianView3DInterface.PROJECTION_GLASSES:\n\t\t\tupdatePerspValues();\n\t\t\tupdateGlassesValues();\n\t\t\tupdatePerspEye();\n\t\t\tbreak;\n\t\tcase EuclidianView3DInterface.PROJECTION_OBLIQUE:",
-        "\t\tcase EuclidianView3DInterface.PROJECTION_GLASSES:\n"
-        "\t\tcase EuclidianView3DInterface.PROJECTION_QUEST_STEREO:\n"
-        "\t\t\tupdatePerspValues();\n\t\t\tupdateGlassesValues();\n\t\t\tupdatePerspEye();\n\t\t\tbreak;\n"
-        "\t\tcase EuclidianView3DInterface.PROJECTION_OBLIQUE:",
-        "Quest setView perspective values",
-    )
-
-    text = text.replace(
-        "getProjection() == EuclidianView3DInterface.PROJECTION_GLASSES) {\n\t\t\treturn eyeToScreenDistance[EYE_LEFT];",
-        "getProjection() == EuclidianView3DInterface.PROJECTION_GLASSES\n"
-        "\t\t\t\t|| view3D.getProjection() == EuclidianView3DInterface.PROJECTION_QUEST_STEREO) {\n"
-        "\t\t\treturn eyeToScreenDistance[EYE_LEFT];",
+        old_glasses_block,
+        new_glasses_block,
+        "replace anaglyph draw loop with full-colour SBS",
     )
 
     write(root, rel, text)
@@ -293,8 +208,9 @@ def patch_web_renderer(root: Path) -> None:
         text,
         marker,
         "import org.geogebra.common.euclidian3D.EuclidianView3DInterface;\n" + marker,
-        "web renderer Quest import",
+        "web renderer glasses import",
     )
+
     text = replace_once(
         text,
         "\t\twebGLCanvas.setCoordinateSpaceWidth((int) (w * ratio));",
@@ -305,12 +221,13 @@ def patch_web_renderer(root: Path) -> None:
         "\t\twebGLCanvas.setCoordinateSpaceWidth(backingWidth);",
         "double WebGL backing width",
     )
+
     text = replace_once(
         text,
         "\t@Override\n\tpublic void setView(int x, int y, int w, int h) {",
         "\tprivate boolean isQuestStereo() {\n"
         "\t\treturn view3D.getProjection()\n"
-        "\t\t\t\t== EuclidianView3DInterface.PROJECTION_QUEST_STEREO;\n"
+        "\t\t\t\t== EuclidianView3DInterface.PROJECTION_GLASSES;\n"
         "\t}\n\n"
         "\t@Override\n"
         "\tpublic int getViewportHorizontalOffset() {\n"
@@ -411,16 +328,14 @@ def main() -> None:
     if not (root / "source" / "web").is_dir():
         raise SystemExit(f"Not a GeoGebra checkout: {root}")
 
-    patch_interface(root)
     patch_settings(root)
     patch_view(root)
-    patch_view_companion(root)
     patch_renderer(root)
     patch_web_renderer(root)
     patch_stylebar(root)
     patch_context_menu(root)
     patch_settings_ui(root)
-    print("GeoGebra Quest full-colour SBS source patch complete")
+    print("GeoGebra Quest full-colour SBS patch complete (built-in GLASSES projection reused)")
 
 
 if __name__ == "__main__":
