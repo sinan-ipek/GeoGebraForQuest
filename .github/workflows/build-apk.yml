@@ -28,11 +28,14 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 34
+      - name: Install Android SDK 34 and NDK
         shell: bash
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;27.0.12077973"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -49,17 +52,23 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
+      - name: Verify custom stereo shaders were packaged
+        shell: bash
+        run: |
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'questStereoPanel\.(vert|frag).*\.spv'
+
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.0-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.0-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.1-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.1-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.1-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.0-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.0-debug.apk
+          name: GeoGebraForQuest-v0.9.1-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.1-debug.apk
           if-no-files-found: error
           retention-days: 30
