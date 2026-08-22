@@ -32,12 +32,12 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.18 renderer-pass stereo build.
+ * GeoGebraForQuest v0.9.20.
  *
- * TEST uses the physically verified red-left / blue-right probe.
- * GEOGEBRA uses two dedicated eye canvases published directly by the
- * QuestStereoRenderer immediately after the LEFT_EYE and RIGHT_EYE passes.
- * No final-canvas splitting, half guessing or quarter guessing is used.
+ * TEST draws the bundled real SBS stereo photo directly into the registered
+ * VideoSurface. GEOGEBRA keeps the v0.9.19 single-viewport renderer path:
+ * LEFT_EYE and RIGHT_EYE are rendered sequentially into the same W x H WebGL
+ * viewport, captured independently, then mapped to the Surface L|R halves.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -47,8 +47,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         const val PANEL_WIDTH_DP = 1080f
         const val PANEL_HEIGHT_DP = 720f
 
-        // Each eye receives a square 720x720 region. The physical stereo panel
-        // is also square, so Meta's LeftRight mapping cannot stretch the image.
         private const val STEREO_PANEL_WIDTH_METERS = 0.82f
         private const val STEREO_PANEL_HEIGHT_METERS = 0.82f
         private const val STEREO_TEXTURE_WIDTH = 1440
@@ -124,7 +122,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     applyCurrentStereoSource(surface)
                     Log.i(
                         TAG,
-                        "v0.9.18 1440x720 explicit-eye VideoSurface attached; mode=$stereoSourceMode",
+                        "v0.9.20 1440x720 stereo VideoSurface attached; mode=$stereoSourceMode",
                     )
                 },
                 settingsCreator = {
@@ -207,22 +205,22 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             }
         }
         updateModeStatus()
-        Log.i(TAG, "v0.9.18 source switched to TEST")
+        Log.i(TAG, "v0.9.20 source switched to TEST stereo photo")
     }
 
     private fun switchToGeoGebraMode() {
         stereoSourceMode = StereoSourceMode.GEOGEBRA
         LiveStereoFrameSink.setEnabled(true)
         updateModeStatus()
-        Log.i(TAG, "v0.9.18 source switched to GEOGEBRA renderer-eye canvases")
+        Log.i(TAG, "v0.9.20 source switched to GEOGEBRA single-viewport eyes")
     }
 
     private fun drawStereoProbeRepeatedly(surface: Surface) {
-        StereoSurfaceProbe.draw(surface)
+        StereoSurfaceProbe.draw(this, surface)
         mainHandler.postDelayed(
             {
                 if (stereoSourceMode == StereoSourceMode.TEST && surface.isValid) {
-                    StereoSurfaceProbe.draw(surface)
+                    StereoSurfaceProbe.draw(this, surface)
                 }
             },
             250L,
@@ -230,7 +228,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         mainHandler.postDelayed(
             {
                 if (stereoSourceMode == StereoSourceMode.TEST && surface.isValid) {
-                    StereoSurfaceProbe.draw(surface)
+                    StereoSurfaceProbe.draw(this, surface)
                 }
             },
             1000L,
@@ -239,7 +237,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
     private fun updateModeStatus() {
         modeStatusView?.text = when (stereoSourceMode) {
-            StereoSourceMode.TEST -> "STEREO KAYNAĞI: TEST"
+            StereoSourceMode.TEST -> "STEREO KAYNAĞI: TEST FOTOĞRAFI"
             StereoSourceMode.GEOGEBRA -> "STEREO KAYNAĞI: GEOGEBRA"
         }
     }
@@ -308,7 +306,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.18 renderer-pass stereo ready; default source=GEOGEBRA")
+        Log.i(TAG, "v0.9.20 stereo ready; default source=GEOGEBRA")
     }
 
     override fun onDestroy() {
