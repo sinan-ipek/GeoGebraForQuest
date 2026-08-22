@@ -35,9 +35,13 @@ private class QuestBridge(
     }
 
     @JavascriptInterface
-    fun updateStereoFrame(dataUrl: String) {
-        if (spatialMode && dataUrl.isNotBlank()) {
-            LiveStereoFrameSink.submitDataUrl(dataUrl)
+    fun updateStereoEyes(leftDataUrl: String, rightDataUrl: String) {
+        if (
+            spatialMode &&
+            leftDataUrl.isNotBlank() &&
+            rightDataUrl.isNotBlank()
+        ) {
+            LiveStereoFrameSink.submitEyeDataUrls(leftDataUrl, rightDataUrl)
         }
     }
 
@@ -73,8 +77,9 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // v0.9.15 keeps the source-built permanent SBS capture and lets the native
-    // A/B panel choose whether TEST or live GEOGEBRA frames own the same Surface.
+    // v0.9.16 extracts the two WebGL eye viewports separately in JavaScript.
+    // Android receives two independent JPEGs and composes exactly one L|R frame
+    // into the already verified Meta LeftRight VideoSurface.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -100,7 +105,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.15"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.16"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
