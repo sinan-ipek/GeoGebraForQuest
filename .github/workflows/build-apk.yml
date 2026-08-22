@@ -48,11 +48,27 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
+      - name: Verify patched renderer eye hooks
+        shell: bash
+        run: |
+          SRC=.geogebra-source-work/geogebra
+          QUEST="$SRC/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/openGL/QuestStereoRenderer.java"
+          RENDERER="$SRC/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/openGL/Renderer.java"
+          WEB="$SRC/source/web/web/src/main/java/org/geogebra/web/geogebra3D/web/euclidian3D/openGL/RendererWithImplW.java"
+
+          grep -q 'renderer.captureQuestEye(Renderer.EYE_LEFT)' "$QUEST"
+          grep -q 'renderer.captureQuestEye(Renderer.EYE_RIGHT)' "$QUEST"
+          grep -q 'public void captureQuestEye(int eye)' "$RENDERER"
+          grep -q 'ggq-renderer-left-eye' "$WEB"
+          grep -q 'ggq-renderer-right-eye' "$WEB"
+          grep -q 'public void captureQuestEye(int eye)' "$WEB"
+          grep -q 'context.drawImage(source, sourceX, 0, eyeWidth, eyeHeight' "$WEB"
+
       - name: Build debug APK
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.17 quarter-pair diagnostic source
+      - name: Verify v0.9.18 renderer-pass stereo source
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -61,57 +77,52 @@ jobs:
           JS=app/src/main/assets/web/quest-stereo-layout.js
           CONTROL=app/src/main/res/layout/scale_controls_panel.xml
 
-          # Keep the headset-proven registered media-panel route unchanged.
           grep -q 'VideoSurfacePanelRegistration' "$ACTIVITY"
           grep -q 'StereoMode.LeftRight' "$ACTIVITY"
-          grep -q 'STEREO_PANEL_WIDTH_METERS = 0.80f' "$ACTIVITY"
-          grep -q 'STEREO_PANEL_HEIGHT_METERS = 0.45f' "$ACTIVITY"
-          grep -q 'STEREO_TEXTURE_WIDTH = 800' "$ACTIVITY"
-          grep -q 'STEREO_TEXTURE_HEIGHT = 400' "$ACTIVITY"
+          grep -q 'STEREO_PANEL_WIDTH_METERS = 0.82f' "$ACTIVITY"
+          grep -q 'STEREO_PANEL_HEIGHT_METERS = 0.82f' "$ACTIVITY"
+          grep -q 'STEREO_TEXTURE_WIDTH = 1440' "$ACTIVITY"
+          grep -q 'STEREO_TEXTURE_HEIGHT = 720' "$ACTIVITY"
           grep -q 'StereoSurfaceProbe.draw' "$ACTIVITY"
           grep -q 'Grabbable()' "$ACTIVITY"
           if grep -Eq 'GrabbableType|IsdkPanelResize|Scale\(' "$ACTIVITY"; then
-            echo 'v0.9.17 must preserve the verified simple stereo panel path'
+            echo 'v0.9.18 stereo panel must stay on the simple registered media-panel path'
             exit 1
           fi
 
-          # Headset controls select two candidate quarter pairings.
-          grep -q 'stereo_pair_12' "$CONTROL"
-          grep -q 'stereo_pair_13' "$CONTROL"
-          grep -q 'switchToPair12Mode' "$ACTIVITY"
-          grep -q 'switchToPair13Mode' "$ACTIVITY"
-          grep -q 'PairMode.PAIR_12' "$ACTIVITY"
-          grep -q 'PairMode.PAIR_13' "$ACTIVITY"
-
-          # Browser captures four equal horizontal source quarters.
-          grep -q 'sourceQuarterWidth = Math.floor(source.width / 4)' "$JS"
-          grep -q 'quarterContexts\[q\].drawImage' "$JS"
-          grep -q 'bridgeStereoQuarters(urls\[0\], urls\[1\], urls\[2\], urls\[3\])' "$JS"
-          grep -q 'updateStereoQuarters' "$JS"
-          if grep -q 'sourceEyeWidth = Math.floor(source.width / 2)' "$JS"; then
-            echo 'v0.9.16 half-canvas assumption must not remain in v0.9.17'
+          grep -q 'stereo_test_mode' "$CONTROL"
+          grep -q 'stereo_geogebra_mode' "$CONTROL"
+          if grep -Eq 'stereo_pair_12|stereo_pair_13|1 \+ 2|1 \+ 3' "$CONTROL"; then
+            echo 'Quarter diagnostic controls must not remain in v0.9.18'
             exit 1
           fi
 
-          # WebView bridge carries all four diagnostic quarters.
-          grep -q 'fun updateStereoQuarters' "$PANEL"
-          grep -q 'LiveStereoFrameSink.submitQuarterDataUrls' "$PANEL"
+          grep -q "getElementById('ggq-renderer-left-eye')" "$JS"
+          grep -q "getElementById('ggq-renderer-right-eye')" "$JS"
+          grep -q 'bridgeStereoEyes(leftDataUrl, rightDataUrl)' "$JS"
+          if grep -Eq 'sourceQuarterWidth|updateStereoQuarters|source.width / 4|source.width / 2' "$JS"; then
+            echo 'Final-canvas splitting must not remain in v0.9.18'
+            exit 1
+          fi
 
-          # Native code chooses 1+2 or 1+3 and builds one final L|R frame.
-          grep -q 'enum class PairMode' "$SINK"
-          grep -q 'PAIR_12' "$SINK"
-          grep -q 'PAIR_13' "$SINK"
-          grep -q 'fun submitQuarterDataUrls' "$SINK"
-          grep -q 'PairMode.PAIR_12 -> frame.q2DataUrl' "$SINK"
-          grep -q 'PairMode.PAIR_13 -> frame.q3DataUrl' "$SINK"
+          grep -q 'fun updateStereoEyes(leftDataUrl: String, rightDataUrl: String)' "$PANEL"
+          grep -q 'LiveStereoFrameSink.submitEyeDataUrls(leftDataUrl, rightDataUrl)' "$PANEL"
+          if grep -q 'updateStereoQuarters' "$PANEL"; then
+            echo 'Quarter bridge must not remain in v0.9.18'
+            exit 1
+          fi
+
+          grep -q 'fun submitEyeDataUrls' "$SINK"
           grep -q 'val halfWidth = canvas.width / 2' "$SINK"
-          grep -q 'canvas.drawBitmap(leftBitmap' "$SINK"
-          grep -q 'canvas.drawBitmap(rightBitmap' "$SINK"
-          if grep -q 'fitCenter' "$SINK"; then
-            echo 'fitCenter must not touch the quarter-pair path'
+          grep -q 'val leftDestination = fitCenter(leftBitmap, leftBounds)' "$SINK"
+          grep -q 'val rightDestination = fitCenter(rightBitmap, rightBounds)' "$SINK"
+          grep -q 'canvas.drawBitmap(' "$SINK"
+          if grep -Eq 'PairMode|submitQuarterDataUrls|q1DataUrl|q2DataUrl|q3DataUrl|q4DataUrl' "$SINK"; then
+            echo 'Quarter diagnostic sink must not remain in v0.9.18'
             exit 1
           fi
 
+          grep -q 'patch-geogebra-quest-v0918.py' tools/build-geogebra-quest.sh
           grep -q 'preserveDrawingBuffer' tools/patch-geogebra-quest-v0913.py
 
       - name: Verify source-built GeoGebra runtime layout
@@ -120,11 +131,10 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/deployggb.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/web3d.nocache.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/css/bundles/bundle.css'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.17'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'backing_store=always_2x_width'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'preserve_drawing_buffer=true'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'four equal horizontal quarters'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'selectable quarter pair 1+2 or 1+3'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.18'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'renderer_eye_capture=LEFT_EYE and RIGHT_EYE snapped immediately after each render pass'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'ggq-renderer-left-eye,ggq-renderer-right-eye'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'one renderer-left image to Surface left half; one renderer-right image to Surface right half; aspect preserved'
           if unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/web/GeoGebra/HTML5/5.0/web3d/web3d.nocache.js'; then
             echo 'Unexpected legacy HTML5/5.0 Web3D layout is still packaged'
             exit 1
@@ -134,14 +144,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.17-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.17-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.17-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.18-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.18-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.18-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.17-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.17-debug.apk
+          name: GeoGebraForQuest-v0.9.18-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.18-debug.apk
           if-no-files-found: error
           retention-days: 30
