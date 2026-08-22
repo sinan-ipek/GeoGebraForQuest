@@ -25,7 +25,7 @@
 
         <Button
             android:id="@+id/stereo_test_mode"
-            android:layout_width="150dp"
+            android:layout_width="140dp"
             android:layout_height="48dp"
             android:minHeight="0dp"
             android:text="TEST"
@@ -33,12 +33,22 @@
             android:textSize="15sp" />
 
         <Button
-            android:id="@+id/stereo_geogebra_mode"
+            android:id="@+id/stereo_pair_12"
             android:layout_width="190dp"
             android:layout_height="48dp"
             android:layout_marginStart="10dp"
             android:minHeight="0dp"
-            android:text="GEOGEBRA"
+            android:text="1 + 2"
+            android:textStyle="bold"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/stereo_pair_13"
+            android:layout_width="190dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="10dp"
+            android:minHeight="0dp"
+            android:text="1 + 3"
             android:textStyle="bold"
             android:textSize="15sp" />
 
