@@ -23,6 +23,9 @@ python3 "$ROOT/tools/patch-geogebra-quest.py" "$SRC"
 echo "[GGQ] applying permanent stereo backing-store stability patch"
 python3 "$ROOT/tools/patch-geogebra-quest-v097.py" "$SRC"
 
+echo "[GGQ] enabling readable WebGL SBS buffer for live Quest stereo capture"
+python3 "$ROOT/tools/patch-geogebra-quest-v0913.py" "$SRC"
+
 echo "[GGQ] compiling GeoGebra Web3D and its static runtime resources"
 pushd "$SRC/source/web" >/dev/null
 ../../gradlew \
@@ -52,28 +55,21 @@ WAR="$SRC/source/web/web/war"
   exit 1
 }
 
-# Keep the source build's native war layout intact. deployggb.js is generated
-# with -PdeployggbRoot=./, therefore all runtime URLs resolve naturally as:
-#   GeoGebra/web3d/...
-#   GeoGebra/css/...
-#   GeoGebra/js/...
-#   GeoGebra/keyboard/...
-# and so on. Do not move only web3d into HTML5/5.0: that leaves CSS and other
-# resources behind at the package root and causes the local loader to request
-# non-existent paths such as HTML5/5.0/css/bundles/bundle.css.
 rm -rf "$DEST"
 mkdir -p "$DEST"
 cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.12
+version=0.9.13
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour SBS, permanent Quest draw path)
 renderer=QuestStereoRenderer
 backing_store=always_2x_width
 viewport=left_eye_then_right_eye
-presentation=registered VideoSurfacePanelRegistration LeftRight probe; stereo panel grabbable; GeoGebra panel grabbable + IsdkPanelResize
+preserve_drawing_buffer=true
+presentation=live active GeoGebra 3D SBS canvas copied to registered VideoSurfacePanelRegistration with StereoMode.LeftRight
+interaction=GeoGebra and stereo panels are independent Grabbable + IsdkPanelResize entities
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
