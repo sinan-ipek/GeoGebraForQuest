@@ -8,25 +8,26 @@
   var lastCanvas = null;
   var scheduled = false;
 
-  // v0.9.16: never JPEG the complete SBS backing store as one image. The
-  // source renderer already owns two explicit horizontal eye viewports. Extract
-  // each half independently, JPEG them independently, then let native code
-  // compose exactly one L|R frame for Meta StereoMode.LeftRight.
+  // v0.9.17 diagnostic: v0.9.16 proved that even a nominal half of the
+  // WebGL backing store still contains two visible views on Quest. Instead of
+  // guessing the true eye boundary, capture four equal horizontal quarters.
+  // Native code can then compare 1+2 versus 1+3 on the SAME verified
+  // StereoMode.LeftRight VideoSurface without changing panel configuration.
   var CAPTURE_INTERVAL_MS = 100;
-  var CAPTURE_MAX_EYE_WIDTH = 576;
+  var CAPTURE_MAX_QUARTER_WIDTH = 384;
   var CAPTURE_JPEG_QUALITY = 0.72;
   var lastCaptureAt = 0;
 
-  var leftCaptureCanvas = document.createElement('canvas');
-  var rightCaptureCanvas = document.createElement('canvas');
-  var leftCaptureContext = leftCaptureCanvas.getContext('2d', {
-    alpha: false,
-    desynchronized: true
-  });
-  var rightCaptureContext = rightCaptureCanvas.getContext('2d', {
-    alpha: false,
-    desynchronized: true
-  });
+  var quarterCanvases = [];
+  var quarterContexts = [];
+  for (var i = 0; i < 4; i += 1) {
+    var canvas = document.createElement('canvas');
+    quarterCanvases.push(canvas);
+    quarterContexts.push(canvas.getContext('2d', {
+      alpha: false,
+      desynchronized: true
+    }));
+  }
 
   function bridge(name, value) {
     try {
@@ -36,11 +37,11 @@
     } catch (_) {}
   }
 
-  function bridgeStereoEyes(leftDataUrl, rightDataUrl) {
+  function bridgeStereoQuarters(q1, q2, q3, q4) {
     try {
       if (window.QuestBridge &&
-          typeof window.QuestBridge.updateStereoEyes === 'function') {
-        window.QuestBridge.updateStereoEyes(leftDataUrl, rightDataUrl);
+          typeof window.QuestBridge.updateStereoQuarters === 'function') {
+        window.QuestBridge.updateStereoQuarters(q1, q2, q3, q4);
       }
     } catch (_) {}
   }
@@ -175,69 +176,58 @@
     requestAnimationFrame(sendLayout);
   }
 
-  function ensureEyeCanvasSize(width, height) {
-    if (leftCaptureCanvas.width !== width) leftCaptureCanvas.width = width;
-    if (leftCaptureCanvas.height !== height) leftCaptureCanvas.height = height;
-    if (rightCaptureCanvas.width !== width) rightCaptureCanvas.width = width;
-    if (rightCaptureCanvas.height !== height) rightCaptureCanvas.height = height;
+  function ensureQuarterCanvasSize(width, height) {
+    for (var i = 0; i < 4; i += 1) {
+      if (quarterCanvases[i].width !== width) quarterCanvases[i].width = width;
+      if (quarterCanvases[i].height !== height) quarterCanvases[i].height = height;
+    }
   }
 
-  function captureStereoEyes() {
-    if (!leftCaptureContext || !rightCaptureContext) return;
+  function captureStereoQuarters() {
+    for (var i = 0; i < 4; i += 1) {
+      if (!quarterContexts[i]) return;
+    }
 
     var source = find3DCanvas();
-    if (!source || source.width < 4 || source.height < 2) return;
+    if (!source || source.width < 8 || source.height < 2) return;
 
     try {
-      // The source patch guarantees a permanent 2W x H WebGL backing store:
-      // [ left eye viewport | right eye viewport ]. Extract those two viewports
-      // independently instead of copying the complete SBS canvas in one draw.
-      var sourceEyeWidth = Math.floor(source.width / 2);
-      if (sourceEyeWidth < 2) return;
-      var rightEyeX = source.width - sourceEyeWidth;
+      var sourceQuarterWidth = Math.floor(source.width / 4);
+      if (sourceQuarterWidth < 2) return;
 
-      var scale = Math.min(1, CAPTURE_MAX_EYE_WIDTH / sourceEyeWidth);
-      var eyeWidth = Math.max(2, Math.round(sourceEyeWidth * scale));
-      var eyeHeight = Math.max(2, Math.round(source.height * scale));
-      ensureEyeCanvasSize(eyeWidth, eyeHeight);
+      var scale = Math.min(1, CAPTURE_MAX_QUARTER_WIDTH / sourceQuarterWidth);
+      var quarterWidth = Math.max(2, Math.round(sourceQuarterWidth * scale));
+      var quarterHeight = Math.max(2, Math.round(source.height * scale));
+      ensureQuarterCanvasSize(quarterWidth, quarterHeight);
 
-      leftCaptureContext.drawImage(
-        source,
-        0, 0, sourceEyeWidth, source.height,
-        0, 0, eyeWidth, eyeHeight
-      );
+      for (var q = 0; q < 4; q += 1) {
+        var sourceX = q === 3
+          ? source.width - sourceQuarterWidth
+          : q * sourceQuarterWidth;
+        quarterContexts[q].drawImage(
+          source,
+          sourceX, 0, sourceQuarterWidth, source.height,
+          0, 0, quarterWidth, quarterHeight
+        );
+      }
 
-      rightCaptureContext.drawImage(
-        source,
-        rightEyeX, 0, sourceEyeWidth, source.height,
-        0, 0, eyeWidth, eyeHeight
-      );
+      var urls = quarterCanvases.map(function (canvas) {
+        return canvas.toDataURL('image/jpeg', CAPTURE_JPEG_QUALITY);
+      });
 
-      var leftDataUrl = leftCaptureCanvas.toDataURL(
-        'image/jpeg',
-        CAPTURE_JPEG_QUALITY
-      );
-      var rightDataUrl = rightCaptureCanvas.toDataURL(
-        'image/jpeg',
-        CAPTURE_JPEG_QUALITY
-      );
-
-      if (
-        leftDataUrl && leftDataUrl.length > 64 &&
-        rightDataUrl && rightDataUrl.length > 64
-      ) {
-        bridgeStereoEyes(leftDataUrl, rightDataUrl);
+      if (urls.every(function (url) { return url && url.length > 64; })) {
+        bridgeStereoQuarters(urls[0], urls[1], urls[2], urls[3]);
       }
     } catch (_) {
       // GeoGebra may replace the canvas during a layout transition. The next
-      // capture discovers the current WebGL canvas again.
+      // capture discovers the active WebGL canvas again.
     }
   }
 
   function captureLoop(now) {
     if (now - lastCaptureAt >= CAPTURE_INTERVAL_MS) {
       lastCaptureAt = now;
-      captureStereoEyes();
+      captureStereoQuarters();
     }
     requestAnimationFrame(captureLoop);
   }
