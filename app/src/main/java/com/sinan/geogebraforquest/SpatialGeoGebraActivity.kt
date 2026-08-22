@@ -11,11 +11,13 @@ import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector3
+import com.meta.spatial.isdk.IsdkPanelResize
 import com.meta.spatial.runtime.ReferenceSpace
 import com.meta.spatial.runtime.StereoMode
 import com.meta.spatial.toolkit.AppSystemActivity
 import com.meta.spatial.toolkit.DpDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
+import com.meta.spatial.toolkit.GrabbableType
 import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
 import com.meta.spatial.toolkit.MediaPanelRenderOptions
 import com.meta.spatial.toolkit.MediaPanelSettings
@@ -30,17 +32,17 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.11 registered media-surface stereo probe.
+ * GeoGebraForQuest v0.9.12 movable/resizable panel build.
  *
- * v0.9.10 proved that a manually added SceneObject is not visible in this app's
- * Quest render path. v0.9.11 therefore uses the same registered Panel/layer path
- * Meta uses for stereo video surfaces.
+ * v0.9.11 proved the registered VideoSurfacePanel + StereoMode.LeftRight path
+ * performs real Quest left/right eye separation. v0.9.12 keeps that stereo test
+ * unchanged and adds native panel interaction:
  *
- * The normal GeoGebra LayoutXML/WebView panel remains untouched. A second,
- * independently registered VideoSurface panel is created at the right side. Its
- * Surface is filled with a synthetic full-colour L|R frame and the media panel is
- * configured with StereoMode.LeftRight. No custom shader or GeoGebra texture is
- * involved in this diagnostic.
+ * - GeoGebra panel: freely grabbable in space, including nearer/farther motion.
+ * - GeoGebra panel: native Meta ISDK resize/scale handles via IsdkPanelResize.
+ * - Stereo panel: independently grabbable and movable, not parented to GeoGebra.
+ *
+ * No stereo rendering logic changes are made in this release.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -54,6 +56,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val PROBE_HEIGHT_METERS = 0.45f
         private const val PROBE_TEXTURE_WIDTH = 800
         private const val PROBE_TEXTURE_HEIGHT = 400
+
+        private const val MIN_PANEL_HEIGHT = 0.40f
+        private const val MAX_PANEL_HEIGHT = 3.00f
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
@@ -96,7 +101,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         spatialMode = true,
                         startStereo = true,
                     )
-                    // Diagnostic rule: leave the visible GeoGebra panel untouched.
                 },
             ),
             VideoSurfacePanelRegistration(
@@ -142,7 +146,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             { if (surface.isValid) StereoSurfaceProbe.draw(surface) },
             1000L,
         )
-        Log.i(TAG, "v0.9.11 registered stereo surface delivered")
+        Log.i(TAG, "v0.9.12 registered stereo surface delivered")
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -187,25 +191,39 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         if (vrReady) return
         vrReady = true
 
+        // GeoGebra panel:
+        // PIVOT_Y lets the panel be grabbed and moved nearer/farther while
+        // keeping a comfortable upright panel orientation. IsdkPanelResize
+        // supplies Meta's native panel resize/scale affordance.
         Entity(R.id.geogebra_panel).setComponents(
             listOf(
                 Panel(R.id.geogebra_panel),
                 Transform(Pose(Vector3(0f, 1.25f, 1.50f))),
-                Grabbable(),
+                Grabbable(
+                    enabled = true,
+                    type = GrabbableType.PIVOT_Y,
+                    minHeight = MIN_PANEL_HEIGHT,
+                    maxHeight = MAX_PANEL_HEIGHT,
+                ),
+                IsdkPanelResize(),
             ),
         )
 
-        // Follow Meta's registered surface-panel pattern: the entity itself owns
-        // only the Panel id, transform and interaction state. The registration
-        // supplies the compositor surface and LeftRight stereo configuration.
+        // The registered stereo surface panel is a completely independent
+        // spatial entity. It can be grabbed and moved without moving GeoGebra.
         stereoSurfaceProbeEntity =
             Entity.create(
                 Panel(R.id.stereo_surface_probe_panel),
                 Transform(Pose(Vector3(0.95f, 1.30f, 1.15f))),
-                Grabbable(),
+                Grabbable(
+                    enabled = true,
+                    type = GrabbableType.PIVOT_Y,
+                    minHeight = MIN_PANEL_HEIGHT,
+                    maxHeight = MAX_PANEL_HEIGHT,
+                ),
             )
 
-        Log.i(TAG, "v0.9.11 registered stereo surface panel entity created")
+        Log.i(TAG, "v0.9.12 movable stereo panel + resizable GeoGebra panel active")
     }
 
     override fun onDestroy() {
