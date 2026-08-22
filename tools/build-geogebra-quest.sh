@@ -61,7 +61,7 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.16
+version=0.9.17
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour SBS, permanent Quest draw path)
 renderer=QuestStereoRenderer
@@ -70,9 +70,10 @@ viewport=left_eye_then_right_eye
 preserve_drawing_buffer=true
 presentation=registered VideoSurfacePanelRegistration with StereoMode.LeftRight
 stereo_panel=verified v0.9.11 settings: 800x400 pixels, 0.80x0.45 metres, Panel+Transform+Grabbable
-capture=WebGL left and right eye viewports extracted independently before JPEG encoding
-bridge=two independent eye JPEG data URLs
-native_composition=left eye to Surface left half; right eye to Surface right half
+capture=WebGL backing store split into four equal horizontal quarters
+bridge=four independent quarter JPEG data URLs
+native_composition=selectable quarter pair 1+2 or 1+3 mapped to Surface L|R halves
+diagnostic_goal=identify real eye packing after v0.9.16 showed nested views inside nominal halves
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
