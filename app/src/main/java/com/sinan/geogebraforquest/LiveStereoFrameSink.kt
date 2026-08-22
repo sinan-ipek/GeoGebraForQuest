@@ -13,35 +13,35 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
- * v0.9.17 GeoGebra WebGL quarter-pair diagnostic.
+ * v0.9.18 live stereo sink.
  *
- * v0.9.16 proved that a nominal half of the WebGL backing store still contains
- * two visible views on the headset. JavaScript therefore sends four equal
- * horizontal quarters. This sink can map quarter 1+2 or quarter 1+3 into the
- * exact same verified 800x400 L|R VideoSurface.
+ * GeoGebra's QuestStereoRenderer now snapshots the completed LEFT_EYE and
+ * RIGHT_EYE render passes into two dedicated browser canvases. JavaScript sends
+ * those two explicit eye images here; no SBS canvas splitting or quarter
+ * guessing exists in this path.
+ *
+ * The two eye images are drawn into the left/right halves of the registered
+ * VideoSurface. Each image is fit-centred inside its own eye rectangle so its
+ * original aspect ratio is preserved. Meta StereoMode.LeftRight then performs
+ * the final physical routing to the headset eyes.
  */
 object LiveStereoFrameSink {
     private const val TAG = "GeoGebraForQuest"
     private const val DATA_URL_PREFIX = "base64,"
 
-    enum class PairMode {
-        PAIR_12,
-        PAIR_13,
-    }
-
-    private data class QuarterFrame(
-        val q1DataUrl: String,
-        val q2DataUrl: String,
-        val q3DataUrl: String,
-        val q4DataUrl: String,
+    private data class EyeFrame(
+        val leftDataUrl: String,
+        val rightDataUrl: String,
     )
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "GGQ-LiveStereoFrameSink").apply { isDaemon = true }
     }
-    private val latestFrame = AtomicReference<QuarterFrame?>(null)
+    private val latestFrame = AtomicReference<EyeFrame?>(null)
     private val draining = AtomicBoolean(false)
     private val renderedFrameCount = AtomicLong(0L)
 
@@ -53,14 +53,11 @@ object LiveStereoFrameSink {
     private var surface: Surface? = null
 
     @Volatile
-    private var enabled = false
-
-    @Volatile
-    private var pairMode = PairMode.PAIR_12
+    private var enabled = true
 
     fun attachSurface(newSurface: Surface) {
         surface = newSurface
-        Log.i(TAG, "v0.9.17 quarter sink attached")
+        Log.i(TAG, "v0.9.18 renderer-eye sink attached")
     }
 
     fun detachSurface(expectedSurface: Surface? = null) {
@@ -68,7 +65,7 @@ object LiveStereoFrameSink {
         if (expectedSurface == null || current === expectedSurface) {
             surface = null
             latestFrame.set(null)
-            Log.i(TAG, "v0.9.17 quarter sink detached")
+            Log.i(TAG, "v0.9.18 renderer-eye sink detached")
         }
     }
 
@@ -77,33 +74,19 @@ object LiveStereoFrameSink {
         if (!value) {
             latestFrame.set(null)
         }
-        Log.i(TAG, "v0.9.17 quarter sink enabled=$value")
+        Log.i(TAG, "v0.9.18 renderer-eye sink enabled=$value")
     }
 
-    fun setPairMode(value: PairMode) {
-        pairMode = value
-        Log.i(TAG, "v0.9.17 quarter pair mode=$value")
-    }
-
-    fun submitQuarterDataUrls(
-        q1DataUrl: String,
-        q2DataUrl: String,
-        q3DataUrl: String,
-        q4DataUrl: String,
-    ) {
+    fun submitEyeDataUrls(leftDataUrl: String, rightDataUrl: String) {
         if (!enabled) return
-        if (!q1DataUrl.startsWith("data:image/")) return
-        if (!q2DataUrl.startsWith("data:image/")) return
-        if (!q3DataUrl.startsWith("data:image/")) return
-        if (!q4DataUrl.startsWith("data:image/")) return
+        if (!leftDataUrl.startsWith("data:image/")) return
+        if (!rightDataUrl.startsWith("data:image/")) return
         if (surface?.isValid != true) return
 
         latestFrame.set(
-            QuarterFrame(
-                q1DataUrl = q1DataUrl,
-                q2DataUrl = q2DataUrl,
-                q3DataUrl = q3DataUrl,
-                q4DataUrl = q4DataUrl,
+            EyeFrame(
+                leftDataUrl = leftDataUrl,
+                rightDataUrl = rightDataUrl,
             ),
         )
         scheduleDrain()
@@ -135,43 +118,51 @@ object LiveStereoFrameSink {
         val bytes = try {
             Base64.decode(encoded, Base64.DEFAULT)
         } catch (error: IllegalArgumentException) {
-            Log.w(TAG, "v0.9.17 invalid quarter Base64", error)
+            Log.w(TAG, "v0.9.18 invalid eye-frame Base64", error)
             return null
         }
 
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }
 
-    private fun decodeAndRender(frame: QuarterFrame) {
+    private fun decodeAndRender(frame: EyeFrame) {
         if (!enabled) return
 
-        val mode = pairMode
-        val leftDataUrl = frame.q1DataUrl
-        val rightDataUrl = when (mode) {
-            PairMode.PAIR_12 -> frame.q2DataUrl
-            PairMode.PAIR_13 -> frame.q3DataUrl
-        }
-
-        val leftBitmap = decodeDataUrl(leftDataUrl) ?: return
-        val rightBitmap = decodeDataUrl(rightDataUrl)
+        val leftBitmap = decodeDataUrl(frame.leftDataUrl) ?: return
+        val rightBitmap = decodeDataUrl(frame.rightDataUrl)
         if (rightBitmap == null) {
             leftBitmap.recycle()
             return
         }
 
         try {
-            renderPair(leftBitmap, rightBitmap, mode)
+            renderEyes(leftBitmap, rightBitmap)
         } finally {
             leftBitmap.recycle()
             rightBitmap.recycle()
         }
     }
 
-    private fun renderPair(
-        leftBitmap: Bitmap,
-        rightBitmap: Bitmap,
-        mode: PairMode,
-    ) {
+    private fun fitCenter(
+        bitmap: Bitmap,
+        bounds: Rect,
+    ): Rect {
+        if (bitmap.width <= 0 || bitmap.height <= 0 || bounds.width() <= 0 || bounds.height() <= 0) {
+            return Rect(bounds)
+        }
+
+        val scale = min(
+            bounds.width().toFloat() / bitmap.width.toFloat(),
+            bounds.height().toFloat() / bitmap.height.toFloat(),
+        )
+        val width = (bitmap.width * scale).roundToInt().coerceAtLeast(1)
+        val height = (bitmap.height * scale).roundToInt().coerceAtLeast(1)
+        val left = bounds.left + (bounds.width() - width) / 2
+        val top = bounds.top + (bounds.height() - height) / 2
+        return Rect(left, top, left + width, top + height)
+    }
+
+    private fun renderEyes(leftBitmap: Bitmap, rightBitmap: Bitmap) {
         if (!enabled) return
 
         val targetSurface = surface ?: return
@@ -185,32 +176,42 @@ object LiveStereoFrameSink {
             val halfWidth = canvas.width / 2
             if (halfWidth <= 0 || canvas.height <= 0) return
 
-            val leftSource = Rect(0, 0, leftBitmap.width, leftBitmap.height)
-            val rightSource = Rect(0, 0, rightBitmap.width, rightBitmap.height)
-            val leftDestination = Rect(0, 0, halfWidth, canvas.height)
-            val rightDestination = Rect(halfWidth, 0, canvas.width, canvas.height)
+            val leftBounds = Rect(0, 0, halfWidth, canvas.height)
+            val rightBounds = Rect(halfWidth, 0, canvas.width, canvas.height)
+            val leftDestination = fitCenter(leftBitmap, leftBounds)
+            val rightDestination = fitCenter(rightBitmap, rightBounds)
 
-            canvas.drawBitmap(leftBitmap, leftSource, leftDestination, paint)
-            canvas.drawBitmap(rightBitmap, rightSource, rightDestination, paint)
+            canvas.drawBitmap(
+                leftBitmap,
+                Rect(0, 0, leftBitmap.width, leftBitmap.height),
+                leftDestination,
+                paint,
+            )
+            canvas.drawBitmap(
+                rightBitmap,
+                Rect(0, 0, rightBitmap.width, rightBitmap.height),
+                rightDestination,
+                paint,
+            )
 
             val count = renderedFrameCount.incrementAndGet()
             if (count == 1L || count % 30L == 0L) {
                 Log.i(
                     TAG,
-                    "v0.9.17 quarter frame #$count mode=$mode " +
-                        "left=${leftBitmap.width}x${leftBitmap.height} " +
-                        "right=${rightBitmap.width}x${rightBitmap.height} " +
+                    "v0.9.18 explicit-eye frame #$count " +
+                        "left=${leftBitmap.width}x${leftBitmap.height}->$leftDestination " +
+                        "right=${rightBitmap.width}x${rightBitmap.height}->$rightDestination " +
                         "surface=${canvas.width}x${canvas.height}",
                 )
             }
         } catch (error: Throwable) {
-            Log.e(TAG, "v0.9.17 quarter composition failed", error)
+            Log.e(TAG, "v0.9.18 explicit-eye composition failed", error)
         } finally {
             if (canvas != null) {
                 try {
                     targetSurface.unlockCanvasAndPost(canvas)
                 } catch (error: Throwable) {
-                    Log.e(TAG, "v0.9.17 stereo surface post failed", error)
+                    Log.e(TAG, "v0.9.18 stereo surface post failed", error)
                 }
             }
         }
