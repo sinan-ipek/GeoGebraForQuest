@@ -32,19 +32,16 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.15 A/B stereo diagnostic.
+ * GeoGebraForQuest v0.9.17 quarter-pair stereo diagnostic.
  *
- * One and only one registered VideoSurface panel is used for both sources:
- * 1) TEST: the exact deterministic v0.9.11 red-left / blue-right probe.
- * 2) GEOGEBRA: the live full-colour GeoGebra SBS frame.
+ * v0.9.15 proved the registered VideoSurface + StereoMode.LeftRight compositor
+ * path physically separates the eyes. v0.9.16 proved that even one nominal
+ * half of the GeoGebra WebGL backing store still contains two visible views.
  *
- * The stereo media panel deliberately returns to the physically verified
- * v0.9.11 settings: 0.80 x 0.45 metres, 800 x 400 pixels, StereoMode.LeftRight,
- * and an entity containing only Panel + Transform + Grabbable().
- *
- * Switching source never recreates or reconfigures the stereo panel. It only
- * changes what is painted into the same Surface. This makes the headset test a
- * controlled comparison of compositor/panel routing versus live frame transfer.
+ * This build therefore keeps the exact verified stereo panel unchanged and
+ * only changes which WebGL quarters are painted into its left/right halves:
+ * TEST = known red/blue probe, 1+2 = quarter 1 left / quarter 2 right,
+ * 1+3 = quarter 1 left / quarter 3 right.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -59,10 +56,10 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val STEREO_TEXTURE_WIDTH = 800
         private const val STEREO_TEXTURE_HEIGHT = 400
 
-        private const val CONTROLS_PANEL_WIDTH_METERS = 0.64f
-        private const val CONTROLS_PANEL_HEIGHT_METERS = 0.16f
-        private const val CONTROLS_PANEL_WIDTH_DP = 520f
-        private const val CONTROLS_PANEL_HEIGHT_DP = 128f
+        private const val CONTROLS_PANEL_WIDTH_METERS = 0.82f
+        private const val CONTROLS_PANEL_HEIGHT_METERS = 0.17f
+        private const val CONTROLS_PANEL_WIDTH_DP = 680f
+        private const val CONTROLS_PANEL_HEIGHT_DP = 140f
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
@@ -71,7 +68,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
     private enum class StereoSourceMode {
         TEST,
-        GEOGEBRA,
+        PAIR_12,
+        PAIR_13,
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -129,7 +127,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     applyCurrentStereoSource(surface)
                     Log.i(
                         TAG,
-                        "v0.9.15 shared 800x400 stereo VideoSurface attached; mode=$stereoSourceMode",
+                        "v0.9.17 shared 800x400 stereo VideoSurface attached; mode=$stereoSourceMode",
                     )
                 },
                 settingsCreator = {
@@ -172,8 +170,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     rootView.findViewById<Button>(R.id.stereo_test_mode).setOnClickListener {
                         switchToTestMode()
                     }
-                    rootView.findViewById<Button>(R.id.stereo_geogebra_mode).setOnClickListener {
-                        switchToGeoGebraMode()
+                    rootView.findViewById<Button>(R.id.stereo_pair_12).setOnClickListener {
+                        switchToPair12Mode()
+                    }
+                    rootView.findViewById<Button>(R.id.stereo_pair_13).setOnClickListener {
+                        switchToPair13Mode()
                     }
                     updateModeStatus()
                 },
@@ -186,6 +187,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         StereoDebugState.reset()
         SpatialBridgeBus.clear()
         LiveStereoFrameSink.setEnabled(false)
+        LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_12)
         requestScenePermissionIfNeeded()
     }
 
@@ -196,7 +198,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 drawStereoProbeRepeatedly(surface)
             }
 
-            StereoSourceMode.GEOGEBRA -> {
+            StereoSourceMode.PAIR_12 -> {
+                LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_12)
+                LiveStereoFrameSink.setEnabled(true)
+            }
+
+            StereoSourceMode.PAIR_13 -> {
+                LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_13)
                 LiveStereoFrameSink.setEnabled(true)
             }
         }
@@ -212,24 +220,41 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             }
         }
         updateModeStatus()
-        Log.i(TAG, "v0.9.15 A/B source switched to TEST")
+        Log.i(TAG, "v0.9.17 source switched to TEST")
     }
 
-    private fun switchToGeoGebraMode() {
-        stereoSourceMode = StereoSourceMode.GEOGEBRA
+    private fun switchToPair12Mode() {
+        stereoSourceMode = StereoSourceMode.PAIR_12
+        LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_12)
         LiveStereoFrameSink.setEnabled(true)
         updateModeStatus()
-        Log.i(TAG, "v0.9.15 A/B source switched to GEOGEBRA")
+        Log.i(TAG, "v0.9.17 source switched to quarters 1+2")
+    }
+
+    private fun switchToPair13Mode() {
+        stereoSourceMode = StereoSourceMode.PAIR_13
+        LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_13)
+        LiveStereoFrameSink.setEnabled(true)
+        updateModeStatus()
+        Log.i(TAG, "v0.9.17 source switched to quarters 1+3")
     }
 
     private fun drawStereoProbeRepeatedly(surface: Surface) {
         StereoSurfaceProbe.draw(surface)
         mainHandler.postDelayed(
-            { if (stereoSourceMode == StereoSourceMode.TEST && surface.isValid) StereoSurfaceProbe.draw(surface) },
+            {
+                if (stereoSourceMode == StereoSourceMode.TEST && surface.isValid) {
+                    StereoSurfaceProbe.draw(surface)
+                }
+            },
             250L,
         )
         mainHandler.postDelayed(
-            { if (stereoSourceMode == StereoSourceMode.TEST && surface.isValid) StereoSurfaceProbe.draw(surface) },
+            {
+                if (stereoSourceMode == StereoSourceMode.TEST && surface.isValid) {
+                    StereoSurfaceProbe.draw(surface)
+                }
+            },
             1000L,
         )
     }
@@ -237,7 +262,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private fun updateModeStatus() {
         modeStatusView?.text = when (stereoSourceMode) {
             StereoSourceMode.TEST -> "STEREO KAYNAĞI: TEST"
-            StereoSourceMode.GEOGEBRA -> "STEREO KAYNAĞI: GEOGEBRA"
+            StereoSourceMode.PAIR_12 -> "GEOGEBRA ÇEYREKLERİ: 1 + 2"
+            StereoSourceMode.PAIR_13 -> "GEOGEBRA ÇEYREKLERİ: 1 + 3"
         }
     }
 
@@ -283,8 +309,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         if (vrReady) return
         vrReady = true
 
-        // Keep the normal GeoGebra panel on the same simple entity path used in
-        // the successful v0.9.11 probe build.
         Entity(R.id.geogebra_panel).setComponents(
             listOf(
                 Panel(R.id.geogebra_panel),
@@ -293,7 +317,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
 
-        // This is intentionally the exact v0.9.11 stereo entity composition.
+        // Keep the headset-proven v0.9.11/v0.9.15 entity path unchanged.
         stereoPanelEntity =
             Entity.create(
                 Panel(R.id.stereo_surface_probe_panel),
@@ -304,11 +328,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         controlsPanelEntity =
             Entity.create(
                 Panel(R.id.scale_controls_panel),
-                Transform(Pose(Vector3(0.95f, 0.78f, 1.12f))),
+                Transform(Pose(Vector3(0.95f, 0.75f, 1.12f))),
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.15 A/B stereo diagnostic ready; default source=TEST")
+        Log.i(TAG, "v0.9.17 quarter-pair diagnostic ready; default source=TEST")
     }
 
     override fun onDestroy() {
