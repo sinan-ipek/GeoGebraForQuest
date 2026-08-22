@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 65
-        versionName = "0.9.14"
+        versionCode = 66
+        versionName = "0.9.15"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,13 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.14 stereo-preserving interaction build:
-// - live GeoGebra 3D SBS capture from v0.9.13 stays unchanged;
-// - the stereo VideoSurface keeps the minimal v0.9.11 Panel + Transform + Grabbable path;
-// - IsdkPanelResize is removed from the stereo presentation path;
-// - both panels request two-hand scaling directly through Grabbable;
-// - Meta StereoMode.LeftRight remains the only per-eye presentation mechanism.
+// v0.9.15 controlled stereo A/B diagnostic:
+// - one registered VideoSurface panel is shared by TEST and GEOGEBRA sources;
+// - the stereo panel exactly restores the v0.9.11 800x400 / 0.80x0.45m path;
+// - TEST draws the physically verified red-left / blue-right probe;
+// - GEOGEBRA draws the live SBS frame directly to the same full Surface bounds;
+// - no fit-center, crop, IsdkPanelResize or Scale component touches stereo routing;
+// - StereoMode.LeftRight remains the only per-eye presentation mechanism.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
