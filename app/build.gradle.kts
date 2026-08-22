@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 62
-        versionName = "0.9.11"
+        versionCode = 63
+        versionName = "0.9.12"
 
         ndkVersion = "27.0.12077973"
     }
@@ -58,15 +58,15 @@ dependencies {
     implementation(libs.meta.spatial.sdk.vr)
     implementation(libs.meta.spatial.sdk.compose)
     implementation(libs.meta.spatial.sdk.toolkit)
+    implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.11 registered media-surface diagnostic:
-// - the working GeoGebra LayoutXML/WebView panel is completely untouched;
-// - a second panel is registered through VideoSurfacePanelRegistration;
-// - its Android Surface receives a synthetic full-colour L|R test frame;
-// - MediaPanelSettings uses StereoMode.LeftRight so eye routing is performed by
-//   the same registered compositor/panel path used by Meta's stereo media samples;
-// - no custom stereo shader, SceneObject overlay or GeoGebra texture is involved.
+// v0.9.12 panel interaction build:
+// - the registered LeftRight VideoSurface stereo probe remains unchanged;
+// - the stereo panel is independently grabbable and can be moved in depth;
+// - the GeoGebra LayoutXML/WebView panel is grabbable in 3D;
+// - Meta ISDK IsdkPanelResize adds native panel resize/scale handles to GeoGebra;
+// - stereo rendering is not modified in this release.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
