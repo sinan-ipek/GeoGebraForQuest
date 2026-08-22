@@ -8,6 +8,19 @@
   var lastCanvas = null;
   var scheduled = false;
 
+  // v0.9.13 live stereo capture. Keep this deliberately bounded: synchronous
+  // JPEG encoding in a WebView is expensive, so stale native frames are also
+  // dropped by LiveStereoFrameSink instead of building latency.
+  var CAPTURE_INTERVAL_MS = 100;
+  var CAPTURE_MAX_WIDTH = 1152;
+  var CAPTURE_JPEG_QUALITY = 0.72;
+  var lastCaptureAt = 0;
+  var captureCanvas = document.createElement('canvas');
+  var captureContext = captureCanvas.getContext('2d', {
+    alpha: false,
+    desynchronized: true
+  });
+
   function bridge(name, value) {
     try {
       if (window.QuestBridge && typeof window.QuestBridge[name] === 'function') {
@@ -116,8 +129,6 @@
       });
     });
 
-    // The shader has four cheap rectangle uniforms. Keep the four largest
-    // overlays; GeoGebra normally has only one open popup/dialog at a time.
     occlusions.sort(function (a, b) {
       return b.width * b.height - a.width * a.height;
     });
@@ -148,6 +159,46 @@
     requestAnimationFrame(sendLayout);
   }
 
+  function captureStereoFrame() {
+    if (!captureContext) return;
+
+    var source = find3DCanvas();
+    if (!source || source.width < 4 || source.height < 2) return;
+
+    try {
+      var scale = Math.min(1, CAPTURE_MAX_WIDTH / source.width);
+      var width = Math.max(4, Math.round(source.width * scale));
+      // StereoMode.LeftRight requires two exactly equal horizontal halves.
+      if (width % 2 !== 0) width -= 1;
+      var height = Math.max(2, Math.round(source.height * scale));
+
+      if (captureCanvas.width !== width) captureCanvas.width = width;
+      if (captureCanvas.height !== height) captureCanvas.height = height;
+
+      captureContext.drawImage(
+        source,
+        0, 0, source.width, source.height,
+        0, 0, width, height
+      );
+
+      var dataUrl = captureCanvas.toDataURL('image/jpeg', CAPTURE_JPEG_QUALITY);
+      if (dataUrl && dataUrl.length > 64) {
+        bridge('updateStereoFrame', dataUrl);
+      }
+    } catch (_) {
+      // Canvas may be replaced during a GeoGebra layout transition. The next
+      // scheduled capture will discover the new active 3D canvas.
+    }
+  }
+
+  function captureLoop(now) {
+    if (now - lastCaptureAt >= CAPTURE_INTERVAL_MS) {
+      lastCaptureAt = now;
+      captureStereoFrame();
+    }
+    requestAnimationFrame(captureLoop);
+  }
+
   if (window.ResizeObserver) {
     var resizeObserver = new ResizeObserver(schedule);
     resizeObserver.observe(document.documentElement);
@@ -165,10 +216,9 @@
   addEventListener('resize', schedule, { passive: true });
   addEventListener('scroll', schedule, true);
 
-  // Low-frequency safety net for GeoGebra layout changes that do not mutate
-  // observable DOM attributes. This never touches WebGL pixels.
   setInterval(schedule, 500);
 
   schedule();
+  requestAnimationFrame(captureLoop);
   bridge('panelReady', '');
 })();
