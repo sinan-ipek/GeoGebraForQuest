@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 68
-        versionName = "0.9.17"
+        versionCode = 69
+        versionName = "0.9.18"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.17 controlled quarter-pair diagnostic:
-// - preserve the headset-proven VideoSurface + StereoMode.LeftRight path exactly;
-// - capture the GeoGebra WebGL backing store as four horizontal quarters;
-// - compare quarter pair 1+2 against quarter pair 1+3 on the same Surface;
-// - use the headset result to identify the true eye packing before final cleanup.
+// v0.9.18 renderer-pass stereo:
+// - QuestStereoRenderer snapshots LEFT_EYE and RIGHT_EYE immediately after draw;
+// - browser code encodes those two explicit renderer-owned canvases;
+// - native code maps exactly one L and one R image into the VideoSurface;
+// - each eye preserves its aspect ratio inside a square eye target;
+// - Meta StereoMode.LeftRight performs the final physical eye routing.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
