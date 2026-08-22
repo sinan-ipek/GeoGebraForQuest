@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 69
-        versionName = "0.9.18"
+        versionCode = 70
+        versionName = "0.9.19"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.18 renderer-pass stereo:
-// - QuestStereoRenderer snapshots LEFT_EYE and RIGHT_EYE immediately after draw;
-// - browser code encodes those two explicit renderer-owned canvases;
-// - native code maps exactly one L and one R image into the VideoSurface;
-// - each eye preserves its aspect ratio inside a square eye target;
+// v0.9.19 single-viewport renderer stereo:
+// - LEFT_EYE and RIGHT_EYE render sequentially into the same W x H viewport;
+// - left is captured, the buffer is cleared, then right is rendered and captured;
+// - both captures use source x=0 and gl.finish() before copying;
+// - native code maps exactly one L and one R image into the registered VideoSurface;
 // - Meta StereoMode.LeftRight performs the final physical eye routing.
 spatial {
     allowUsageDataCollection.set(true)
