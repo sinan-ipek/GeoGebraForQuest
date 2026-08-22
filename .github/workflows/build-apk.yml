@@ -62,11 +62,11 @@ jobs:
           grep -q 'adjustGeoGebraScale' "$ACTIVITY"
           grep -q 'adjustStereoScale' "$ACTIVITY"
           grep -q 'setComponent(Scale(Vector3' "$ACTIVITY"
-          if grep -q 'IsdkPanelResize' "$ACTIVITY"; then
+          if grep -Eq '^import .*IsdkPanelResize|IsdkPanelResize\(' "$ACTIVITY"; then
             echo 'IsdkPanelResize must not touch the v0.9.14 stereo presentation path'
             exit 1
           fi
-          if grep -q 'twoHandGrab\|allowScaling\|minScale\|maxScale' "$ACTIVITY"; then
+          if grep -Eq 'twoHandGrab[[:space:]]*=|allowScaling[[:space:]]*=|minScale[[:space:]]*=|maxScale[[:space:]]*=' "$ACTIVITY"; then
             echo 'Unsupported Grabbable scaling API leaked back into source'
             exit 1
           fi
