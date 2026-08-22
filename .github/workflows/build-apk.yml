@@ -52,13 +52,14 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.16 explicit-eye stereo source
+      - name: Verify v0.9.17 quarter-pair diagnostic source
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
           JS=app/src/main/assets/web/quest-stereo-layout.js
+          CONTROL=app/src/main/res/layout/scale_controls_panel.xml
 
           # Keep the headset-proven registered media-panel route unchanged.
           grep -q 'VideoSurfacePanelRegistration' "$ACTIVITY"
@@ -70,44 +71,44 @@ jobs:
           grep -q 'StereoSurfaceProbe.draw' "$ACTIVITY"
           grep -q 'Grabbable()' "$ACTIVITY"
           if grep -Eq 'GrabbableType|IsdkPanelResize|Scale\(' "$ACTIVITY"; then
-            echo 'v0.9.16 must preserve the verified simple stereo panel path'
+            echo 'v0.9.17 must preserve the verified simple stereo panel path'
             exit 1
           fi
 
-          # Browser extracts the two WebGL eye viewports independently.
-          grep -q 'sourceEyeWidth = Math.floor(source.width / 2)' "$JS"
-          grep -q 'rightEyeX = source.width - sourceEyeWidth' "$JS"
-          grep -q 'leftCaptureContext.drawImage' "$JS"
-          grep -q 'rightCaptureContext.drawImage' "$JS"
-          grep -q 'bridgeStereoEyes(leftDataUrl, rightDataUrl)' "$JS"
-          grep -q "leftCaptureCanvas.toDataURL" "$JS"
-          grep -q "rightCaptureCanvas.toDataURL" "$JS"
-          if grep -q "bridge('updateStereoFrame'" "$JS"; then
-            echo 'Whole-SBS bridge must not return in v0.9.16'
+          # Headset controls select two candidate quarter pairings.
+          grep -q 'stereo_pair_12' "$CONTROL"
+          grep -q 'stereo_pair_13' "$CONTROL"
+          grep -q 'switchToPair12Mode' "$ACTIVITY"
+          grep -q 'switchToPair13Mode' "$ACTIVITY"
+          grep -q 'PairMode.PAIR_12' "$ACTIVITY"
+          grep -q 'PairMode.PAIR_13' "$ACTIVITY"
+
+          # Browser captures four equal horizontal source quarters.
+          grep -q 'sourceQuarterWidth = Math.floor(source.width / 4)' "$JS"
+          grep -q 'quarterContexts\[q\].drawImage' "$JS"
+          grep -q 'bridgeStereoQuarters(urls\[0\], urls\[1\], urls\[2\], urls\[3\])' "$JS"
+          grep -q 'updateStereoQuarters' "$JS"
+          if grep -q 'sourceEyeWidth = Math.floor(source.width / 2)' "$JS"; then
+            echo 'v0.9.16 half-canvas assumption must not remain in v0.9.17'
             exit 1
           fi
 
-          # WebView bridge carries two independent eye images.
-          grep -q 'fun updateStereoEyes(leftDataUrl: String, rightDataUrl: String)' "$PANEL"
-          grep -q 'LiveStereoFrameSink.submitEyeDataUrls(leftDataUrl, rightDataUrl)' "$PANEL"
-          if grep -q 'fun updateStereoFrame' "$PANEL"; then
-            echo 'Legacy whole-SBS bridge must not return in v0.9.16'
-            exit 1
-          fi
+          # WebView bridge carries all four diagnostic quarters.
+          grep -q 'fun updateStereoQuarters' "$PANEL"
+          grep -q 'LiveStereoFrameSink.submitQuarterDataUrls' "$PANEL"
 
-          # Native code constructs one and only one final L|R Surface frame.
-          grep -q 'fun submitEyeDataUrls' "$SINK"
+          # Native code chooses 1+2 or 1+3 and builds one final L|R frame.
+          grep -q 'enum class PairMode' "$SINK"
+          grep -q 'PAIR_12' "$SINK"
+          grep -q 'PAIR_13' "$SINK"
+          grep -q 'fun submitQuarterDataUrls' "$SINK"
+          grep -q 'PairMode.PAIR_12 -> frame.q2DataUrl' "$SINK"
+          grep -q 'PairMode.PAIR_13 -> frame.q3DataUrl' "$SINK"
           grep -q 'val halfWidth = canvas.width / 2' "$SINK"
-          grep -q 'val leftDestination = Rect(0, 0, halfWidth, canvas.height)' "$SINK"
-          grep -q 'val rightDestination = Rect(halfWidth, 0, canvas.width, canvas.height)' "$SINK"
           grep -q 'canvas.drawBitmap(leftBitmap' "$SINK"
           grep -q 'canvas.drawBitmap(rightBitmap' "$SINK"
-          if grep -q 'submitDataUrl' "$SINK"; then
-            echo 'Legacy complete-SBS native submission must not return in v0.9.16'
-            exit 1
-          fi
           if grep -q 'fitCenter' "$SINK"; then
-            echo 'fitCenter must not touch the explicit eye-composition path'
+            echo 'fitCenter must not touch the quarter-pair path'
             exit 1
           fi
 
@@ -119,11 +120,11 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/deployggb.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/web3d.nocache.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/css/bundles/bundle.css'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.16'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.17'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'backing_store=always_2x_width'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'preserve_drawing_buffer=true'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'extracted independently before JPEG encoding'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'left eye to Surface left half; right eye to Surface right half'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'four equal horizontal quarters'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'selectable quarter pair 1+2 or 1+3'
           if unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/web/GeoGebra/HTML5/5.0/web3d/web3d.nocache.js'; then
             echo 'Unexpected legacy HTML5/5.0 Web3D layout is still packaged'
             exit 1
@@ -133,14 +134,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.16-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.16-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.16-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.17-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.17-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.17-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.16-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.16-debug.apk
+          name: GeoGebraForQuest-v0.9.17-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.17-debug.apk
           if-no-files-found: error
           retention-days: 30
