@@ -52,18 +52,22 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.14 stereo-preserving interaction source
+      - name: Verify v0.9.14 live stereo and external scaling source
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
           grep -q 'VideoSurfacePanelRegistration' "$ACTIVITY"
           grep -q 'StereoMode.LeftRight' "$ACTIVITY"
-          grep -q 'twoHandGrab = true' "$ACTIVITY"
-          grep -q 'allowScaling = true' "$ACTIVITY"
-          grep -q 'minScale = MIN_PANEL_SCALE' "$ACTIVITY"
-          grep -q 'maxScale = MAX_PANEL_SCALE' "$ACTIVITY"
+          grep -q 'scale_controls_panel' "$ACTIVITY"
+          grep -q 'adjustGeoGebraScale' "$ACTIVITY"
+          grep -q 'adjustStereoScale' "$ACTIVITY"
+          grep -q 'setComponent(Scale(Vector3' "$ACTIVITY"
           if grep -q 'IsdkPanelResize' "$ACTIVITY"; then
             echo 'IsdkPanelResize must not touch the v0.9.14 stereo presentation path'
+            exit 1
+          fi
+          if grep -q 'twoHandGrab\|allowScaling\|minScale\|maxScale' "$ACTIVITY"; then
+            echo 'Unsupported Grabbable scaling API leaked back into source'
             exit 1
           fi
           grep -q 'updateStereoFrame' app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
@@ -72,6 +76,7 @@ jobs:
           grep -q 'LiveStereoFrameSink' app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
           grep -q 'lockCanvas' app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
           grep -q 'preserveDrawingBuffer' tools/patch-geogebra-quest-v0913.py
+          test -f app/src/main/res/layout/scale_controls_panel.xml
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -82,7 +87,7 @@ jobs:
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.14'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'backing_store=always_2x_width'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'preserve_drawing_buffer=true'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'no IsdkPanelResize in stereo media path'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'external Scale controls'
           if unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/web/GeoGebra/HTML5/5.0/web3d/web3d.nocache.js'; then
             echo 'Unexpected legacy HTML5/5.0 Web3D layout is still packaged'
             exit 1
