@@ -1,36 +1,21 @@
 package com.sinan.geogebraforquest
 
 /**
- * In-process bridge between the GeoGebra WebView panel and the Spatial SDK host.
+ * Small in-process bridge for data that belongs to the single GeoGebra panel.
  *
- * v0.6.0 sends a decoded SBS image of only the 3D viewport plus its rectangle.
- * Android captures the ordinary full WebView once, composites the left 3D half
- * into one complete panel image and the right 3D half into another, then sends
- * the resulting full-panel SBS frame to a StereoMode.LeftRight media surface.
+ * v0.9.0 deliberately has no stereo-frame transport. GeoGebra renders the SBS
+ * pair directly on the GPU; JavaScript reports only the layout rectangle of the
+ * 3D view and temporary UI occlusions so the Spatial material can sample it.
  */
 object SpatialBridgeBus {
     @Volatile
-    var onStereoChanged: ((Boolean) -> Unit)? = null
-
-    @Volatile
-    var onPortalRect: ((String) -> Unit)? = null
-
-    @Volatile
-    var onStereoFrame: ((String, Int, Int) -> Unit)? = null
+    var onStereoLayout: ((String) -> Unit)? = null
 
     @Volatile
     var onPanelReady: (() -> Unit)? = null
 
-    fun stereoChanged(enabled: Boolean) {
-        onStereoChanged?.invoke(enabled)
-    }
-
-    fun portalRect(json: String) {
-        onPortalRect?.invoke(json)
-    }
-
-    fun stereoFrame(dataUrl: String, eyeWidth: Int, eyeHeight: Int) {
-        onStereoFrame?.invoke(dataUrl, eyeWidth, eyeHeight)
+    fun stereoLayout(json: String) {
+        onStereoLayout?.invoke(json)
     }
 
     fun panelReady() {
@@ -38,9 +23,7 @@ object SpatialBridgeBus {
     }
 
     fun clear() {
-        onStereoChanged = null
-        onPortalRect = null
-        onStereoFrame = null
+        onStereoLayout = null
         onPanelReady = null
     }
 }

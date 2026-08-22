@@ -2,16 +2,22 @@ package com.sinan.geogebraforquest
 
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.view.Surface
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector3
+import com.meta.spatial.isdk.IsdkPanelResize
 import com.meta.spatial.runtime.ReferenceSpace
 import com.meta.spatial.runtime.StereoMode
 import com.meta.spatial.toolkit.AppSystemActivity
 import com.meta.spatial.toolkit.DpDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
+import com.meta.spatial.toolkit.GrabbableType
 import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
 import com.meta.spatial.toolkit.MediaPanelRenderOptions
 import com.meta.spatial.toolkit.MediaPanelSettings
@@ -20,23 +26,23 @@ import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
 import com.meta.spatial.toolkit.PixelDisplayOptions
 import com.meta.spatial.toolkit.QuadShapeOptions
-import com.meta.spatial.toolkit.Scale
 import com.meta.spatial.toolkit.Transform
-import com.meta.spatial.toolkit.TransformParent
 import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
-import com.meta.spatial.toolkit.Visible
 import com.meta.spatial.vr.VRFeature
-import org.json.JSONObject
 
 /**
- * GeoGebraForQuest v0.6.7 — stereo pipeline diagnostic.
+ * GeoGebraForQuest v0.9.12 movable/resizable panel build.
  *
- * The rendering path remains the same as v0.6.6: the normal GeoGebra WebView is
- * visible and the StereoMode.LeftRight media surface covers only the 3D Graphics
- * rectangle. This build adds counters only, so a screenshot can tell us whether
- * a direct eye pair reached Android, was accepted by the EGL writer, was actually
- * presented, and whether the portal entity became visible.
+ * v0.9.11 proved the registered VideoSurfacePanel + StereoMode.LeftRight path
+ * performs real Quest left/right eye separation. v0.9.12 keeps that stereo test
+ * unchanged and adds native panel interaction:
+ *
+ * - GeoGebra panel: freely grabbable in space, including nearer/farther motion.
+ * - GeoGebra panel: native Meta ISDK resize/scale handles via IsdkPanelResize.
+ * - Stereo panel: independently grabbable and movable, not parented to GeoGebra.
+ *
+ * No stereo rendering logic changes are made in this release.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -46,23 +52,27 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         const val PANEL_WIDTH_DP = 1080f
         const val PANEL_HEIGHT_DP = 720f
 
+        private const val PROBE_WIDTH_METERS = 0.80f
+        private const val PROBE_HEIGHT_METERS = 0.45f
+        private const val PROBE_TEXTURE_WIDTH = 800
+        private const val PROBE_TEXTURE_HEIGHT = 400
+
+        private const val MIN_PANEL_HEIGHT = 0.40f
+        private const val MAX_PANEL_HEIGHT = 3.00f
+
+        private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
-        private const val PORTAL_Z = -0.006f
     }
 
-    private val stereoFrameSurface = StereoFrameSurface()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var geoGebraPanelEntity: Entity? = null
-    private var stereoPortalEntity: Entity? = null
-    private var pendingStereo = false
-    private var pendingPortalRect: String? = null
     private var sceneReady = false
     private var vrReady = false
+    private var stereoSurfaceProbeEntity: Entity? = null
+    private var stereoSurface: Surface? = null
 
-    override fun registerFeatures(): List<SpatialFeature> {
-        return listOf(VRFeature(this))
-    }
+    override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
     override fun registerPanels(): List<PanelRegistration> {
         return listOf(
@@ -89,29 +99,29 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     configureGeoGebraWebView(
                         webView = webView,
                         spatialMode = true,
-                        startStereo = false,
+                        startStereo = true,
                     )
                 },
             ),
             VideoSurfacePanelRegistration(
-                R.id.stereo_portal_panel,
+                R.id.stereo_surface_probe_panel,
                 surfaceConsumer = { _, surface ->
-                    StereoDebugState.onSurfaceAttached()
-                    stereoFrameSurface.attach(surface)
+                    stereoSurface = surface
+                    drawStereoProbeRepeatedly(surface)
                 },
                 settingsCreator = {
                     MediaPanelSettings(
-                        shape = QuadShapeOptions(width = 1f, height = 1f),
+                        shape = QuadShapeOptions(
+                            width = PROBE_WIDTH_METERS,
+                            height = PROBE_HEIGHT_METERS,
+                        ),
                         display = PixelDisplayOptions(
-                            width = StereoFrameSurface.SURFACE_WIDTH,
-                            height = StereoFrameSurface.SURFACE_HEIGHT,
+                            width = PROBE_TEXTURE_WIDTH,
+                            height = PROBE_TEXTURE_HEIGHT,
                         ),
                         rendering = MediaPanelRenderOptions(
                             stereoMode = StereoMode.LeftRight,
-                            zIndex = 1,
-                        ),
-                        style = PanelStyleOptions(
-                            themeResourceId = R.style.PanelAppThemeTransparent,
+                            zIndex = 20,
                         ),
                     )
                 },
@@ -122,135 +132,21 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         StereoDebugState.reset()
-
-        SpatialBridgeBus.onStereoChanged = { enabled ->
-            pendingStereo = enabled
-            StereoDebugState.onStereoChanged(enabled)
-            if (!enabled) {
-                runOnMainThread {
-                    stereoPortalEntity?.setComponent(Visible(false))
-                }
-            }
-        }
-
-        SpatialBridgeBus.onPortalRect = { json ->
-            pendingPortalRect = json
-            StereoDebugState.onPortalRect()
-            applyPortalRect(json)
-        }
-
-        SpatialBridgeBus.onStereoFrame = frame@{ dataUrl, eyeWidth, eyeHeight ->
-            StereoDebugState.onFrameReceived(eyeWidth, eyeHeight)
-
-            if (!pendingStereo || dataUrl.isBlank()) {
-                StereoDebugState.onFrameRejected()
-                return@frame
-            }
-
-            if (!stereoFrameSurface.canAcceptFrame()) {
-                StereoDebugState.onFrameDroppedBusy()
-                return@frame
-            }
-
-            val accepted = stereoFrameSurface.submitRawStereoDataUrl(
-                dataUrl = dataUrl,
-                reportedEyeWidth = eyeWidth,
-                reportedEyeHeight = eyeHeight,
-                onPresented = {
-                    StereoDebugState.onFramePresented()
-                    runOnMainThread {
-                        if (pendingStereo) {
-                            pendingPortalRect?.let { applyPortalRect(it) }
-                            stereoPortalEntity?.setComponent(Visible(true))
-                            StereoDebugState.onPortalVisible()
-                        }
-                    }
-                },
-                onFinished = {
-                    StereoDebugState.onFrameFinished()
-                },
-            )
-
-            if (accepted) {
-                StereoDebugState.onFrameAccepted()
-            } else {
-                StereoDebugState.onFrameDroppedBusy()
-            }
-        }
-
-        SpatialBridgeBus.onPanelReady = {
-            // No native GeoGebra geometry mirror is used.
-        }
-
+        SpatialBridgeBus.clear()
         requestScenePermissionIfNeeded()
     }
 
-    private fun applyPortalRect(json: String) {
-        val entity = stereoPortalEntity ?: return
-
-        try {
-            val data = JSONObject(json)
-            val left = data.optDouble("left", Double.NaN)
-            val top = data.optDouble("top", Double.NaN)
-            val width = data.optDouble("width", Double.NaN)
-            val height = data.optDouble("height", Double.NaN)
-            val viewWidth = data.optDouble("viewWidth", Double.NaN)
-            val viewHeight = data.optDouble("viewHeight", Double.NaN)
-
-            if (
-                !left.isFinite() || !top.isFinite() ||
-                !width.isFinite() || !height.isFinite() ||
-                !viewWidth.isFinite() || !viewHeight.isFinite() ||
-                width <= 0.0 || height <= 0.0 ||
-                viewWidth <= 0.0 || viewHeight <= 0.0
-            ) {
-                return
-            }
-
-            val centerXPixels = left + width / 2.0
-            val centerYPixels = top + height / 2.0
-
-            val centerX = (
-                centerXPixels / viewWidth - 0.5
-            ).toFloat() * PANEL_WIDTH_METERS
-
-            val centerY = (
-                0.5 - centerYPixels / viewHeight
-            ).toFloat() * PANEL_HEIGHT_METERS
-
-            val widthMeters = (
-                width / viewWidth
-            ).toFloat() * PANEL_WIDTH_METERS
-
-            val heightMeters = (
-                height / viewHeight
-            ).toFloat() * PANEL_HEIGHT_METERS
-
-            runOnMainThread {
-                entity.setComponent(
-                    Transform(
-                        Pose(
-                            Vector3(
-                                centerX,
-                                centerY,
-                                PORTAL_Z,
-                            ),
-                        ),
-                    ),
-                )
-                entity.setComponent(
-                    Scale(
-                        Vector3(
-                            widthMeters,
-                            heightMeters,
-                            1f,
-                        ),
-                    ),
-                )
-            }
-        } catch (_: Throwable) {
-            // Ignore one malformed or transient DOM rectangle.
-        }
+    private fun drawStereoProbeRepeatedly(surface: Surface) {
+        StereoSurfaceProbe.draw(surface)
+        mainHandler.postDelayed(
+            { if (surface.isValid) StereoSurfaceProbe.draw(surface) },
+            250L,
+        )
+        mainHandler.postDelayed(
+            { if (surface.isValid) StereoSurfaceProbe.draw(surface) },
+            1000L,
+        )
+        Log.i(TAG, "v0.9.12 registered stereo surface delivered")
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -295,37 +191,49 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         if (vrReady) return
         vrReady = true
 
-        val geoPanel = Entity(R.id.geogebra_panel)
-        geoPanel.setComponents(
+        // GeoGebra panel:
+        // PIVOT_Y lets the panel be grabbed and moved nearer/farther while
+        // keeping a comfortable upright panel orientation. IsdkPanelResize
+        // supplies Meta's native panel resize/scale affordance.
+        Entity(R.id.geogebra_panel).setComponents(
             listOf(
                 Panel(R.id.geogebra_panel),
                 Transform(Pose(Vector3(0f, 1.25f, 1.50f))),
-                Grabbable(),
+                Grabbable(
+                    enabled = true,
+                    type = GrabbableType.PIVOT_Y,
+                    minHeight = MIN_PANEL_HEIGHT,
+                    maxHeight = MAX_PANEL_HEIGHT,
+                ),
+                IsdkPanelResize(),
             ),
         )
-        geoGebraPanelEntity = geoPanel
 
-        val stereoPanel = Entity(R.id.stereo_portal_panel)
-        stereoPanel.setComponents(
-            listOf(
-                Panel(R.id.stereo_portal_panel),
-                TransformParent(geoPanel),
-                Transform(Pose(Vector3(0f, 0f, PORTAL_Z))),
-                Scale(Vector3(0.01f, 0.01f, 1f)),
-                Visible(false),
-            ),
-        )
-        stereoPortalEntity = stereoPanel
-        StereoDebugState.onPortalEntityReady()
+        // The registered stereo surface panel is a completely independent
+        // spatial entity. It can be grabbed and moved without moving GeoGebra.
+        stereoSurfaceProbeEntity =
+            Entity.create(
+                Panel(R.id.stereo_surface_probe_panel),
+                Transform(Pose(Vector3(0.95f, 1.30f, 1.15f))),
+                Grabbable(
+                    enabled = true,
+                    type = GrabbableType.PIVOT_Y,
+                    minHeight = MIN_PANEL_HEIGHT,
+                    maxHeight = MAX_PANEL_HEIGHT,
+                ),
+            )
 
-        pendingPortalRect?.let { applyPortalRect(it) }
+        Log.i(TAG, "v0.9.12 movable stereo panel + resizable GeoGebra panel active")
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
         SpatialBridgeBus.clear()
-        stereoFrameSurface.release()
-        stereoPortalEntity = null
-        geoGebraPanelEntity = null
+
+        stereoSurface = null
+        stereoSurfaceProbeEntity?.destroy()
+        stereoSurfaceProbeEntity = null
+
         super.onDestroy()
     }
 }

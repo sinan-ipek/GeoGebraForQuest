@@ -2,9 +2,6 @@ package com.sinan.geogebraforquest
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Rect
 import android.opengl.GLES20
 import android.opengl.GLUtils
 import android.util.Base64
@@ -33,13 +30,12 @@ import javax.microedition.khronos.egl.EGLDisplay
 import javax.microedition.khronos.egl.EGLSurface
 
 /**
- * v0.6.5 direct GeoGebra stereo presenter.
+ * Direct SBS presenter for GeoGebra's left/right eye frames.
  *
- * JavaScript sends one SBS JPEG whose first half is GeoGebra's completed left
- * eye render and whose second half is its completed right eye render. This class
- * does not synthesize depth, decode anaglyph channels, or draw diagnostic text.
- * It only scales the two halves to the fixed SBS Surface consumed by Spatial SDK
- * with StereoMode.LeftRight.
+ * JavaScript already packs the complete RGB eye images side-by-side. The bitmap
+ * is uploaded directly as one GL texture; the Spatial SDK interprets the surface
+ * as StereoMode.LeftRight. v0.7.3 keeps this proven renderer unchanged while the
+ * composition architecture moves the media panel behind the interactive WebView.
  */
 class StereoFrameSurface {
 
@@ -113,23 +109,20 @@ class StereoFrameSurface {
 
         executor.execute {
             var decoded: Bitmap? = null
-            var prepared: Bitmap? = null
             try {
                 decoded = decodeDataUrl(dataUrl) ?: return@execute
-                prepared = prepareStereoSurface(decoded)
 
                 val surface = targetSurface ?: return@execute
                 if (!surface.isValid) return@execute
                 if (eglSurface == EGL_NO_SURFACE && !initEgl(surface)) return@execute
 
-                if (drawBitmap(prepared)) {
+                if (drawBitmap(decoded)) {
                     onPresented?.invoke()
                 }
             } catch (_: Throwable) {
-                // One malformed/corrupt frame is disposable. Keep the app alive.
+                // A malformed/corrupt frame is disposable. Keep the app alive.
             } finally {
                 decoded?.let { if (!it.isRecycled) it.recycle() }
-                prepared?.let { if (!it.isRecycled) it.recycle() }
                 framePending.set(false)
                 onFinished?.invoke()
             }
@@ -152,35 +145,6 @@ class StereoFrameSurface {
         val payload = dataUrl.substring(comma + 1)
         val bytes = Base64.decode(payload, Base64.DEFAULT)
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-    }
-
-    private fun prepareStereoSurface(decoded: Bitmap): Bitmap {
-        val output = Bitmap.createBitmap(
-            SURFACE_WIDTH,
-            SURFACE_HEIGHT,
-            Bitmap.Config.ARGB_8888,
-        )
-        val canvas = Canvas(output)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-
-        val sourceHalf = (decoded.width / 2).coerceAtLeast(1)
-        val leftSource = Rect(0, 0, sourceHalf, decoded.height)
-        val rightSource = Rect(sourceHalf, 0, decoded.width, decoded.height)
-
-        canvas.drawBitmap(
-            decoded,
-            leftSource,
-            Rect(0, 0, EYE_WIDTH, EYE_HEIGHT),
-            paint,
-        )
-        canvas.drawBitmap(
-            decoded,
-            rightSource,
-            Rect(EYE_WIDTH, 0, SURFACE_WIDTH, EYE_HEIGHT),
-            paint,
-        )
-
-        return output
     }
 
     private fun initEgl(surface: Surface): Boolean {
