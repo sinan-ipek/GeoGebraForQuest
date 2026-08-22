@@ -32,16 +32,12 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.17 quarter-pair stereo diagnostic.
+ * GeoGebraForQuest v0.9.18 renderer-pass stereo build.
  *
- * v0.9.15 proved the registered VideoSurface + StereoMode.LeftRight compositor
- * path physically separates the eyes. v0.9.16 proved that even one nominal
- * half of the GeoGebra WebGL backing store still contains two visible views.
- *
- * This build therefore keeps the exact verified stereo panel unchanged and
- * only changes which WebGL quarters are painted into its left/right halves:
- * TEST = known red/blue probe, 1+2 = quarter 1 left / quarter 2 right,
- * 1+3 = quarter 1 left / quarter 3 right.
+ * TEST uses the physically verified red-left / blue-right probe.
+ * GEOGEBRA uses two dedicated eye canvases published directly by the
+ * QuestStereoRenderer immediately after the LEFT_EYE and RIGHT_EYE passes.
+ * No final-canvas splitting, half guessing or quarter guessing is used.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -51,15 +47,17 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         const val PANEL_WIDTH_DP = 1080f
         const val PANEL_HEIGHT_DP = 720f
 
-        private const val STEREO_PANEL_WIDTH_METERS = 0.80f
-        private const val STEREO_PANEL_HEIGHT_METERS = 0.45f
-        private const val STEREO_TEXTURE_WIDTH = 800
-        private const val STEREO_TEXTURE_HEIGHT = 400
+        // Each eye receives a square 720x720 region. The physical stereo panel
+        // is also square, so Meta's LeftRight mapping cannot stretch the image.
+        private const val STEREO_PANEL_WIDTH_METERS = 0.82f
+        private const val STEREO_PANEL_HEIGHT_METERS = 0.82f
+        private const val STEREO_TEXTURE_WIDTH = 1440
+        private const val STEREO_TEXTURE_HEIGHT = 720
 
-        private const val CONTROLS_PANEL_WIDTH_METERS = 0.82f
-        private const val CONTROLS_PANEL_HEIGHT_METERS = 0.17f
-        private const val CONTROLS_PANEL_WIDTH_DP = 680f
-        private const val CONTROLS_PANEL_HEIGHT_DP = 140f
+        private const val CONTROLS_PANEL_WIDTH_METERS = 0.64f
+        private const val CONTROLS_PANEL_HEIGHT_METERS = 0.16f
+        private const val CONTROLS_PANEL_WIDTH_DP = 520f
+        private const val CONTROLS_PANEL_HEIGHT_DP = 128f
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
@@ -68,8 +66,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
     private enum class StereoSourceMode {
         TEST,
-        PAIR_12,
-        PAIR_13,
+        GEOGEBRA,
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -80,7 +77,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var controlsPanelEntity: Entity? = null
     private var stereoSurface: Surface? = null
     private var modeStatusView: TextView? = null
-    private var stereoSourceMode = StereoSourceMode.TEST
+    private var stereoSourceMode = StereoSourceMode.GEOGEBRA
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -127,7 +124,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     applyCurrentStereoSource(surface)
                     Log.i(
                         TAG,
-                        "v0.9.17 shared 800x400 stereo VideoSurface attached; mode=$stereoSourceMode",
+                        "v0.9.18 1440x720 explicit-eye VideoSurface attached; mode=$stereoSourceMode",
                     )
                 },
                 settingsCreator = {
@@ -170,11 +167,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     rootView.findViewById<Button>(R.id.stereo_test_mode).setOnClickListener {
                         switchToTestMode()
                     }
-                    rootView.findViewById<Button>(R.id.stereo_pair_12).setOnClickListener {
-                        switchToPair12Mode()
-                    }
-                    rootView.findViewById<Button>(R.id.stereo_pair_13).setOnClickListener {
-                        switchToPair13Mode()
+                    rootView.findViewById<Button>(R.id.stereo_geogebra_mode).setOnClickListener {
+                        switchToGeoGebraMode()
                     }
                     updateModeStatus()
                 },
@@ -186,8 +180,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         super.onCreate(savedInstanceState)
         StereoDebugState.reset()
         SpatialBridgeBus.clear()
-        LiveStereoFrameSink.setEnabled(false)
-        LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_12)
+        LiveStereoFrameSink.setEnabled(true)
         requestScenePermissionIfNeeded()
     }
 
@@ -198,13 +191,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 drawStereoProbeRepeatedly(surface)
             }
 
-            StereoSourceMode.PAIR_12 -> {
-                LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_12)
-                LiveStereoFrameSink.setEnabled(true)
-            }
-
-            StereoSourceMode.PAIR_13 -> {
-                LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_13)
+            StereoSourceMode.GEOGEBRA -> {
                 LiveStereoFrameSink.setEnabled(true)
             }
         }
@@ -220,23 +207,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             }
         }
         updateModeStatus()
-        Log.i(TAG, "v0.9.17 source switched to TEST")
+        Log.i(TAG, "v0.9.18 source switched to TEST")
     }
 
-    private fun switchToPair12Mode() {
-        stereoSourceMode = StereoSourceMode.PAIR_12
-        LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_12)
+    private fun switchToGeoGebraMode() {
+        stereoSourceMode = StereoSourceMode.GEOGEBRA
         LiveStereoFrameSink.setEnabled(true)
         updateModeStatus()
-        Log.i(TAG, "v0.9.17 source switched to quarters 1+2")
-    }
-
-    private fun switchToPair13Mode() {
-        stereoSourceMode = StereoSourceMode.PAIR_13
-        LiveStereoFrameSink.setPairMode(LiveStereoFrameSink.PairMode.PAIR_13)
-        LiveStereoFrameSink.setEnabled(true)
-        updateModeStatus()
-        Log.i(TAG, "v0.9.17 source switched to quarters 1+3")
+        Log.i(TAG, "v0.9.18 source switched to GEOGEBRA renderer-eye canvases")
     }
 
     private fun drawStereoProbeRepeatedly(surface: Surface) {
@@ -262,8 +240,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private fun updateModeStatus() {
         modeStatusView?.text = when (stereoSourceMode) {
             StereoSourceMode.TEST -> "STEREO KAYNAĞI: TEST"
-            StereoSourceMode.PAIR_12 -> "GEOGEBRA ÇEYREKLERİ: 1 + 2"
-            StereoSourceMode.PAIR_13 -> "GEOGEBRA ÇEYREKLERİ: 1 + 3"
+            StereoSourceMode.GEOGEBRA -> "STEREO KAYNAĞI: GEOGEBRA"
         }
     }
 
@@ -317,7 +294,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
 
-        // Keep the headset-proven v0.9.11/v0.9.15 entity path unchanged.
         stereoPanelEntity =
             Entity.create(
                 Panel(R.id.stereo_surface_probe_panel),
@@ -328,11 +304,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         controlsPanelEntity =
             Entity.create(
                 Panel(R.id.scale_controls_panel),
-                Transform(Pose(Vector3(0.95f, 0.75f, 1.12f))),
+                Transform(Pose(Vector3(0.95f, 0.70f, 1.12f))),
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.17 quarter-pair diagnostic ready; default source=TEST")
+        Log.i(TAG, "v0.9.18 renderer-pass stereo ready; default source=GEOGEBRA")
     }
 
     override fun onDestroy() {
