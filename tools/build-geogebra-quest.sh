@@ -23,8 +23,11 @@ python3 "$ROOT/tools/patch-geogebra-quest.py" "$SRC"
 echo "[GGQ] applying permanent stereo backing-store stability patch"
 python3 "$ROOT/tools/patch-geogebra-quest-v097.py" "$SRC"
 
-echo "[GGQ] enabling readable WebGL SBS buffer for live Quest stereo capture"
+echo "[GGQ] enabling readable WebGL buffer"
 python3 "$ROOT/tools/patch-geogebra-quest-v0913.py" "$SRC"
+
+echo "[GGQ] capturing completed LEFT_EYE and RIGHT_EYE render passes explicitly"
+python3 "$ROOT/tools/patch-geogebra-quest-v0918.py" "$SRC"
 
 echo "[GGQ] compiling GeoGebra Web3D and its static runtime resources"
 pushd "$SRC/source/web" >/dev/null
@@ -61,19 +64,19 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.17
+version=0.9.18
 upstream_commit=$GEOGEBRA_COMMIT
-projection=PROJECTION_GLASSES (full-colour SBS, permanent Quest draw path)
+projection=PROJECTION_GLASSES (full-colour stereo)
 renderer=QuestStereoRenderer
 backing_store=always_2x_width
 viewport=left_eye_then_right_eye
 preserve_drawing_buffer=true
+renderer_eye_capture=LEFT_EYE and RIGHT_EYE snapped immediately after each render pass
+renderer_eye_canvases=ggq-renderer-left-eye,ggq-renderer-right-eye
 presentation=registered VideoSurfacePanelRegistration with StereoMode.LeftRight
-stereo_panel=verified v0.9.11 settings: 800x400 pixels, 0.80x0.45 metres, Panel+Transform+Grabbable
-capture=WebGL backing store split into four equal horizontal quarters
-bridge=four independent quarter JPEG data URLs
-native_composition=selectable quarter pair 1+2 or 1+3 mapped to Surface L|R halves
-diagnostic_goal=identify real eye packing after v0.9.16 showed nested views inside nominal halves
+stereo_panel=1440x720 pixels total, square physical panel, 720x720 per eye
+bridge=two explicit renderer-eye JPEG data URLs
+native_composition=one renderer-left image to Surface left half; one renderer-right image to Surface right half; aspect preserved
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
