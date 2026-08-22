@@ -73,9 +73,8 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // v0.9.13: this script both tracks the live 3D canvas rectangle and copies
-    // the source renderer's complete 2x-wide L|R WebGL backing store to the
-    // Android bridge at a bounded frame rate.
+    // v0.9.14 keeps the v0.9.13 live SBS capture unchanged. Only the native
+    // panel interaction/presentation composition changed in this release.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -101,7 +100,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.13"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.14"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
