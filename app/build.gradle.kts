@@ -13,8 +13,10 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 33
-        versionName = "0.7.0"
+        versionCode = 68
+        versionName = "0.9.17"
+
+        ndkVersion = "27.0.12077973"
     }
 
     buildFeatures {
@@ -56,12 +58,17 @@ dependencies {
     implementation(libs.meta.spatial.sdk.vr)
     implementation(libs.meta.spatial.sdk.compose)
     implementation(libs.meta.spatial.sdk.toolkit)
+    implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.7.0 removes projection-mode UI from the user workflow. Whenever a visible
-// GeoGebra 3D WebGL canvas exists, the app automatically selects GeoGebra's
-// Glasses renderer internally and enables Quest stereo capture. When the 3D view
-// disappears, stereo is disabled. No headset/projection click is required.
+// v0.9.17 controlled quarter-pair diagnostic:
+// - preserve the headset-proven VideoSurface + StereoMode.LeftRight path exactly;
+// - capture the GeoGebra WebGL backing store as four horizontal quarters;
+// - compare quarter pair 1+2 against quarter pair 1+3 on the same Surface;
+// - use the headset result to identify the true eye packing before final cleanup.
 spatial {
     allowUsageDataCollection.set(true)
+    shaders {
+        sources.add(project.layout.projectDirectory.dir("src/shaders"))
+    }
 }
