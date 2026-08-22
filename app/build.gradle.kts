@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 71
-        versionName = "0.9.20"
+        versionCode = 72
+        versionName = "0.9.21"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.20:
-// - keeps the v0.9.19 single-viewport renderer stereo path;
+// v0.9.21:
+// - removes the TEST source, TEST photo, TEST controls and probe code completely;
+// - the registered stereo VideoSurface has one source only: live GeoGebra;
+// - keeps the working v0.9.19 single-viewport renderer stereo path unchanged;
 // - LEFT_EYE and RIGHT_EYE render sequentially into the same W x H viewport;
 // - both captures use source x=0 and gl.finish() before copying;
-// - TEST now uses the bundled real SBS stereo photo supplied by the user;
 // - Meta StereoMode.LeftRight performs final physical eye routing.
 spatial {
     allowUsageDataCollection.set(true)
