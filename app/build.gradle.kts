@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 67
-        versionName = "0.9.16"
+        versionCode = 68
+        versionName = "0.9.17"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.16 explicit-eye live stereo fix:
-// - keep the physically verified v0.9.11/v0.9.15 VideoSurface stereo path intact;
-// - split the GeoGebra WebGL 2W x H backing store into left/right eye viewports in JS;
-// - send two independent JPEG eye frames through the WebView bridge;
-// - native code composes exactly one L|R frame into the shared 800x400 Surface;
-// - Meta StereoMode.LeftRight performs the final physical eye routing.
+// v0.9.17 controlled quarter-pair diagnostic:
+// - preserve the headset-proven VideoSurface + StereoMode.LeftRight path exactly;
+// - capture the GeoGebra WebGL backing store as four horizontal quarters;
+// - compare quarter pair 1+2 against quarter pair 1+3 on the same Surface;
+// - use the headset result to identify the true eye packing before final cleanup.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
