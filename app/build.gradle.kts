@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 61
-        versionName = "0.9.10"
+        versionCode = 62
+        versionName = "0.9.11"
 
         ndkVersion = "27.0.12077973"
     }
@@ -60,12 +60,13 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.9.10 official-stereo diagnostic:
+// v0.9.11 registered media-surface diagnostic:
 // - the working GeoGebra LayoutXML/WebView panel is completely untouched;
-// - the patched GeoGebra source still produces permanent full-colour L|R SBS;
-// - a separate synthetic L|R test quad is rendered with Meta's stock
-//   SceneMaterial + StereoMode.LeftRight; no custom stereo shader is involved;
-// - the probe exists only to verify the Spatial SDK/Quest eye compositor path.
+// - a second panel is registered through VideoSurfacePanelRegistration;
+// - its Android Surface receives a synthetic full-colour L|R test frame;
+// - MediaPanelSettings uses StereoMode.LeftRight so eye routing is performed by
+//   the same registered compositor/panel path used by Meta's stereo media samples;
+// - no custom stereo shader, SceneObject overlay or GeoGebra texture is involved.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
