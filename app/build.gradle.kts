@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 66
-        versionName = "0.9.15"
+        versionCode = 67
+        versionName = "0.9.16"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,13 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.15 controlled stereo A/B diagnostic:
-// - one registered VideoSurface panel is shared by TEST and GEOGEBRA sources;
-// - the stereo panel exactly restores the v0.9.11 800x400 / 0.80x0.45m path;
-// - TEST draws the physically verified red-left / blue-right probe;
-// - GEOGEBRA draws the live SBS frame directly to the same full Surface bounds;
-// - no fit-center, crop, IsdkPanelResize or Scale component touches stereo routing;
-// - StereoMode.LeftRight remains the only per-eye presentation mechanism.
+// v0.9.16 explicit-eye live stereo fix:
+// - keep the physically verified v0.9.11/v0.9.15 VideoSurface stereo path intact;
+// - split the GeoGebra WebGL 2W x H backing store into left/right eye viewports in JS;
+// - send two independent JPEG eye frames through the WebView bridge;
+// - native code composes exactly one L|R frame into the shared 800x400 Surface;
+// - Meta StereoMode.LeftRight performs the final physical eye routing.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
