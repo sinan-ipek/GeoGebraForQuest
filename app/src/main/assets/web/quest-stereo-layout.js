@@ -8,26 +8,24 @@
   var lastCanvas = null;
   var scheduled = false;
 
-  // v0.9.17 diagnostic: v0.9.16 proved that even a nominal half of the
-  // WebGL backing store still contains two visible views on Quest. Instead of
-  // guessing the true eye boundary, capture four equal horizontal quarters.
-  // Native code can then compare 1+2 versus 1+3 on the SAME verified
-  // StereoMode.LeftRight VideoSurface without changing panel configuration.
+  // v0.9.18: the GeoGebra renderer itself publishes two dedicated canvases,
+  // one immediately after LEFT_EYE is rendered and one immediately after
+  // RIGHT_EYE is rendered. Never infer eye boundaries from the final SBS canvas.
   var CAPTURE_INTERVAL_MS = 100;
-  var CAPTURE_MAX_QUARTER_WIDTH = 384;
-  var CAPTURE_JPEG_QUALITY = 0.72;
+  var CAPTURE_MAX_EYE_WIDTH = 720;
+  var CAPTURE_JPEG_QUALITY = 0.78;
   var lastCaptureAt = 0;
 
-  var quarterCanvases = [];
-  var quarterContexts = [];
-  for (var i = 0; i < 4; i += 1) {
-    var canvas = document.createElement('canvas');
-    quarterCanvases.push(canvas);
-    quarterContexts.push(canvas.getContext('2d', {
-      alpha: false,
-      desynchronized: true
-    }));
-  }
+  var leftCaptureCanvas = document.createElement('canvas');
+  var rightCaptureCanvas = document.createElement('canvas');
+  var leftCaptureContext = leftCaptureCanvas.getContext('2d', {
+    alpha: false,
+    desynchronized: true
+  });
+  var rightCaptureContext = rightCaptureCanvas.getContext('2d', {
+    alpha: false,
+    desynchronized: true
+  });
 
   function bridge(name, value) {
     try {
@@ -37,11 +35,11 @@
     } catch (_) {}
   }
 
-  function bridgeStereoQuarters(q1, q2, q3, q4) {
+  function bridgeStereoEyes(leftDataUrl, rightDataUrl) {
     try {
       if (window.QuestBridge &&
-          typeof window.QuestBridge.updateStereoQuarters === 'function') {
-        window.QuestBridge.updateStereoQuarters(q1, q2, q3, q4);
+          typeof window.QuestBridge.updateStereoEyes === 'function') {
+        window.QuestBridge.updateStereoEyes(leftDataUrl, rightDataUrl);
       }
     } catch (_) {}
   }
@@ -176,58 +174,75 @@
     requestAnimationFrame(sendLayout);
   }
 
-  function ensureQuarterCanvasSize(width, height) {
-    for (var i = 0; i < 4; i += 1) {
-      if (quarterCanvases[i].width !== width) quarterCanvases[i].width = width;
-      if (quarterCanvases[i].height !== height) quarterCanvases[i].height = height;
-    }
+  function ensureCaptureCanvasSize(width, height) {
+    if (leftCaptureCanvas.width !== width) leftCaptureCanvas.width = width;
+    if (leftCaptureCanvas.height !== height) leftCaptureCanvas.height = height;
+    if (rightCaptureCanvas.width !== width) rightCaptureCanvas.width = width;
+    if (rightCaptureCanvas.height !== height) rightCaptureCanvas.height = height;
   }
 
-  function captureStereoQuarters() {
-    for (var i = 0; i < 4; i += 1) {
-      if (!quarterContexts[i]) return;
+  function getRendererEyeCanvases() {
+    var left = document.getElementById('ggq-renderer-left-eye');
+    var right = document.getElementById('ggq-renderer-right-eye');
+    if (!left || !right) return null;
+    if (left.width < 2 || left.height < 2 || right.width < 2 || right.height < 2) {
+      return null;
     }
+    return { left: left, right: right };
+  }
 
-    var source = find3DCanvas();
-    if (!source || source.width < 8 || source.height < 2) return;
+  function captureStereoEyes() {
+    if (!leftCaptureContext || !rightCaptureContext) return;
+
+    var eyes = getRendererEyeCanvases();
+    if (!eyes) return;
 
     try {
-      var sourceQuarterWidth = Math.floor(source.width / 4);
-      if (sourceQuarterWidth < 2) return;
+      var sourceWidth = Math.min(eyes.left.width, eyes.right.width);
+      var sourceHeight = Math.min(eyes.left.height, eyes.right.height);
+      if (sourceWidth < 2 || sourceHeight < 2) return;
 
-      var scale = Math.min(1, CAPTURE_MAX_QUARTER_WIDTH / sourceQuarterWidth);
-      var quarterWidth = Math.max(2, Math.round(sourceQuarterWidth * scale));
-      var quarterHeight = Math.max(2, Math.round(source.height * scale));
-      ensureQuarterCanvasSize(quarterWidth, quarterHeight);
+      var scale = Math.min(1, CAPTURE_MAX_EYE_WIDTH / sourceWidth);
+      var eyeWidth = Math.max(2, Math.round(sourceWidth * scale));
+      var eyeHeight = Math.max(2, Math.round(sourceHeight * scale));
+      ensureCaptureCanvasSize(eyeWidth, eyeHeight);
 
-      for (var q = 0; q < 4; q += 1) {
-        var sourceX = q === 3
-          ? source.width - sourceQuarterWidth
-          : q * sourceQuarterWidth;
-        quarterContexts[q].drawImage(
-          source,
-          sourceX, 0, sourceQuarterWidth, source.height,
-          0, 0, quarterWidth, quarterHeight
-        );
-      }
+      leftCaptureContext.drawImage(
+        eyes.left,
+        0, 0, sourceWidth, sourceHeight,
+        0, 0, eyeWidth, eyeHeight
+      );
+      rightCaptureContext.drawImage(
+        eyes.right,
+        0, 0, sourceWidth, sourceHeight,
+        0, 0, eyeWidth, eyeHeight
+      );
 
-      var urls = quarterCanvases.map(function (canvas) {
-        return canvas.toDataURL('image/jpeg', CAPTURE_JPEG_QUALITY);
-      });
+      var leftDataUrl = leftCaptureCanvas.toDataURL(
+        'image/jpeg',
+        CAPTURE_JPEG_QUALITY
+      );
+      var rightDataUrl = rightCaptureCanvas.toDataURL(
+        'image/jpeg',
+        CAPTURE_JPEG_QUALITY
+      );
 
-      if (urls.every(function (url) { return url && url.length > 64; })) {
-        bridgeStereoQuarters(urls[0], urls[1], urls[2], urls[3]);
+      if (
+        leftDataUrl && leftDataUrl.length > 64 &&
+        rightDataUrl && rightDataUrl.length > 64
+      ) {
+        bridgeStereoEyes(leftDataUrl, rightDataUrl);
       }
     } catch (_) {
-      // GeoGebra may replace the canvas during a layout transition. The next
-      // capture discovers the active WebGL canvas again.
+      // Renderer canvases can be replaced during a 3D view reconstruction.
+      // The next capture loop simply resolves the current explicit eye canvases.
     }
   }
 
   function captureLoop(now) {
     if (now - lastCaptureAt >= CAPTURE_INTERVAL_MS) {
       lastCaptureAt = now;
-      captureStereoQuarters();
+      captureStereoEyes();
     }
     requestAnimationFrame(captureLoop);
   }
