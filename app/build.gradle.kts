@@ -13,8 +13,10 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 33
-        versionName = "0.7.0"
+        versionCode = 61
+        versionName = "0.9.10"
+
+        ndkVersion = "27.0.12077973"
     }
 
     buildFeatures {
@@ -58,10 +60,15 @@ dependencies {
     implementation(libs.meta.spatial.sdk.toolkit)
 }
 
-// v0.7.0 removes projection-mode UI from the user workflow. Whenever a visible
-// GeoGebra 3D WebGL canvas exists, the app automatically selects GeoGebra's
-// Glasses renderer internally and enables Quest stereo capture. When the 3D view
-// disappears, stereo is disabled. No headset/projection click is required.
+// v0.9.10 official-stereo diagnostic:
+// - the working GeoGebra LayoutXML/WebView panel is completely untouched;
+// - the patched GeoGebra source still produces permanent full-colour L|R SBS;
+// - a separate synthetic L|R test quad is rendered with Meta's stock
+//   SceneMaterial + StereoMode.LeftRight; no custom stereo shader is involved;
+// - the probe exists only to verify the Spatial SDK/Quest eye compositor path.
 spatial {
     allowUsageDataCollection.set(true)
+    shaders {
+        sources.add(project.layout.projectDirectory.dir("src/shaders"))
+    }
 }
