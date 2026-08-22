@@ -53,8 +53,8 @@
   <div id="ggb-element"></div>
 
   <div id="boot-panel">
-    <div id="boot-title">GeoGebraForQuest v0.9.15</div>
-    <div id="status">A/B stereo testi hazırlanıyor… Önce TEST, sonra GEOGEBRA düğmesini kullanın.</div>
+    <div id="boot-title">GeoGebraForQuest v0.9.16</div>
+    <div id="status">Sol ve sağ WebGL göz görüntüleri ayrı ayrı hazırlanıyor…</div>
   </div>
 
 <script>
@@ -134,7 +134,7 @@
 
     bootPanel.style.borderColor = '#b8d8be';
     status.style.color = '#196b2c';
-    setStatus('GeoGebra hazır · A/B panelinde TEST ve GEOGEBRA kaynaklarını karşılaştırın');
+    setStatus('GeoGebra hazır · v0.9.16 ayrı sol/sağ göz aktarımı etkin');
     bridgeCall('panelReady');
 
     setTimeout(function () {
@@ -192,7 +192,7 @@
           if (!response.ok) {
             throw new Error('web3d.nocache.js HTTP ' + response.status);
           }
-          setStatus('Tam renkli SBS GeoGebra başlatılıyor…');
+          setStatus('Tam renkli stereo GeoGebra başlatılıyor…');
           startApplet();
         })
         .catch(function (error) {
