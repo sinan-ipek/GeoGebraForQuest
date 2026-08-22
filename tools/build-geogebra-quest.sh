@@ -67,13 +67,13 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.10
+version=0.9.11
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour SBS, permanent Quest draw path)
 renderer=QuestStereoRenderer
 backing_store=always_2x_width
 viewport=left_eye_then_right_eye
-presentation=independent synthetic L|R probe using stock SceneMaterial.setStereoMode(StereoMode.LeftRight)
+presentation=registered VideoSurfacePanelRegistration synthetic L|R probe using MediaPanelRenderOptions StereoMode.LeftRight
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
