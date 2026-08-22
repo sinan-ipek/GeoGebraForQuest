@@ -73,8 +73,8 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // v0.9.14 keeps the v0.9.13 live SBS capture unchanged. Only the native
-    // panel interaction/presentation composition changed in this release.
+    // v0.9.15 keeps the source-built permanent SBS capture and lets the native
+    // A/B panel choose whether TEST or live GEOGEBRA frames own the same Surface.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -100,7 +100,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.14"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.15"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
