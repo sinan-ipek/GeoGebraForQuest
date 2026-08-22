@@ -52,18 +52,21 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.12 panel interaction source
+      - name: Verify v0.9.13 live stereo integration source
         shell: bash
         run: |
           grep -q 'VideoSurfacePanelRegistration' app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
           grep -q 'StereoMode.LeftRight' app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
           grep -q 'IsdkPanelResize' app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
-          grep -q 'GrabbableType.PIVOT_Y' app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
-          grep -q 'meta-spatial-sdk-isdk' gradle/libs.versions.toml
+          test "$(grep -c 'IsdkPanelResize()' app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt)" -ge 2
+          grep -q 'Scale(Vector3(1f))' app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
+          grep -q 'updateStereoFrame' app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
+          grep -q 'LiveStereoFrameSink.submitDataUrl' app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
+          grep -q "toDataURL('image/jpeg'" app/src/main/assets/web/quest-stereo-layout.js
+          grep -q 'LiveStereoFrameSink' app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
+          grep -q 'lockCanvas' app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
+          grep -q 'preserveDrawingBuffer' tools/patch-geogebra-quest-v0913.py
           grep -q 'libs.meta.spatial.sdk.isdk' app/build.gradle.kts
-          grep -q 'stereo_surface_probe_panel' app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
-          grep -q 'lockCanvas' app/src/main/java/com/sinan/geogebraforquest/StereoSurfaceProbe.kt
-          grep -q 'unlockCanvasAndPost' app/src/main/java/com/sinan/geogebraforquest/StereoSurfaceProbe.kt
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -71,9 +74,10 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/deployggb.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/web3d.nocache.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/css/bundles/bundle.css'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.12'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.13'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'backing_store=always_2x_width'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'IsdkPanelResize'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'preserve_drawing_buffer=true'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'live active GeoGebra 3D SBS canvas'
           if unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/web/GeoGebra/HTML5/5.0/web3d/web3d.nocache.js'; then
             echo 'Unexpected legacy HTML5/5.0 Web3D layout is still packaged'
             exit 1
@@ -83,14 +87,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.12-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.12-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.12-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.13-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.13-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.13-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.12-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.12-debug.apk
+          name: GeoGebraForQuest-v0.9.13-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.13-debug.apk
           if-no-files-found: error
           retention-days: 30
