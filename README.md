@@ -1,50 +1,19 @@
-# GeoGebraForQuest v0.2
+# GeoGebraForQuest
 
-Quest 3 için yerel GeoGebra + aynı 3B Grafik alanında gerçek stereo portal prototipi.
+GeoGebraForQuest is an experimental Meta Quest wrapper around the local GeoGebra Math Apps bundle.
 
-## Kullanıcı deneyimi
+## Current development build: v0.7.3
 
-- Uygulama açıldığında bildiğimiz GeoGebra Classic görünür.
-- Ayrı bir VR düğmesi veya ayrı bir VR arayüzü yoktur.
-- GeoGebra'nın 3B Grafik görünümündeki projeksiyon menüsü aynen kullanılır.
-- Eski anaglif/gözlük simgesi GeoGebraForQuest içinde **Stereo 3D / Quest headset** simgesine dönüştürülür.
-- Bu simge seçildiğinde yeni pencere veya ikinci Activity açılmaz.
-- Yalnızca mevcut GeoGebra 3B Grafik WebGL alanı transparan hale gelir ve arkasında Meta Spatial SDK'nın gerçek stereo geometrisi görünür.
-- GeoGebra'nın cebir paneli, menüleri, slider'ları, giriş alanı ve diğer 2B arayüzü çalışmaya devam eder.
-- Stereo kapatıldığında aynı 3B Grafik alanı tekrar normal GeoGebra renderına döner.
+The v0.7.x line automatically detects the visible GeoGebra 3D WebGL view, internally selects GeoGebra's Glasses projection, captures full-RGB left/right eye passes, and presents them to a native `StereoMode.LeftRight` media surface.
 
-## Mimari
+### v0.7.3 architecture
 
-Quest'teki sıradan Android/Horizon 2B paneli iki göze ayrı görüntü veremediği için uygulama v0.2'den itibaren Spatial SDK'yı başlangıçtan kullanır. Ancak passthrough açık tutulur ve kullanıcıya yalnızca tek bir normal GeoGebra paneli gösterilir. Spatial katman, sadece 3B Grafik penceresinin transparan bölümünde görünür.
+- The normal GeoGebra WebView remains the **front interaction layer**.
+- The stereo media surface sits **behind** the WebView as an underlay.
+- Only the active 3D WebGL canvas is made almost transparent; controller rays still hit the real WebView canvas.
+- GeoGebra dialogs, settings, save/login UI and the virtual keyboard are **not** used to disable stereo. They simply render in the WebView in front of the stereo underlay.
+- The colour helper opens the 3D Projection settings, disables GeoGebra's `GrayScale` option, then closes Settings through GeoGebra's real `SheetTitlePanel.closeBtn` control.
+- Projection-selection buttons are internal implementation details and are hidden from the user.
+- The proven direct-eye capture path from v0.7.1 is intentionally retained; v0.7.3 changes composition and UI automation, not the working left/right capture algorithm.
 
-WebView ile native Spatial katmanı arasındaki köprü şunları canlı eşitler:
-
-- 3B grafik pencere dikdörtgeni
-- GeoGebra 3B kamera/orijin/ölçek bilgisi
-- desteklenen geometrik nesneler
-- Stereo 3D açık/kapalı durumu
-
-v0.2 native aynalama desteği:
-
-- noktalar
-- doğru parçaları
-- doğrular
-- ışınlar
-- Sphere(...) küreleri
-- çokgen kenarları
-- üç noktayla tanımlı düzlemler
-- XYZ eksenleri
-
-Bu sürümün amacı önce **"aynı GeoGebra 3B penceresinin gerçek stereoya dönüşmesi"** mimarisini Quest üzerinde doğrulamaktır. Daha karmaşık GeoGebra 3B nesneleri sonraki sürümlerde eklenecektir.
-
-## Yerel GeoGebra
-
-GitHub Actions derlemesi sırasında `tools/get-geogebra.sh`, GeoGebra Math Apps Bundle'ını indirip APK assets klasörüne ekler. WebView içerikleri Android `WebViewAssetLoader` üzerinden yerel HTTPS-benzeri origin ile çalışır.
-
-## Derleme
-
-Her `main` push'unda ve `main` hedefli pull request'te GitHub Actions debug APK üretir.
-
-## Lisans
-
-Bu depo kişisel/teknik prototip geliştirme içindir. GeoGebra ve Meta Spatial SDK'nın kendi lisans koşulları geçerlidir.
+This is still a debug/test build. The on-screen GGQ debug overlay is intentionally enabled so Quest-side tests can report stereo state, direct-eye frame counters, colour configuration, and underlay-hole state.

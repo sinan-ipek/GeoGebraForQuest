@@ -13,8 +13,10 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 33
-        versionName = "0.7.0"
+        versionCode = 69
+        versionName = "0.9.18"
+
+        ndkVersion = "27.0.12077973"
     }
 
     buildFeatures {
@@ -56,12 +58,18 @@ dependencies {
     implementation(libs.meta.spatial.sdk.vr)
     implementation(libs.meta.spatial.sdk.compose)
     implementation(libs.meta.spatial.sdk.toolkit)
+    implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.7.0 removes projection-mode UI from the user workflow. Whenever a visible
-// GeoGebra 3D WebGL canvas exists, the app automatically selects GeoGebra's
-// Glasses renderer internally and enables Quest stereo capture. When the 3D view
-// disappears, stereo is disabled. No headset/projection click is required.
+// v0.9.18 renderer-pass stereo:
+// - QuestStereoRenderer snapshots LEFT_EYE and RIGHT_EYE immediately after draw;
+// - browser code encodes those two explicit renderer-owned canvases;
+// - native code maps exactly one L and one R image into the VideoSurface;
+// - each eye preserves its aspect ratio inside a square eye target;
+// - Meta StereoMode.LeftRight performs the final physical eye routing.
 spatial {
     allowUsageDataCollection.set(true)
+    shaders {
+        sources.add(project.layout.projectDirectory.dir("src/shaders"))
+    }
 }

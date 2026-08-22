@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DEST="$ROOT/app/src/main/assets/web/GeoGebra"
+WORK="${GGQ_GEOGEBRA_WORK:-$ROOT/.geogebra-source-work}"
+SRC="$WORK/geogebra"
+
+# Pinned source revision inspected while designing the Quest stereo renderer.
+GEOGEBRA_COMMIT="1d19a6ba1ed9fe4815d2cddc9b085c83d156f875"
+
+rm -rf "$WORK"
+mkdir -p "$WORK"
+
+echo "[GGQ] cloning GeoGebra source @ $GEOGEBRA_COMMIT"
+git clone --filter=blob:none --no-checkout https://github.com/geogebra/geogebra.git "$SRC"
+git -C "$SRC" fetch --depth 1 origin "$GEOGEBRA_COMMIT"
+git -C "$SRC" checkout --detach "$GEOGEBRA_COMMIT"
+
+echo "[GGQ] applying Quest full-colour SBS source patches"
+python3 "$ROOT/tools/patch-geogebra-quest.py" "$SRC"
+
+echo "[GGQ] applying permanent stereo backing-store stability patch"
+python3 "$ROOT/tools/patch-geogebra-quest-v097.py" "$SRC"
+
+echo "[GGQ] enabling readable WebGL buffer"
+python3 "$ROOT/tools/patch-geogebra-quest-v0913.py" "$SRC"
+
+echo "[GGQ] capturing completed LEFT_EYE and RIGHT_EYE render passes explicitly"
+python3 "$ROOT/tools/patch-geogebra-quest-v0918.py" "$SRC"
+
+echo "[GGQ] compiling GeoGebra Web3D and its static runtime resources"
+pushd "$SRC/source/web" >/dev/null
+../../gradlew \
+  :web:gwtCompile \
+  :web:copyHtml \
+  :web:mergeDeploy \
+  -Pgmodule=org.geogebra.web.Web3D \
+  -PdeployggbRoot=./ \
+  --no-daemon \
+  --stacktrace
+popd >/dev/null
+
+WAR="$SRC/source/web/web/war"
+[ -f "$WAR/deployggb.js" ] || {
+  echo "[GGQ] deployggb.js missing"
+  find "$WAR" -maxdepth 2 -type f | head -n 80 || true
+  exit 1
+}
+[ -f "$WAR/web3d/web3d.nocache.js" ] || {
+  echo "[GGQ] web3d bootstrap missing"
+  find "$WAR" -maxdepth 2 -type f | head -n 120 || true
+  exit 1
+}
+[ -f "$WAR/css/bundles/bundle.css" ] || {
+  echo "[GGQ] bundle.css missing"
+  find "$WAR/css" -maxdepth 2 -type f | head -n 120 || true
+  exit 1
+}
+
+rm -rf "$DEST"
+mkdir -p "$DEST"
+cp -R "$WAR"/. "$DEST"/
+
+cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
+GeoGebraForQuest source build
+version=0.9.18
+upstream_commit=$GEOGEBRA_COMMIT
+projection=PROJECTION_GLASSES (full-colour stereo)
+renderer=QuestStereoRenderer
+backing_store=always_2x_width
+viewport=left_eye_then_right_eye
+preserve_drawing_buffer=true
+renderer_eye_capture=LEFT_EYE and RIGHT_EYE snapped immediately after each render pass
+renderer_eye_canvases=ggq-renderer-left-eye,ggq-renderer-right-eye
+presentation=registered VideoSurfacePanelRegistration with StereoMode.LeftRight
+stereo_panel=1440x720 pixels total, square physical panel, 720x720 per eye
+bridge=two explicit renderer-eye JPEG data URLs
+native_composition=one renderer-left image to Surface left half; one renderer-right image to Surface right half; aspect preserved
+runtime_layout=source-war-root
+module_base=./
+static_runtime=copyHtml/resources-war included
+EOF
+
+echo "[GGQ] patched GeoGebra installed at $DEST"
+echo "[GGQ] required runtime files:"
+ls -lh \
+  "$DEST/deployggb.js" \
+  "$DEST/web3d/web3d.nocache.js" \
+  "$DEST/css/bundles/bundle.css"
