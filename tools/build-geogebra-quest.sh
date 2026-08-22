@@ -61,15 +61,17 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.14
+version=0.9.15
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour SBS, permanent Quest draw path)
 renderer=QuestStereoRenderer
 backing_store=always_2x_width
 viewport=left_eye_then_right_eye
 preserve_drawing_buffer=true
-presentation=live active GeoGebra 3D SBS canvas copied to minimal registered VideoSurfacePanelRegistration with StereoMode.LeftRight
-interaction=Panel+Transform+Grabbable stereo startup path; external Scale controls for GeoGebra and stereo; no IsdkPanelResize
+presentation=controlled A/B on one registered VideoSurfacePanelRegistration with StereoMode.LeftRight
+stereo_panel=exact v0.9.11 settings: 800x400 pixels, 0.80x0.45 metres, Panel+Transform+Grabbable
+source_test=v0.9.11 red-left blue-right probe drawn directly to Surface
+source_geogebra=live active GeoGebra SBS drawn directly to the same full Surface bounds without fit-center
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
