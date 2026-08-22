@@ -2,13 +2,9 @@ package com.sinan.geogebraforquest
 
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import android.webkit.WebView
-import android.widget.Button
-import android.widget.TextView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
@@ -32,12 +28,13 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.20.
+ * GeoGebraForQuest v0.9.21.
  *
- * TEST draws the bundled real SBS stereo photo directly into the registered
- * VideoSurface. GEOGEBRA keeps the v0.9.19 single-viewport renderer path:
- * LEFT_EYE and RIGHT_EYE are rendered sequentially into the same W x H WebGL
- * viewport, captured independently, then mapped to the Surface L|R halves.
+ * The TEST source and source-selection panel have been removed completely.
+ * The registered stereo VideoSurface now has a single source: live GeoGebra.
+ * The working v0.9.19 renderer core is preserved unchanged: LEFT_EYE and
+ * RIGHT_EYE render sequentially into the same W x H WebGL viewport, are
+ * captured independently, and are mapped to the Surface L|R halves.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -52,30 +49,15 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val STEREO_TEXTURE_WIDTH = 1440
         private const val STEREO_TEXTURE_HEIGHT = 720
 
-        private const val CONTROLS_PANEL_WIDTH_METERS = 0.64f
-        private const val CONTROLS_PANEL_HEIGHT_METERS = 0.16f
-        private const val CONTROLS_PANEL_WIDTH_DP = 520f
-        private const val CONTROLS_PANEL_HEIGHT_DP = 128f
-
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
     }
 
-    private enum class StereoSourceMode {
-        TEST,
-        GEOGEBRA,
-    }
-
-    private val mainHandler = Handler(Looper.getMainLooper())
-
     private var sceneReady = false
     private var vrReady = false
     private var stereoPanelEntity: Entity? = null
-    private var controlsPanelEntity: Entity? = null
     private var stereoSurface: Surface? = null
-    private var modeStatusView: TextView? = null
-    private var stereoSourceMode = StereoSourceMode.GEOGEBRA
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -109,7 +91,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 },
             ),
             VideoSurfacePanelRegistration(
-                R.id.stereo_surface_probe_panel,
+                R.id.geogebra_stereo_panel,
                 surfaceConsumer = { _, surface ->
                     stereoSurface?.let { previous ->
                         if (previous !== surface) {
@@ -119,11 +101,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface)
-                    applyCurrentStereoSource(surface)
-                    Log.i(
-                        TAG,
-                        "v0.9.20 1440x720 stereo VideoSurface attached; mode=$stereoSourceMode",
-                    )
+                    LiveStereoFrameSink.setEnabled(true)
+                    Log.i(TAG, "v0.9.21 GeoGebra-only 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -142,35 +121,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     )
                 },
             ),
-            LayoutXMLPanelRegistration(
-                R.id.scale_controls_panel,
-                layoutIdCreator = { R.layout.scale_controls_panel },
-                settingsCreator = {
-                    UIPanelSettings(
-                        shape = QuadShapeOptions(
-                            width = CONTROLS_PANEL_WIDTH_METERS,
-                            height = CONTROLS_PANEL_HEIGHT_METERS,
-                        ),
-                        display = DpDisplayOptions(
-                            width = CONTROLS_PANEL_WIDTH_DP,
-                            height = CONTROLS_PANEL_HEIGHT_DP,
-                        ),
-                        style = PanelStyleOptions(
-                            themeResourceId = R.style.PanelAppThemeTransparent,
-                        ),
-                    )
-                },
-                panelSetupWithRootView = { rootView, _, _ ->
-                    modeStatusView = rootView.findViewById(R.id.stereo_mode_status)
-                    rootView.findViewById<Button>(R.id.stereo_test_mode).setOnClickListener {
-                        switchToTestMode()
-                    }
-                    rootView.findViewById<Button>(R.id.stereo_geogebra_mode).setOnClickListener {
-                        switchToGeoGebraMode()
-                    }
-                    updateModeStatus()
-                },
-            ),
         )
     }
 
@@ -180,66 +130,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         SpatialBridgeBus.clear()
         LiveStereoFrameSink.setEnabled(true)
         requestScenePermissionIfNeeded()
-    }
-
-    private fun applyCurrentStereoSource(surface: Surface) {
-        when (stereoSourceMode) {
-            StereoSourceMode.TEST -> {
-                LiveStereoFrameSink.setEnabled(false)
-                drawStereoProbeRepeatedly(surface)
-            }
-
-            StereoSourceMode.GEOGEBRA -> {
-                LiveStereoFrameSink.setEnabled(true)
-            }
-        }
-        updateModeStatus()
-    }
-
-    private fun switchToTestMode() {
-        stereoSourceMode = StereoSourceMode.TEST
-        LiveStereoFrameSink.setEnabled(false)
-        stereoSurface?.let { surface ->
-            if (surface.isValid) {
-                drawStereoProbeRepeatedly(surface)
-            }
-        }
-        updateModeStatus()
-        Log.i(TAG, "v0.9.20 source switched to TEST stereo photo")
-    }
-
-    private fun switchToGeoGebraMode() {
-        stereoSourceMode = StereoSourceMode.GEOGEBRA
-        LiveStereoFrameSink.setEnabled(true)
-        updateModeStatus()
-        Log.i(TAG, "v0.9.20 source switched to GEOGEBRA single-viewport eyes")
-    }
-
-    private fun drawStereoProbeRepeatedly(surface: Surface) {
-        StereoSurfaceProbe.draw(this, surface)
-        mainHandler.postDelayed(
-            {
-                if (stereoSourceMode == StereoSourceMode.TEST && surface.isValid) {
-                    StereoSurfaceProbe.draw(this, surface)
-                }
-            },
-            250L,
-        )
-        mainHandler.postDelayed(
-            {
-                if (stereoSourceMode == StereoSourceMode.TEST && surface.isValid) {
-                    StereoSurfaceProbe.draw(this, surface)
-                }
-            },
-            1000L,
-        )
-    }
-
-    private fun updateModeStatus() {
-        modeStatusView?.text = when (stereoSourceMode) {
-            StereoSourceMode.TEST -> "STEREO KAYNAĞI: TEST FOTOĞRAFI"
-            StereoSourceMode.GEOGEBRA -> "STEREO KAYNAĞI: GEOGEBRA"
-        }
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -294,35 +184,23 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         stereoPanelEntity =
             Entity.create(
-                Panel(R.id.stereo_surface_probe_panel),
+                Panel(R.id.geogebra_stereo_panel),
                 Transform(Pose(Vector3(0.95f, 1.30f, 1.15f))),
                 Grabbable(),
             )
 
-        controlsPanelEntity =
-            Entity.create(
-                Panel(R.id.scale_controls_panel),
-                Transform(Pose(Vector3(0.95f, 0.70f, 1.12f))),
-                Grabbable(),
-            )
-
-        Log.i(TAG, "v0.9.20 stereo ready; default source=GEOGEBRA")
+        Log.i(TAG, "v0.9.21 GeoGebra-only stereo ready")
     }
 
     override fun onDestroy() {
-        mainHandler.removeCallbacksAndMessages(null)
         SpatialBridgeBus.clear()
         LiveStereoFrameSink.setEnabled(false)
 
         stereoSurface?.let { LiveStereoFrameSink.detachSurface(it) }
         stereoSurface = null
-        modeStatusView = null
 
         stereoPanelEntity?.destroy()
         stereoPanelEntity = null
-
-        controlsPanelEntity?.destroy()
-        controlsPanelEntity = null
 
         super.onDestroy()
     }
