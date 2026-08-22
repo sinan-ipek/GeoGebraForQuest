@@ -2,8 +2,6 @@ package com.sinan.geogebraforquest
 
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import android.webkit.WebView
@@ -26,23 +24,28 @@ import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
 import com.meta.spatial.toolkit.PixelDisplayOptions
 import com.meta.spatial.toolkit.QuadShapeOptions
+import com.meta.spatial.toolkit.Scale
 import com.meta.spatial.toolkit.Transform
 import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.12 movable/resizable panel build.
+ * GeoGebraForQuest v0.9.13 live stereo panel build.
  *
- * v0.9.11 proved the registered VideoSurfacePanel + StereoMode.LeftRight path
- * performs real Quest left/right eye separation. v0.9.12 keeps that stereo test
- * unchanged and adds native panel interaction:
+ * The normal GeoGebra LayoutXML/WebView panel remains fully interactive. Its
+ * active 3D WebGL canvas is already rendered by the patched GeoGebra source as
+ * one full-colour 2x-wide L|R SBS frame. quest-stereo-layout.js mirrors that
+ * live SBS canvas through QuestBridge.updateStereoFrame().
  *
- * - GeoGebra panel: freely grabbable in space, including nearer/farther motion.
- * - GeoGebra panel: native Meta ISDK resize/scale handles via IsdkPanelResize.
- * - Stereo panel: independently grabbable and movable, not parented to GeoGebra.
+ * LiveStereoFrameSink decodes only the newest available frame and paints it
+ * into the registered VideoSurface panel. The panel itself uses
+ * StereoMode.LeftRight, so the Meta compositor sends the left half to the left
+ * Quest eye and the right half to the right Quest eye.
  *
- * No stereo rendering logic changes are made in this release.
+ * Both panels are created as ordinary dynamic panel entities with Grabbable,
+ * Scale and IsdkPanelResize components. This mirrors Meta's official panel
+ * resize sample more closely than changing components on a pre-addressed Entity.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -52,12 +55,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         const val PANEL_WIDTH_DP = 1080f
         const val PANEL_HEIGHT_DP = 720f
 
-        private const val PROBE_WIDTH_METERS = 0.80f
-        private const val PROBE_HEIGHT_METERS = 0.45f
-        private const val PROBE_TEXTURE_WIDTH = 800
-        private const val PROBE_TEXTURE_HEIGHT = 400
+        // StereoMode.LeftRight samples half of this texture for each eye. A 2:1
+        // source surface therefore gives each eye a square sampling region.
+        private const val STEREO_PANEL_WIDTH_METERS = 0.82f
+        private const val STEREO_PANEL_HEIGHT_METERS = 0.82f
+        private const val STEREO_TEXTURE_WIDTH = 1440
+        private const val STEREO_TEXTURE_HEIGHT = 720
 
-        private const val MIN_PANEL_HEIGHT = 0.40f
+        private const val MIN_PANEL_HEIGHT = 0.35f
         private const val MAX_PANEL_HEIGHT = 3.00f
 
         private const val TAG = "GeoGebraForQuest"
@@ -65,11 +70,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val REQUEST_USE_SCENE = 701
     }
 
-    private val mainHandler = Handler(Looper.getMainLooper())
-
     private var sceneReady = false
     private var vrReady = false
-    private var stereoSurfaceProbeEntity: Entity? = null
+
+    private var geogebraPanelEntity: Entity? = null
+    private var stereoPanelEntity: Entity? = null
     private var stereoSurface: Surface? = null
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
@@ -106,18 +111,23 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             VideoSurfacePanelRegistration(
                 R.id.stereo_surface_probe_panel,
                 surfaceConsumer = { _, surface ->
+                    stereoSurface?.let { previous ->
+                        if (previous !== surface) {
+                            LiveStereoFrameSink.detachSurface(previous)
+                        }
+                    }
                     stereoSurface = surface
-                    drawStereoProbeRepeatedly(surface)
+                    LiveStereoFrameSink.attachSurface(surface)
                 },
                 settingsCreator = {
                     MediaPanelSettings(
                         shape = QuadShapeOptions(
-                            width = PROBE_WIDTH_METERS,
-                            height = PROBE_HEIGHT_METERS,
+                            width = STEREO_PANEL_WIDTH_METERS,
+                            height = STEREO_PANEL_HEIGHT_METERS,
                         ),
                         display = PixelDisplayOptions(
-                            width = PROBE_TEXTURE_WIDTH,
-                            height = PROBE_TEXTURE_HEIGHT,
+                            width = STEREO_TEXTURE_WIDTH,
+                            height = STEREO_TEXTURE_HEIGHT,
                         ),
                         rendering = MediaPanelRenderOptions(
                             stereoMode = StereoMode.LeftRight,
@@ -134,19 +144,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         StereoDebugState.reset()
         SpatialBridgeBus.clear()
         requestScenePermissionIfNeeded()
-    }
-
-    private fun drawStereoProbeRepeatedly(surface: Surface) {
-        StereoSurfaceProbe.draw(surface)
-        mainHandler.postDelayed(
-            { if (surface.isValid) StereoSurfaceProbe.draw(surface) },
-            250L,
-        )
-        mainHandler.postDelayed(
-            { if (surface.isValid) StereoSurfaceProbe.draw(surface) },
-            1000L,
-        )
-        Log.i(TAG, "v0.9.12 registered stereo surface delivered")
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -191,14 +188,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         if (vrReady) return
         vrReady = true
 
-        // GeoGebra panel:
-        // PIVOT_Y lets the panel be grabbed and moved nearer/farther while
-        // keeping a comfortable upright panel orientation. IsdkPanelResize
-        // supplies Meta's native panel resize/scale affordance.
-        Entity(R.id.geogebra_panel).setComponents(
-            listOf(
+        // Create the GeoGebra panel through the same dynamic Panel entity pattern
+        // used by Meta's official resize sample. IsdkPanelResize now participates
+        // from entity creation rather than being added later to a fixed-id entity.
+        geogebraPanelEntity =
+            Entity.create(
                 Panel(R.id.geogebra_panel),
-                Transform(Pose(Vector3(0f, 1.25f, 1.50f))),
+                Transform(Pose(Vector3(-0.20f, 1.25f, 1.55f))),
+                Scale(Vector3(1f)),
                 Grabbable(
                     enabled = true,
                     type = GrabbableType.PIVOT_Y,
@@ -206,33 +203,38 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     maxHeight = MAX_PANEL_HEIGHT,
                 ),
                 IsdkPanelResize(),
-            ),
-        )
+            )
 
-        // The registered stereo surface panel is a completely independent
-        // spatial entity. It can be grabbed and moved without moving GeoGebra.
-        stereoSurfaceProbeEntity =
+        // Independent live stereo panel. It is movable and receives the same
+        // native resize affordance as the GeoGebra panel.
+        stereoPanelEntity =
             Entity.create(
                 Panel(R.id.stereo_surface_probe_panel),
-                Transform(Pose(Vector3(0.95f, 1.30f, 1.15f))),
+                Transform(Pose(Vector3(1.00f, 1.28f, 1.18f))),
+                Scale(Vector3(1f)),
                 Grabbable(
                     enabled = true,
                     type = GrabbableType.PIVOT_Y,
                     minHeight = MIN_PANEL_HEIGHT,
                     maxHeight = MAX_PANEL_HEIGHT,
                 ),
+                IsdkPanelResize(),
             )
 
-        Log.i(TAG, "v0.9.12 movable stereo panel + resizable GeoGebra panel active")
+        Log.i(TAG, "v0.9.13 live GeoGebra SBS stereo + two resizable panels active")
     }
 
     override fun onDestroy() {
-        mainHandler.removeCallbacksAndMessages(null)
         SpatialBridgeBus.clear()
 
+        stereoSurface?.let { LiveStereoFrameSink.detachSurface(it) }
         stereoSurface = null
-        stereoSurfaceProbeEntity?.destroy()
-        stereoSurfaceProbeEntity = null
+
+        geogebraPanelEntity?.destroy()
+        geogebraPanelEntity = null
+
+        stereoPanelEntity?.destroy()
+        stereoPanelEntity = null
 
         super.onDestroy()
     }
