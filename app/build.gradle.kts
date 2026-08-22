@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 64
-        versionName = "0.9.13"
+        versionCode = 65
+        versionName = "0.9.14"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.13 live stereo integration:
-// - patched GeoGebra keeps a readable permanent full-colour 2x-wide SBS WebGL buffer;
-// - the active 3D canvas is captured at a bounded rate and sent through QuestBridge;
-// - LiveStereoFrameSink paints the newest frame into the registered VideoSurface;
-// - Meta StereoMode.LeftRight performs the validated Quest left/right eye routing;
-// - both GeoGebra and stereo panels are dynamic Grabbable + IsdkPanelResize entities.
+// v0.9.14 stereo-preserving interaction build:
+// - live GeoGebra 3D SBS capture from v0.9.13 stays unchanged;
+// - the stereo VideoSurface keeps the minimal v0.9.11 Panel + Transform + Grabbable path;
+// - IsdkPanelResize is removed from the stereo presentation path;
+// - both panels request two-hand scaling directly through Grabbable;
+// - Meta StereoMode.LeftRight remains the only per-eye presentation mechanism.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
