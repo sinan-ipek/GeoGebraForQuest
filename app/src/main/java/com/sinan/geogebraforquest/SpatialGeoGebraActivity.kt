@@ -9,7 +9,6 @@ import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector3
-import com.meta.spatial.isdk.IsdkPanelResize
 import com.meta.spatial.runtime.ReferenceSpace
 import com.meta.spatial.runtime.StereoMode
 import com.meta.spatial.toolkit.AppSystemActivity
@@ -24,28 +23,27 @@ import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
 import com.meta.spatial.toolkit.PixelDisplayOptions
 import com.meta.spatial.toolkit.QuadShapeOptions
-import com.meta.spatial.toolkit.Scale
 import com.meta.spatial.toolkit.Transform
 import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.13 live stereo panel build.
+ * GeoGebraForQuest v0.9.14.
  *
- * The normal GeoGebra LayoutXML/WebView panel remains fully interactive. Its
- * active 3D WebGL canvas is already rendered by the patched GeoGebra source as
- * one full-colour 2x-wide L|R SBS frame. quest-stereo-layout.js mirrors that
- * live SBS canvas through QuestBridge.updateStereoFrame().
+ * v0.9.13 proved that the live GeoGebra 3D SBS frame reaches the registered
+ * VideoSurface, but adding IsdkPanelResize / explicit Scale to the media panel
+ * changed the behaviour of the previously validated stereo presentation path:
+ * the whole SBS texture was shown as one ordinary panel image.
  *
- * LiveStereoFrameSink decodes only the newest available frame and paints it
- * into the registered VideoSurface panel. The panel itself uses
- * StereoMode.LeftRight, so the Meta compositor sends the left half to the left
- * Quest eye and the right half to the right Quest eye.
+ * v0.9.14 restores the stereo panel entity to the same minimal composition that
+ * worked in v0.9.11: Panel + Transform + Grabbable only. Scaling is requested
+ * through Grabbable's two-hand scaling support instead of panel-resize logic, so
+ * the MediaPanelRenderOptions(StereoMode.LeftRight) compositor configuration is
+ * left untouched.
  *
- * Both panels are created as ordinary dynamic panel entities with Grabbable,
- * Scale and IsdkPanelResize components. This mirrors Meta's official panel
- * resize sample more closely than changing components on a pre-addressed Entity.
+ * The GeoGebra panel uses the same two-hand Grabbable scaling gesture. The live
+ * JPEG bridge and preserveDrawingBuffer source patch from v0.9.13 remain intact.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -55,8 +53,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         const val PANEL_WIDTH_DP = 1080f
         const val PANEL_HEIGHT_DP = 720f
 
-        // StereoMode.LeftRight samples half of this texture for each eye. A 2:1
-        // source surface therefore gives each eye a square sampling region.
+        // Keep the registered media panel simple. The compositor, not an ISDK
+        // resize component, owns LeftRight texture selection.
         private const val STEREO_PANEL_WIDTH_METERS = 0.82f
         private const val STEREO_PANEL_HEIGHT_METERS = 0.82f
         private const val STEREO_TEXTURE_WIDTH = 1440
@@ -64,6 +62,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val MIN_PANEL_HEIGHT = 0.35f
         private const val MAX_PANEL_HEIGHT = 3.00f
+        private const val MIN_PANEL_SCALE = 0.45f
+        private const val MAX_PANEL_SCALE = 3.00f
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
@@ -118,6 +118,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     }
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface)
+                    Log.i(TAG, "v0.9.14 live stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -183,45 +184,42 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         enablePassthroughWhenSafe()
     }
 
+    private fun scalableGrabbable(): Grabbable =
+        Grabbable(
+            enabled = true,
+            type = GrabbableType.PIVOT_Y,
+            minHeight = MIN_PANEL_HEIGHT,
+            maxHeight = MAX_PANEL_HEIGHT,
+            twoHandGrab = true,
+            allowScaling = true,
+            minScale = MIN_PANEL_SCALE,
+            maxScale = MAX_PANEL_SCALE,
+        )
+
     override fun onVRReady() {
         super.onVRReady()
         if (vrReady) return
         vrReady = true
 
-        // Create the GeoGebra panel through the same dynamic Panel entity pattern
-        // used by Meta's official resize sample. IsdkPanelResize now participates
-        // from entity creation rather than being added later to a fixed-id entity.
+        // No IsdkPanelResize and no explicit Scale component. Two-hand scaling is
+        // handled entirely by the existing Grabbable interaction path.
         geogebraPanelEntity =
             Entity.create(
                 Panel(R.id.geogebra_panel),
                 Transform(Pose(Vector3(-0.20f, 1.25f, 1.55f))),
-                Scale(Vector3(1f)),
-                Grabbable(
-                    enabled = true,
-                    type = GrabbableType.PIVOT_Y,
-                    minHeight = MIN_PANEL_HEIGHT,
-                    maxHeight = MAX_PANEL_HEIGHT,
-                ),
-                IsdkPanelResize(),
+                scalableGrabbable(),
             )
 
-        // Independent live stereo panel. It is movable and receives the same
-        // native resize affordance as the GeoGebra panel.
+        // IMPORTANT: preserve the v0.9.11 media-panel render path. This entity
+        // deliberately contains only Panel + Transform + Grabbable.
         stereoPanelEntity =
             Entity.create(
                 Panel(R.id.stereo_surface_probe_panel),
                 Transform(Pose(Vector3(1.00f, 1.28f, 1.18f))),
-                Scale(Vector3(1f)),
-                Grabbable(
-                    enabled = true,
-                    type = GrabbableType.PIVOT_Y,
-                    minHeight = MIN_PANEL_HEIGHT,
-                    maxHeight = MAX_PANEL_HEIGHT,
-                ),
-                IsdkPanelResize(),
+                scalableGrabbable(),
             )
 
-        Log.i(TAG, "v0.9.13 live GeoGebra SBS stereo + two resizable panels active")
+        Log.i(TAG, "v0.9.14 pure LeftRight media panel + two-hand scalable panels active")
     }
 
     override fun onDestroy() {
