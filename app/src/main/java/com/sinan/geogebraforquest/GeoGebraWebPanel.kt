@@ -66,8 +66,8 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // Keep the layout observer available for later integration work, but the
-    // v0.9.11 registered media-surface probe deliberately does not depend on it.
+    // Keep the layout observer available for the upcoming live GeoGebra-to-stereo
+    // panel integration. v0.9.12 only changes panel interaction behavior.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -93,7 +93,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.11"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.12"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
