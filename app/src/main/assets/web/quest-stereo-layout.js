@@ -8,15 +8,22 @@
   var lastCanvas = null;
   var scheduled = false;
 
-  // v0.9.13 live stereo capture. Keep this deliberately bounded: synchronous
-  // JPEG encoding in a WebView is expensive, so stale native frames are also
-  // dropped by LiveStereoFrameSink instead of building latency.
+  // v0.9.16: never JPEG the complete SBS backing store as one image. The
+  // source renderer already owns two explicit horizontal eye viewports. Extract
+  // each half independently, JPEG them independently, then let native code
+  // compose exactly one L|R frame for Meta StereoMode.LeftRight.
   var CAPTURE_INTERVAL_MS = 100;
-  var CAPTURE_MAX_WIDTH = 1152;
+  var CAPTURE_MAX_EYE_WIDTH = 576;
   var CAPTURE_JPEG_QUALITY = 0.72;
   var lastCaptureAt = 0;
-  var captureCanvas = document.createElement('canvas');
-  var captureContext = captureCanvas.getContext('2d', {
+
+  var leftCaptureCanvas = document.createElement('canvas');
+  var rightCaptureCanvas = document.createElement('canvas');
+  var leftCaptureContext = leftCaptureCanvas.getContext('2d', {
+    alpha: false,
+    desynchronized: true
+  });
+  var rightCaptureContext = rightCaptureCanvas.getContext('2d', {
     alpha: false,
     desynchronized: true
   });
@@ -25,6 +32,15 @@
     try {
       if (window.QuestBridge && typeof window.QuestBridge[name] === 'function') {
         window.QuestBridge[name](value);
+      }
+    } catch (_) {}
+  }
+
+  function bridgeStereoEyes(leftDataUrl, rightDataUrl) {
+    try {
+      if (window.QuestBridge &&
+          typeof window.QuestBridge.updateStereoEyes === 'function') {
+        window.QuestBridge.updateStereoEyes(leftDataUrl, rightDataUrl);
       }
     } catch (_) {}
   }
@@ -65,9 +81,9 @@
       var r = rectOf(canvas);
       if (!r || !isWebGLCanvas(canvas)) return;
       var area = r.width * r.height;
-      // The source Quest renderer owns the 2x-wide WebGL backing store. Prefer
-      // that canvas when more than one WebGL canvas is temporarily present.
-      var stereoBacking = canvas.width >= Math.floor(r.width * (window.devicePixelRatio || 1) * 1.7);
+      var stereoBacking = canvas.width >= Math.floor(
+        r.width * (window.devicePixelRatio || 1) * 1.7
+      );
       var score = area * (stereoBacking ? 4 : 1);
       if (score > bestArea) {
         bestArea = score;
@@ -159,42 +175,69 @@
     requestAnimationFrame(sendLayout);
   }
 
-  function captureStereoFrame() {
-    if (!captureContext) return;
+  function ensureEyeCanvasSize(width, height) {
+    if (leftCaptureCanvas.width !== width) leftCaptureCanvas.width = width;
+    if (leftCaptureCanvas.height !== height) leftCaptureCanvas.height = height;
+    if (rightCaptureCanvas.width !== width) rightCaptureCanvas.width = width;
+    if (rightCaptureCanvas.height !== height) rightCaptureCanvas.height = height;
+  }
+
+  function captureStereoEyes() {
+    if (!leftCaptureContext || !rightCaptureContext) return;
 
     var source = find3DCanvas();
     if (!source || source.width < 4 || source.height < 2) return;
 
     try {
-      var scale = Math.min(1, CAPTURE_MAX_WIDTH / source.width);
-      var width = Math.max(4, Math.round(source.width * scale));
-      // StereoMode.LeftRight requires two exactly equal horizontal halves.
-      if (width % 2 !== 0) width -= 1;
-      var height = Math.max(2, Math.round(source.height * scale));
+      // The source patch guarantees a permanent 2W x H WebGL backing store:
+      // [ left eye viewport | right eye viewport ]. Extract those two viewports
+      // independently instead of copying the complete SBS canvas in one draw.
+      var sourceEyeWidth = Math.floor(source.width / 2);
+      if (sourceEyeWidth < 2) return;
+      var rightEyeX = source.width - sourceEyeWidth;
 
-      if (captureCanvas.width !== width) captureCanvas.width = width;
-      if (captureCanvas.height !== height) captureCanvas.height = height;
+      var scale = Math.min(1, CAPTURE_MAX_EYE_WIDTH / sourceEyeWidth);
+      var eyeWidth = Math.max(2, Math.round(sourceEyeWidth * scale));
+      var eyeHeight = Math.max(2, Math.round(source.height * scale));
+      ensureEyeCanvasSize(eyeWidth, eyeHeight);
 
-      captureContext.drawImage(
+      leftCaptureContext.drawImage(
         source,
-        0, 0, source.width, source.height,
-        0, 0, width, height
+        0, 0, sourceEyeWidth, source.height,
+        0, 0, eyeWidth, eyeHeight
       );
 
-      var dataUrl = captureCanvas.toDataURL('image/jpeg', CAPTURE_JPEG_QUALITY);
-      if (dataUrl && dataUrl.length > 64) {
-        bridge('updateStereoFrame', dataUrl);
+      rightCaptureContext.drawImage(
+        source,
+        rightEyeX, 0, sourceEyeWidth, source.height,
+        0, 0, eyeWidth, eyeHeight
+      );
+
+      var leftDataUrl = leftCaptureCanvas.toDataURL(
+        'image/jpeg',
+        CAPTURE_JPEG_QUALITY
+      );
+      var rightDataUrl = rightCaptureCanvas.toDataURL(
+        'image/jpeg',
+        CAPTURE_JPEG_QUALITY
+      );
+
+      if (
+        leftDataUrl && leftDataUrl.length > 64 &&
+        rightDataUrl && rightDataUrl.length > 64
+      ) {
+        bridgeStereoEyes(leftDataUrl, rightDataUrl);
       }
     } catch (_) {
-      // Canvas may be replaced during a GeoGebra layout transition. The next
-      // scheduled capture will discover the new active 3D canvas.
+      // GeoGebra may replace the canvas during a layout transition. The next
+      // capture discovers the current WebGL canvas again.
     }
   }
 
   function captureLoop(now) {
     if (now - lastCaptureAt >= CAPTURE_INTERVAL_MS) {
       lastCaptureAt = now;
-      captureStereoFrame();
+      captureStereoEyes();
     }
     requestAnimationFrame(captureLoop);
   }
