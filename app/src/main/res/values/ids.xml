@@ -2,4 +2,5 @@
 <resources>
     <item name="geogebra_panel" type="id" />
     <item name="stereo_portal_panel" type="id" />
+    <item name="geogebra_stereo_panel" type="id" />
 </resources>
