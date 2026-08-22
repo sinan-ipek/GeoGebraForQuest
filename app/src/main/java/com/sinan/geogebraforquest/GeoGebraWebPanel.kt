@@ -35,25 +35,13 @@ private class QuestBridge(
     }
 
     @JavascriptInterface
-    fun updateStereoQuarters(
-        q1DataUrl: String,
-        q2DataUrl: String,
-        q3DataUrl: String,
-        q4DataUrl: String,
-    ) {
+    fun updateStereoEyes(leftDataUrl: String, rightDataUrl: String) {
         if (
             spatialMode &&
-            q1DataUrl.isNotBlank() &&
-            q2DataUrl.isNotBlank() &&
-            q3DataUrl.isNotBlank() &&
-            q4DataUrl.isNotBlank()
+            leftDataUrl.isNotBlank() &&
+            rightDataUrl.isNotBlank()
         ) {
-            LiveStereoFrameSink.submitQuarterDataUrls(
-                q1DataUrl,
-                q2DataUrl,
-                q3DataUrl,
-                q4DataUrl,
-            )
+            LiveStereoFrameSink.submitEyeDataUrls(leftDataUrl, rightDataUrl)
         }
     }
 
@@ -89,8 +77,8 @@ private fun injectAssetScript(view: WebView, id: String, url: String) {
 }
 
 private fun injectQuestScripts(view: WebView) {
-    // v0.9.17 captures four horizontal WebGL quarters so the headset can
-    // determine the real eye packing without changing the verified Meta panel.
+    // v0.9.18 consumes the two canvases created directly by QuestStereoRenderer
+    // after the completed left-eye and right-eye render passes.
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
@@ -116,7 +104,7 @@ fun configureGeoGebraWebView(
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.17"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.18"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
