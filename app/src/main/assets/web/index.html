@@ -53,8 +53,8 @@
   <div id="ggb-element"></div>
 
   <div id="boot-panel">
-    <div id="boot-title">GeoGebraForQuest v0.9.14</div>
-    <div id="status">Canlı 3D SBS görüntüsü saf Quest stereo panel yoluna bağlanıyor…</div>
+    <div id="boot-title">GeoGebraForQuest v0.9.15</div>
+    <div id="status">A/B stereo testi hazırlanıyor… Önce TEST, sonra GEOGEBRA düğmesini kullanın.</div>
   </div>
 
 <script>
@@ -134,12 +134,12 @@
 
     bootPanel.style.borderColor = '#b8d8be';
     status.style.color = '#196b2c';
-    setStatus('GeoGebra hazır · canlı SBS saf LeftRight panel yolunda');
+    setStatus('GeoGebra hazır · A/B panelinde TEST ve GEOGEBRA kaynaklarını karşılaştırın');
     bridgeCall('panelReady');
 
     setTimeout(function () {
       if (appletReady) bootPanel.style.display = 'none';
-    }, 1500);
+    }, 1800);
   }
 
   function startApplet() {
