@@ -10,7 +10,7 @@
       height: 100%;
       margin: 0;
       overflow: hidden;
-      background: transparent;
+      background: #ffffff;
       font-family: system-ui, sans-serif;
     }
 
@@ -20,16 +20,12 @@
       background: #ffffff;
     }
 
-    html[data-ggq-stereo="on"] #ggb-element {
-      background: transparent !important;
-    }
-
     #boot-panel {
       position: fixed;
       left: 16px;
       top: 16px;
       z-index: 2147483646;
-      max-width: 72%;
+      max-width: 82%;
       padding: 10px 12px;
       border-radius: 10px;
       background: #ffffff;
@@ -39,6 +35,8 @@
       font-size: 13px;
       line-height: 1.35;
       pointer-events: none;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     #boot-title {
@@ -49,34 +47,14 @@
     #status {
       color: #4a4d52;
     }
-
-    .ggq-stereo-canvas {
-      opacity: 0 !important;
-      background: transparent !important;
-    }
-
-    .ggq-stereo-transparent {
-      background: transparent !important;
-      background-color: transparent !important;
-      box-shadow: none !important;
-    }
-
-    svg[data-ggq-stereo-icon="1"] {
-      overflow: visible;
-    }
-
-    html[data-ggq-stereo="on"] [data-ggq-stereo-target="1"] {
-      background-color: rgba(91, 91, 247, .14) !important;
-      border-radius: 6px !important;
-    }
   </style>
 </head>
 <body>
   <div id="ggb-element"></div>
 
   <div id="boot-panel">
-    <div id="boot-title">GeoGebraForQuest v0.3.0</div>
-    <div id="status">Yerel GeoGebra hazırlanıyor…</div>
+    <div id="boot-title">GeoGebraForQuest v0.9.19</div>
+    <div id="status">Sol ve sağ göz aynı viewport'ta ayrı ayrı render ediliyor…</div>
   </div>
 
 <script>
@@ -85,29 +63,15 @@
 
   const APPASSETS = 'https://appassets.androidplatform.net/assets/web/';
   const LOCAL_DEPLOY = APPASSETS + 'GeoGebra/deployggb.js';
-  const LOCAL_CODEBASE = APPASSETS + 'GeoGebra/HTML5/5.0/web3d/';
-  const CDN_DEPLOY = 'https://www.geogebra.org/apps/deployggb.js';
+  const LOCAL_CODEBASE = APPASSETS + 'GeoGebra/web3d/';
+  const LOCAL_BOOT = LOCAL_CODEBASE + 'web3d.nocache.js';
 
   const bootPanel = document.getElementById('boot-panel');
   const status = document.getElementById('status');
-  const useCdn = new URLSearchParams(location.search).get('cdn') === '1';
 
   let ggb = null;
   let appletReady = false;
-  let startupFinished = false;
-  let stereoEnabled = false;
-  let last3DCanvas = null;
-  let syncTimer = null;
-  let periodicTimer = null;
-  let autoSaveTimer = null;
-  let lastScenePayload = '';
-  let lastRectPayload = '';
-  let patchQueued = false;
-  let lastStereoToggleAt = 0;
-
-  // GeoGebra's current glasses/anaglyph SVG contains this path. We also use
-  // title/aria-label matching below so the replacement survives minor SVG changes.
-  const GLASSES_FIRST_PATH = 'M10 10h4v2h-4z';
+  let lastStartupError = '';
 
   function log(...args) {
     console.log('[GeoGebraForQuest]', ...args);
@@ -118,12 +82,40 @@
     log(message);
   }
 
+  function rememberError(message) {
+    if (message && !lastStartupError) {
+      lastStartupError = String(message);
+    }
+  }
+
   function showError(message) {
+    rememberError(message);
     bootPanel.style.display = 'block';
     bootPanel.style.borderColor = '#d93025';
     status.style.color = '#b3261e';
     setStatus(message);
   }
+
+  window.addEventListener('error', function (event) {
+    if (appletReady) return;
+    const target = event.target;
+    if (target && target !== window) {
+      const url = target.src || target.href || target.currentSrc || '';
+      if (url) {
+        showError('Kaynak yüklenemedi: ' + url);
+        return;
+      }
+    }
+    const detail = event.message || (event.error && event.error.message) || 'Bilinmeyen JavaScript hatası';
+    showError('JavaScript hatası: ' + detail);
+  }, true);
+
+  window.addEventListener('unhandledrejection', function (event) {
+    if (appletReady) return;
+    const reason = event.reason;
+    const detail = reason && reason.message ? reason.message : String(reason || 'Bilinmeyen Promise hatası');
+    showError('Başlatma Promise hatası: ' + detail);
+  });
 
   function bridgeCall(name, ...args) {
     try {
@@ -135,706 +127,22 @@
     }
   }
 
-  window.addEventListener('error', function (event) {
-    if (appletReady) return;
-    const detail = event.message || (event.target && event.target.src) || 'Bilinmeyen JavaScript hatası';
-    showError('Başlatma hatası: ' + detail);
-  }, true);
-
-  function saveBase64(callback) {
-    if (!ggb || typeof ggb.getBase64 !== 'function') {
-      callback('');
-      return;
-    }
-
-    try {
-      ggb.getBase64(function (base64) {
-        callback(base64 || '');
-      });
-    } catch (error) {
-      console.error(error);
-      callback('');
-    }
-  }
-
-  function parseCommand(command) {
-    const text = String(command || '').trim();
-    const openBracket = text.indexOf('[');
-    const openParen = text.indexOf('(');
-    let start = -1;
-    let closer = '';
-
-    if (openBracket >= 0 && (openParen < 0 || openBracket < openParen)) {
-      start = openBracket;
-      closer = ']';
-    } else if (openParen >= 0) {
-      start = openParen;
-      closer = ')';
-    }
-
-    if (start < 0) return { name: text, args: [] };
-
-    const name = text.slice(0, start).trim();
-    const end = text.lastIndexOf(closer);
-    const body = text.slice(start + 1, end > start ? end : text.length);
-    const args = [];
-    let depth = 0;
-    let token = '';
-
-    for (const ch of body) {
-      if (ch === '(' || ch === '[' || ch === '{') depth += 1;
-      if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
-
-      if (ch === ',' && depth === 0) {
-        args.push(token.trim());
-        token = '';
-      } else {
-        token += ch;
-      }
-    }
-
-    if (token.trim()) args.push(token.trim());
-    return { name, args };
-  }
-
-  function pointOfLabel(label) {
-    if (!ggb || !label) return null;
-    try {
-      if (!ggb.exists(label)) return null;
-      const x = Number(ggb.getXcoord(label));
-      const y = Number(ggb.getYcoord(label));
-      let z = Number(ggb.getZcoord(label));
-      if (!Number.isFinite(z)) z = 0;
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-      return { x, y, z };
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function inlinePoint(token) {
-    const text = String(token || '').trim();
-    if (!text.startsWith('(') || !text.endsWith(')')) return null;
-    const parts = text.slice(1, -1).split(',').map(v => Number(v.trim()));
-    if (parts.length === 2 && parts.every(Number.isFinite)) {
-      return { x: parts[0], y: parts[1], z: 0 };
-    }
-    if (parts.length === 3 && parts.every(Number.isFinite)) {
-      return { x: parts[0], y: parts[1], z: parts[2] };
-    }
-    return null;
-  }
-
-  function pointFromToken(token) {
-    return pointOfLabel(String(token || '').trim()) || inlinePoint(token);
-  }
-
-  function numericValue(token) {
-    const direct = Number(token);
-    if (Number.isFinite(direct)) return direct;
-    try {
-      if (ggb && ggb.exists(token)) {
-        const value = Number(ggb.getValue(token));
-        return Number.isFinite(value) ? value : null;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  function colorOf(label) {
-    try {
-      return String(ggb.getColor(label) || '#4F46E5');
-    } catch (_) {
-      return '#4F46E5';
-    }
-  }
-
-  function fillingOf(label) {
-    try {
-      const value = Number(ggb.getFilling(label));
-      return Number.isFinite(value) ? value : 0.25;
-    } catch (_) {
-      return 0.25;
-    }
-  }
-
-  function lineThicknessOf(label) {
-    try {
-      const value = Number(ggb.getLineThickness(label));
-      return Number.isFinite(value) ? value : 5;
-    } catch (_) {
-      return 5;
-    }
-  }
-
-  function pointSizeOf(label) {
-    try {
-      const value = Number(ggb.getPointSize(label));
-      return Number.isFinite(value) ? value : 5;
-    } catch (_) {
-      return 5;
-    }
-  }
-
-  function commandOf(label) {
-    try {
-      return String(ggb.getCommandString(label, false) || '');
-    } catch (_) {
-      return '';
-    }
-  }
-
-  function objectVisible(label) {
-    try {
-      if (typeof ggb.getVisible === 'function') {
-        const in3D = ggb.getVisible(label, 512);
-        if (typeof in3D === 'boolean') return in3D;
-        return !!ggb.getVisible(label);
-      }
-    } catch (_) {}
-    return true;
-  }
-
-  function parse3DViewSettings() {
-    const fallback = {
-      xZero: 0,
-      yZero: 0,
-      zZero: 0,
-      scale: 50,
-      xAngle: 20,
-      zAngle: -60
-    };
-
-    if (!ggb || typeof ggb.getXML !== 'function') return fallback;
-
-    try {
-      const xml = String(ggb.getXML() || '');
-      const viewMatch = xml.match(/<euclidianView3D>([\s\S]*?)<\/euclidianView3D>/i);
-      if (!viewMatch) return fallback;
-      const coordMatch = viewMatch[1].match(/<coordSystem\s+([^>]+)\/>/i);
-      if (!coordMatch) return fallback;
-      const attrs = coordMatch[1];
-      const read = (name, fallbackValue) => {
-        const match = attrs.match(new RegExp(name + '="([^"]+)"', 'i'));
-        const value = match ? Number(match[1]) : NaN;
-        return Number.isFinite(value) ? value : fallbackValue;
-      };
-      return {
-        xZero: read('xZero', 0),
-        yZero: read('yZero', 0),
-        zZero: read('zZero', 0),
-        scale: Math.max(1, read('scale', 50)),
-        xAngle: read('xAngle', 20),
-        zAngle: read('zAngle', -60)
-      };
-    } catch (error) {
-      console.warn('3D view parse failed', error);
-      return fallback;
-    }
-  }
-
-  function casNumber(expression) {
-    if (!ggb || typeof ggb.evalCommandCAS !== 'function') return null;
-    try {
-      const result = String(ggb.evalCommandCAS('Numeric(' + expression + ')') || '')
-        .replace(',', '.')
-        .trim();
-      const value = Number(result);
-      return Number.isFinite(value) ? value : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function sampleFunction(label) {
-    const points = [];
-    const minX = -6;
-    const maxX = 6;
-    const steps = 96;
-    let previous = null;
-
-    for (let i = 0; i <= steps; i += 1) {
-      const x = minX + (maxX - minX) * i / steps;
-      const y = casNumber(label + '(' + x.toFixed(6) + ')');
-      if (!Number.isFinite(y) || Math.abs(y) > 10000) {
-        previous = null;
-        continue;
-      }
-
-      const p = { x, y, z: 0 };
-      if (previous && Math.abs(p.y - previous.y) > 8) {
-        previous = null;
-        continue;
-      }
-      points.push(p);
-      previous = p;
-    }
-
-    return points;
-  }
-
-  function buildObject(label) {
-    let type = '';
-    try {
-      type = String(ggb.getObjectType(label) || '').toLowerCase();
-    } catch (_) {
-      return null;
-    }
-
-    if (!objectVisible(label)) return null;
-
-    const base = {
-      label,
-      type,
-      color: colorOf(label),
-      alpha: fillingOf(label),
-      thickness: lineThicknessOf(label),
-      pointSize: pointSizeOf(label)
-    };
-
-    if (type === 'point' || type === 'point3d') {
-      const p = pointOfLabel(label);
-      return p ? { ...base, kind: 'point', p } : null;
-    }
-
-    if (type === 'function') {
-      const points = sampleFunction(label);
-      return points.length >= 2 ? { ...base, kind: 'polyline', points } : null;
-    }
-
-    const parsed = parseCommand(commandOf(label));
-    const args = parsed.args;
-    const name = String(parsed.name || '').toLowerCase();
-
-    if (type === 'segment' || type === 'segment3d' || name === 'segment') {
-      if (args.length < 2) return null;
-      const a = pointFromToken(args[0]);
-      const b = pointFromToken(args[1]);
-      return a && b ? { ...base, kind: 'segment', a, b } : null;
-    }
-
-    if (type === 'line' || type === 'line3d' || name === 'line') {
-      if (args.length < 2) return null;
-      const a = pointFromToken(args[0]);
-      const b = pointFromToken(args[1]);
-      return a && b ? { ...base, kind: 'line', a, b } : null;
-    }
-
-    if (type === 'ray' || type === 'ray3d' || name === 'ray') {
-      if (args.length < 2) return null;
-      const a = pointFromToken(args[0]);
-      const b = pointFromToken(args[1]);
-      return a && b ? { ...base, kind: 'ray', a, b } : null;
-    }
-
-    if (type === 'polygon' || type === 'polygon3d' || name === 'polygon') {
-      const points = args.map(pointFromToken).filter(Boolean);
-      return points.length >= 3 ? { ...base, kind: 'polygon', points } : null;
-    }
-
-    if (type === 'plane' || type === 'plane3d' || name === 'plane') {
-      const points = args.map(pointFromToken).filter(Boolean);
-      return points.length >= 3 ? { ...base, kind: 'plane', points: points.slice(0, 3) } : null;
-    }
-
-    if (type === 'sphere' || type === 'quadric' || name === 'sphere') {
-      if (name !== 'sphere' || args.length < 2) return null;
-      const center = pointFromToken(args[0]);
-      const radius = numericValue(args[1]);
-      return center && radius && radius > 0
-        ? { ...base, kind: 'sphere', center, radius }
-        : null;
-    }
-
-    return null;
-  }
-
-  function collectScenePayload() {
-    if (!ggb || !appletReady) return null;
-
-    let names = [];
-    try {
-      names = Array.from(ggb.getAllObjectNames() || []);
-    } catch (_) {}
-
-    const objects = [];
-    for (const label of names) {
-      const object = buildObject(label);
-      if (object) objects.push(object);
-    }
-
-    return {
-      version: 3,
-      stereo: stereoEnabled,
-      camera: parse3DViewSettings(),
-      objects,
-      axes: true,
-      groundPlane: true
-    };
-  }
-
-  function find3DCanvas() {
-    const canvases = Array.from(document.querySelectorAll('#ggb-element canvas'));
-    let best = null;
-    let bestArea = 0;
-
-    for (const canvas of canvases) {
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width < 160 || rect.height < 140) continue;
-      if (rect.bottom <= 0 || rect.right <= 0 || rect.left >= innerWidth || rect.top >= innerHeight) continue;
-
-      let gl = null;
-      try {
-        gl = canvas.getContext('webgl2') ||
-          canvas.getContext('webgl') ||
-          canvas.getContext('experimental-webgl');
-      } catch (_) {}
-      if (!gl) continue;
-
-      const area = rect.width * rect.height;
-      if (area > bestArea) {
-        best = canvas;
-        bestArea = area;
-      }
-    }
-
-    last3DCanvas = best || last3DCanvas;
-    return best || last3DCanvas;
-  }
-
-  function clearPortalTransparency() {
-    document.querySelectorAll('.ggq-stereo-canvas').forEach(node => {
-      node.classList.remove('ggq-stereo-canvas');
-    });
-    document.querySelectorAll('.ggq-stereo-transparent').forEach(node => {
-      node.classList.remove('ggq-stereo-transparent');
-    });
-  }
-
-  function applyPortalTransparency(canvas) {
-    clearPortalTransparency();
-    if (!canvas) return;
-
-    canvas.classList.add('ggq-stereo-canvas');
-
-    const canvasRect = canvas.getBoundingClientRect();
-    let parent = canvas.parentElement;
-    for (let i = 0; parent && i < 10; i += 1, parent = parent.parentElement) {
-      if (parent === document.body || parent.id === 'ggb-element') break;
-      const rect = parent.getBoundingClientRect();
-      const closeToCanvas =
-        rect.width <= canvasRect.width + 140 &&
-        rect.height <= canvasRect.height + 140 &&
-        rect.width >= canvasRect.width - 30 &&
-        rect.height >= canvasRect.height - 30;
-      if (!closeToCanvas) break;
-      parent.classList.add('ggq-stereo-transparent');
-    }
-  }
-
-  function sendPortalRect() {
-    const canvas = find3DCanvas();
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const payload = JSON.stringify({
-      left: rect.left,
-      top: rect.top,
-      width: rect.width,
-      height: rect.height,
-      viewWidth: innerWidth,
-      viewHeight: innerHeight,
-      devicePixelRatio: window.devicePixelRatio || 1
-    });
-
-    if (payload !== lastRectPayload) {
-      lastRectPayload = payload;
-      bridgeCall('updatePortalRect', payload);
-    }
-  }
-
-  function sendScene() {
-    const payload = collectScenePayload();
-    if (!payload) return;
-    const json = JSON.stringify(payload);
-    if (json !== lastScenePayload) {
-      lastScenePayload = json;
-      bridgeCall('updateScene', json);
-    }
-  }
-
-  function syncAllNow() {
-    sendPortalRect();
-    sendScene();
-    if (stereoEnabled) {
-      applyPortalTransparency(find3DCanvas());
-    }
-  }
-
-  function queueSync() {
-    if (syncTimer) clearTimeout(syncTimer);
-    syncTimer = setTimeout(function () {
-      syncTimer = null;
-      syncAllNow();
-    }, 80);
-  }
-
-  function setStereo(enabled) {
-    const next = !!enabled;
-    if (stereoEnabled === next) {
-      if (next) syncAllNow();
-      return;
-    }
-
-    if (next && !find3DCanvas()) {
-      log('Stereo ignored: 3D canvas not visible');
-      return;
-    }
-
-    stereoEnabled = next;
-    document.documentElement.dataset.ggqStereo = stereoEnabled ? 'on' : 'off';
-    bridgeCall('setStereoEnabled', stereoEnabled);
-
-    if (stereoEnabled) {
-      syncAllNow();
-      if (!periodicTimer) {
-        periodicTimer = setInterval(syncAllNow, 300);
-      }
-    } else {
-      clearPortalTransparency();
-      if (periodicTimer) {
-        clearInterval(periodicTimer);
-        periodicTimer = null;
-      }
-      sendScene();
-    }
-
-    log('Stereo', stereoEnabled ? 'ON' : 'OFF');
-  }
-
-  function headsetSvg(svg) {
-    if (!svg) return;
-    svg.setAttribute('data-ggq-stereo-icon', '1');
-    svg.setAttribute('aria-label', 'Stereo 3D');
-    if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', '0 0 24 24');
-    svg.innerHTML = [
-      '<path d="M4.2 7.5h15.6c1.2 0 2.2 1 2.2 2.2v6.1c0 1.2-1 2.2-2.2 2.2h-4.3l-2.1-2.6h-2.8L8.5 18H4.2C3 18 2 17 2 15.8V9.7c0-1.2 1-2.2 2.2-2.2zm.3 2v6.5h3.1l2.1-2.6h4.6l2.1 2.6h3.1V9.5H4.5z"/>',
-      '<path d="M7 11.2h3v2H7zm7 0h3v2h-3z"/>'
-    ].join('');
-  }
-
-  function looksLikeGlassesSvg(svg) {
-    if (!svg || svg.dataset.ggqStereoIcon === '1') return false;
-    const paths = Array.from(svg.querySelectorAll('path'));
-    return paths.some(path =>
-      String(path.getAttribute('d') || '').replace(/\s+/g, '') === GLASSES_FIRST_PATH
-    );
-  }
-
-  function labelLooksAnaglyph(node) {
-    if (!node || !node.getAttribute) return false;
-    const text = [
-      node.getAttribute('title'),
-      node.getAttribute('aria-label'),
-      node.getAttribute('data-title'),
-      node.textContent
-    ].filter(Boolean).join(' ').toLowerCase();
-    return /anaglyph|anaglif|glasses|stereo glasses/.test(text);
-  }
-
-  function findButtonAncestor(node) {
-    let current = node;
-    for (let i = 0; current && i < 7; i += 1, current = current.parentElement) {
-      const role = current.getAttribute && current.getAttribute('role');
-      const cls = String(current.className || '').toLowerCase();
-      if (
-        current.tagName === 'BUTTON' ||
-        role === 'button' ||
-        cls.includes('button') ||
-        cls.includes('menuitem')
-      ) {
-        return current;
-      }
-    }
-    return node && node.parentElement ? node.parentElement : node;
-  }
-
-  function markProjectionContainer(button) {
-    let current = button && button.parentElement;
-    for (let i = 0; current && i < 6; i += 1, current = current.parentElement) {
-      const count = current.querySelectorAll
-        ? current.querySelectorAll('button,[role="button"],.button').length
-        : 0;
-      if (count >= 3 && count <= 8) {
-        current.dataset.ggqProjectionContainer = '1';
-        return;
-      }
-    }
-  }
-
-  function patchProjectionControl(nodeOrSvg) {
-    if (!nodeOrSvg) return;
-    const svg = nodeOrSvg.tagName === 'svg'
-      ? nodeOrSvg
-      : nodeOrSvg.querySelector && nodeOrSvg.querySelector('svg');
-    if (!svg) return;
-
-    const button = findButtonAncestor(svg);
-    headsetSvg(svg);
-    if (button && button.setAttribute) {
-      button.dataset.ggqStereoTarget = '1';
-      button.setAttribute('title', 'Stereo 3D (Quest)');
-      button.setAttribute('aria-label', 'Stereo 3D (Quest)');
-      markProjectionContainer(button);
-    }
-  }
-
-  function patchProjectionGlassesButtons() {
-    const root = document.getElementById('ggb-element');
-    if (!root) return;
-
-    Array.from(root.querySelectorAll('svg')).forEach(svg => {
-      if (looksLikeGlassesSvg(svg)) patchProjectionControl(svg);
-    });
-
-    Array.from(root.querySelectorAll('[title],[aria-label],[data-title]')).forEach(node => {
-      if (labelLooksAnaglyph(node)) patchProjectionControl(node);
-    });
-  }
-
-  function eventPath(event) {
-    return typeof event.composedPath === 'function'
-      ? event.composedPath()
-      : [event.target];
-  }
-
-  function eventHitsStereoButton(event) {
-    return eventPath(event).some(node =>
-      node && node.nodeType === 1 && node.dataset &&
-      (node.dataset.ggqStereoIcon === '1' || node.dataset.ggqStereoTarget === '1')
-    );
-  }
-
-  function suppressEvent(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (typeof event.stopImmediatePropagation === 'function') {
-      event.stopImmediatePropagation();
-    }
-  }
-
-  function interceptStereoEvent(event) {
-    if (!eventHitsStereoButton(event)) return;
-    suppressEvent(event);
-
-    const activationEvent =
-      event.type === 'pointerup' ||
-      event.type === 'mouseup' ||
-      event.type === 'touchend' ||
-      event.type === 'click';
-
-    if (!activationEvent) return;
-
-    const now = performance.now();
-    if (now - lastStereoToggleAt < 350) return;
-    lastStereoToggleAt = now;
-    setStereo(!stereoEnabled);
-  }
-
-  ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click']
-    .forEach(type => document.addEventListener(type, interceptStereoEvent, true));
-
-  // Choosing another GeoGebra projection exits the native stereo portal and lets
-  // GeoGebra handle the selected projection normally.
-  document.addEventListener('click', function (event) {
-    if (!stereoEnabled || eventHitsStereoButton(event)) return;
-    const inProjectionMenu = eventPath(event).some(node =>
-      node && node.nodeType === 1 && node.dataset &&
-      node.dataset.ggqProjectionContainer === '1'
-    );
-    if (inProjectionMenu) {
-      setTimeout(function () { setStereo(false); }, 0);
-    }
-  }, true);
-
-  const observer = new MutationObserver(function () {
-    if (!patchQueued) {
-      patchQueued = true;
-      requestAnimationFrame(function () {
-        patchQueued = false;
-        patchProjectionGlassesButtons();
-        if (stereoEnabled) queueSync();
-      });
-    }
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-
-  window.addEventListener('resize', queueSync);
-
-  window.GeoGebraForQuest = {
-    importBase64(base64) {
-      if (!base64) return;
-      const tryLoad = function () {
-        if (ggb && appletReady && typeof ggb.setBase64 === 'function') {
-          try {
-            ggb.setBase64(base64);
-            queueSync();
-          } catch (error) {
-            console.error(error);
-          }
-        } else {
-          setTimeout(tryLoad, 200);
-        }
-      };
-      tryLoad();
-    },
-
-    setStereoEnabled(enabled) {
-      setStereo(enabled);
-    },
-
-    resync() {
-      syncAllNow();
-    }
-  };
-
-  function appletLoaded(sourceName, api) {
+  function appletLoaded(api) {
     ggb = api || window.ggbApplet;
     window.ggbApplet = ggb;
     appletReady = true;
-    startupFinished = true;
 
     bootPanel.style.borderColor = '#b8d8be';
     status.style.color = '#196b2c';
-    setStatus('GeoGebra hazır · ' + sourceName);
-
-    try {
-      ggb.registerAddListener(queueSync);
-      ggb.registerUpdateListener(queueSync);
-      ggb.registerRemoveListener(queueSync);
-      ggb.registerClearListener(queueSync);
-    } catch (error) {
-      console.warn('GeoGebra listeners', error);
-    }
-
-    patchProjectionGlassesButtons();
-    setTimeout(syncAllNow, 700);
+    setStatus('GeoGebra hazır · v0.9.19 tek-viewport L/R render etkin');
     bridgeCall('panelReady');
-
-    if (!autoSaveTimer) {
-      autoSaveTimer = setInterval(function () {
-        saveBase64(function (base64) {
-          if (base64) bridgeCall('saveConstruction', base64);
-        });
-      }, 1000);
-    }
 
     setTimeout(function () {
       if (appletReady) bootPanel.style.display = 'none';
     }, 1800);
   }
 
-  function startApplet(local) {
+  function startApplet() {
     try {
       if (typeof GGBApplet !== 'function') {
         throw new Error('GGBApplet bulunamadı');
@@ -853,57 +161,51 @@
         enableShiftDragZoom: true,
         enableLabelDrags: true,
         errorDialogsActive: true,
+        showLogging: true,
         useBrowserForJS: false,
-        appletOnLoad: function (api) {
-          appletLoaded(local ? 'yerel paket' : 'çevrimiçi yedek', api);
-        }
+        appletOnLoad: appletLoaded
       };
 
       const applet = new GGBApplet(params, true);
-      if (local) applet.setHTML5Codebase(LOCAL_CODEBASE);
+      applet.setHTML5Codebase(LOCAL_CODEBASE, true);
       applet.inject('ggb-element');
 
       setTimeout(function () {
-        if (startupFinished) return;
-        if (local) {
-          setStatus('Yerel paket yanıt vermedi; çevrimiçi yedek deneniyor…');
-          location.replace(location.pathname + '?cdn=1');
-        } else {
-          showError('GeoGebra başlatılamadı. Ağ bağlantısını kontrol edin.');
+        if (!appletReady) {
+          const suffix = lastStartupError ? ' · Son hata: ' + lastStartupError : '';
+          showError('GeoGebra kaynak paketi 25 sn içinde başlayamadı' + suffix);
         }
-      }, 15000);
+      }, 25000);
     } catch (error) {
       console.error(error);
-      if (local) {
-        setStatus('Yerel başlatma hatası; çevrimiçi yedek deneniyor…');
-        location.replace(location.pathname + '?cdn=1');
-      } else {
-        showError('GeoGebra başlatma hatası: ' + error.message);
-      }
+      showError('GeoGebra başlatma hatası: ' + (error && error.message ? error.message : String(error)));
     }
   }
 
-  function injectGeoGebra(deployUrl, local) {
-    setStatus(local ? 'Yerel GeoGebra betiği yükleniyor…' : 'GeoGebra CDN betiği yükleniyor…');
-
+  function injectGeoGebra() {
+    setStatus('deployggb.js yükleniyor…');
     const script = document.createElement('script');
-    script.src = deployUrl;
+    script.src = LOCAL_DEPLOY;
     script.onload = function () {
-      setStatus(local ? 'Yerel GeoGebra başlatılıyor…' : 'Çevrimiçi GeoGebra başlatılıyor…');
-      startApplet(local);
+      fetch(LOCAL_BOOT, { cache: 'no-store' })
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error('web3d.nocache.js HTTP ' + response.status);
+          }
+          setStatus('Tam renkli stereo GeoGebra başlatılıyor…');
+          startApplet();
+        })
+        .catch(function (error) {
+          showError('Web3D başlatma dosyası okunamadı: ' + error.message);
+        });
     };
     script.onerror = function () {
-      if (local) {
-        setStatus('Yerel paket açılamadı; çevrimiçi yedek deneniyor…');
-        location.replace(location.pathname + '?cdn=1');
-      } else {
-        showError('GeoGebra betiği yüklenemedi.');
-      }
+      showError('deployggb.js yüklenemedi: ' + LOCAL_DEPLOY);
     };
     document.head.appendChild(script);
   }
 
-  injectGeoGebra(useCdn ? CDN_DEPLOY : LOCAL_DEPLOY, !useCdn);
+  injectGeoGebra();
 })();
 </script>
 </body>
