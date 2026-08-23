@@ -8,10 +8,9 @@
   var lastCanvas = null;
   var scheduled = false;
 
-  // v0.9.18: the GeoGebra renderer itself publishes two dedicated canvases,
-  // one immediately after LEFT_EYE is rendered and one immediately after
-  // RIGHT_EYE is rendered. Never infer eye boundaries from the final SBS canvas.
-  var CAPTURE_INTERVAL_MS = 100;
+  // v0.9.22: keep the explicit renderer-eye canvases and raise the capture
+  // target from 10 fps to 20 fps. The native sink still busy-drops stale work.
+  var CAPTURE_INTERVAL_MS = 50;
   var CAPTURE_MAX_EYE_WIDTH = 720;
   var CAPTURE_JPEG_QUALITY = 0.78;
   var lastCaptureAt = 0;
