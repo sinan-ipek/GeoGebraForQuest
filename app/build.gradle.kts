@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 78
-        versionName = "0.9.27"
+        versionCode = 79
+        versionName = "0.9.28"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.27:
-// - increases initial stereo-panel inward yaw to 30 degrees;
-// - makes the right-controller palette upright and half-size while attached;
-// - routes controller A through GeoGebra's native long-touch/right-click path;
-// - replaces the corrupted splash blobs with compact valid L/R WebP assets;
-// - preserves the host-Activity local picker, login, 20 fps stereo renderer and inactive-view clear.
+// v0.9.28:
+// - increases initial stereo-panel inward yaw to 45 degrees;
+// - swaps the startup splash L/R eye assignment;
+// - opens the right-click menu for the currently selected GeoGebra object;
+// - makes the controller-attached palette ray-transparent and 30% size;
+// - preserves local-file opening, login, 20 fps stereo capture and inactive-view clear.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {

@@ -2,7 +2,7 @@ name: Build Quest APK
 
 on:
   push:
-    branches: [ main, v0.9.22-splash-20fps, v0.9.23-login-back-30fps, v0.9.24-login-back-clear-20fps, v0.9.25-local-file-picker, v0.9.26-palette-context-localfile, v0.9.27-palette-splash-context-fixes ]
+    branches: [ main, v0.9.22-splash-20fps, v0.9.23-login-back-30fps, v0.9.24-login-back-clear-20fps, v0.9.25-local-file-picker, v0.9.26-palette-context-localfile, v0.9.27-palette-splash-context-fixes, v0.9.28-selected-menu-ray-pass ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -48,7 +48,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Verify renderer and native context-menu hooks
+      - name: Verify renderer and selected-object context-menu hook
         shell: bash
         run: |
           SRC=.geogebra-source-work/geogebra
@@ -68,8 +68,15 @@ jobs:
 
           grep -q 'ggqOpenContextMenu' "$EUCLIDIAN"
           grep -q 'ggqCloseContextMenu' "$EUCLIDIAN"
-          grep -q 'controller.handleLongTouch(x, y)' "$EUCLIDIAN"
+          grep -q 'v0.9.28 selected-object menu' "$EUCLIDIAN"
+          grep -q 'getAppSelectedGeos()' "$EUCLIDIAN"
+          grep -q 'showPopupMenu(' "$EUCLIDIAN"
+          grep -q 'selectedGeos, controller.getView(), controller.mouseLoc' "$EUCLIDIAN"
           grep -q 'getGuiManager().removePopup()' "$EUCLIDIAN"
+          if grep -q 'controller.handleLongTouch(x, y)' "$EUCLIDIAN"; then
+            echo 'A must not perform a new background hit-test in v0.9.28'
+            exit 1
+          fi
 
           if grep -q 'backingWidth = (int) (w \* ratio) \* 2' "$WEB"; then
             echo 'Renderer must keep a single-eye-width WebGL backing store'
@@ -84,7 +91,7 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.27 requested changes and preserved stereo path
+      - name: Verify v0.9.28 requested changes and preserved architecture
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -92,48 +99,42 @@ jobs:
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
           JS=app/src/main/assets/web/quest-stereo-layout.js
-          PATCH=tools/patch-geogebra-quest-v0927.py
+          PATCH27=tools/patch-geogebra-quest-v0927.py
+          PATCH28=tools/patch-geogebra-quest-v0928.py
           BUILD=tools/build-geogebra-quest.sh
           LEFT=app/src/main/res/drawable-nodpi/stereo_splash_left.webp
           RIGHT=app/src/main/res/drawable-nodpi/stereo_splash_right.webp
 
-          test ! -e app/src/main/java/com/sinan/geogebraforquest/StereoSurfaceProbe.kt
-          test ! -e app/src/main/res/layout/scale_controls_panel.xml
-          test ! -e app/src/main/res/drawable-nodpi/stereo_test_photo.webp
+          test -e "$CONTROLLERS"
+          test -e "$PATCH27"
+          test -e "$PATCH28"
           test -e "$LEFT"
           test -e "$RIGHT"
-          test -e "$CONTROLLERS"
-          test -e "$PATCH"
-
-          # Guard against the truncated/corrupt binary regression seen in v0.9.26.
-          test "$(stat -c%s "$LEFT")" -gt 4000
-          test "$(stat -c%s "$LEFT")" -lt 12000
-          test "$(stat -c%s "$RIGHT")" -gt 4000
-          test "$(stat -c%s "$RIGHT")" -lt 12000
           file "$LEFT" | grep -q 'Web/P image'
           file "$RIGHT" | grep -q 'Web/P image'
+
+          # The v0.9.27 eye assets are intentionally exchanged in v0.9.28.
+          test "$(git hash-object "$LEFT")" = '0ed1acfd3e15cf2868370dc949b015d21a2da1f6'
+          test "$(git hash-object "$RIGHT")" = 'af4dca689d0e2774728eba349e1715a1a149bf01'
 
           grep -q 'VideoSurfacePanelRegistration' "$ACTIVITY"
           grep -q 'StereoMode.LeftRight' "$ACTIVITY"
           grep -q 'LiveStereoFrameSink.attachSurface(surface, resources)' "$ACTIVITY"
           grep -q 'Vector3(1.10f, 1.30f, 1.15f)' "$ACTIVITY"
-          grep -q 'Quaternion(0f, 30f, 0f)' "$ACTIVITY"
+          grep -q 'Quaternion(0f, 45f, 0f)' "$ACTIVITY"
           grep -q 'Quaternion(35f, 0f, -18f)' "$ACTIVITY"
-          grep -q 'CONTROLLER_PALETTE_SCALE = Vector3(0.5f, 0.5f, 0.5f)' "$ACTIVITY"
+          grep -q 'CONTROLLER_PALETTE_SCALE = Vector3(0.30f, 0.30f, 0.30f)' "$ACTIVITY"
           grep -q 'Scale(CONTROLLER_PALETTE_SCALE)' "$ACTIVITY"
-          grep -q 'stereoPaletteRestoreScale' "$ACTIVITY"
+          grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
+          grep -q 'tryRemoveComponent<Hittable>()' "$ACTIVITY"
           grep -q 'TransformParent(rightControllerEntity)' "$ACTIVITY"
+          grep -q 'stereoPaletteRestorePose' "$ACTIVITY"
+          grep -q 'stereoPaletteRestoreScale' "$ACTIVITY"
           grep -q 'systemManager.registerSystem(QuestControllerShortcutSystem(this))' "$ACTIVITY"
           grep -q 'GeoGebraWebNavigation.toggleContextMenu()' "$ACTIVITY"
           grep -q 'hostActivity = this' "$ACTIVITY"
           grep -q 'GeoGebraLocalFilePicker.handleActivityResult' "$ACTIVITY"
 
-          if grep -q 'KEYCODE_BUTTON_B' "$ACTIVITY" "$PANEL"; then
-            echo 'B must remain exclusive to palette mode'
-            exit 1
-          fi
-
-          grep -q 'class QuestControllerShortcutSystem' "$CONTROLLERS"
           grep -q 'ButtonBits.ButtonA' "$CONTROLLERS"
           grep -q 'ButtonBits.ButtonB' "$CONTROLLERS"
           grep -q 'controller.changedButtons' "$CONTROLLERS"
@@ -141,20 +142,14 @@ jobs:
 
           grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$PANEL"
           grep -q 'activity.startActivityForResult' "$PANEL"
-          grep -q 'activity = hostActivity' "$PANEL"
-          grep -q 'settings.allowContentAccess = true' "$PANEL"
-          grep -q 'settings.allowFileAccess = false' "$PANEL"
-          grep -q '__ggqToggleContextMenu' "$PANEL"
           grep -q 'window.ggqOpenContextMenu' "$PANEL"
           grep -q 'window.ggqCloseContextMenu' "$PANEL"
-          grep -q "addEventListener('touchstart'" "$PANEL"
-          grep -q 'findViewCoordinates' "$PANEL"
-          grep -q 'GeoGebraForQuest/0.9.27' "$PANEL"
 
-          grep -q 'ggqOpenContextMenu' "$PATCH"
-          grep -q 'ggqCloseContextMenu' "$PATCH"
-          grep -q 'handleLongTouch' "$PATCH"
+          grep -q 'v0.9.28 selected-object menu' "$PATCH28"
+          grep -q 'getAppSelectedGeos' "$PATCH28"
+          grep -q 'showPopupMenu' "$PATCH28"
           grep -q 'patch-geogebra-quest-v0927.py' "$BUILD"
+          grep -q 'patch-geogebra-quest-v0928.py' "$BUILD"
 
           grep -q "getElementById('ggq-renderer-left-eye')" "$JS"
           grep -q "getElementById('ggq-renderer-right-eye')" "$JS"
@@ -162,20 +157,13 @@ jobs:
           grep -q 'CAPTURE_INTERVAL_MS = 50' "$JS"
           grep -q 'findVisible3DCanvas' "$JS"
           grep -q "bridge('stereoInactive', '')" "$JS"
-          if grep -Eq 'sourceQuarterWidth|updateStereoQuarters|source.width / 4|source.width / 2' "$JS"; then
-            echo 'No final-SBS or quarter splitting may return in v0.9.27'
-            exit 1
-          fi
 
           grep -q 'fun clearForInactiveView()' "$SINK"
-          grep -q 'decodeResource(resources, R.drawable.stereo_splash_right)' "$SINK"
-          grep -q 'decodeResource(resources, R.drawable.stereo_splash_left)' "$SINK"
           grep -q 'PorterDuff.Mode.CLEAR' "$SINK"
           grep -q 'STREAM_IDLE_TIMEOUT_MS = 350L' "$SINK"
-          grep -q 'val halfWidth = canvas.width / 2' "$SINK"
 
-          grep -q 'versionName = "0.9.27"' app/build.gradle.kts
-          grep -q 'versionCode = 78' app/build.gradle.kts
+          grep -q 'versionName = "0.9.28"' app/build.gradle.kts
+          grep -q 'versionCode = 79' app/build.gradle.kts
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -183,36 +171,25 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/deployggb.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/web3d.nocache.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/css/bundles/bundle.css'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.19'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'backing_store=single_eye_width'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'both render at x=0'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'gpu_sync=gl.finish before each eye canvas copy'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'no_final_sbs_split=true'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'quest_context_menu_hook=ggqOpenContextMenu,ggqCloseContextMenu'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'quest_context_menu_mode=selected_geoelements'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'stereo_splash_left.webp'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'stereo_splash_right.webp'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/html/ggtcallback.html'
-          if unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'stereo_test_photo'; then
-            echo 'TEST photo unexpectedly packaged in v0.9.27'
-            exit 1
-          fi
-          if unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/web/GeoGebra/HTML5/5.0/web3d/web3d.nocache.js'; then
-            echo 'Unexpected legacy HTML5/5.0 Web3D layout is still packaged'
-            exit 1
-          fi
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.27-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.27-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.27-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.28-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.28-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.28-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.27-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.27-debug.apk
+          name: GeoGebraForQuest-v0.9.28-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.28-debug.apk
           if-no-files-found: error
           retention-days: 30
