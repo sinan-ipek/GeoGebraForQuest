@@ -6,7 +6,6 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.Surface
 import android.webkit.WebView
-import androidx.activity.OnBackPressedCallback
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
@@ -35,7 +34,7 @@ import com.meta.spatial.vr.VRFeature
  * v0.9.24 preserves the proven stereo architecture and changes only:
  * - keeps the corrected/swapped startup splash eye routing from v0.9.23;
  * - hardens GeoGebra login callback handling and popup IME focus;
- * - routes Android/Quest back through the modern back dispatcher, with key fallback;
+ * - routes Android/Quest back through Activity/WebView back handling;
  * - clears stereo when the visible GeoGebra 3D view closes;
  * - returns explicit eye-pair capture to the proven 20 fps target.
  */
@@ -62,20 +61,6 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var stereoPanelEntity: Entity? = null
     private var stereoSurface: Surface? = null
     private var browserBackKeyConsumed = false
-
-    private val browserBackCallback = object : OnBackPressedCallback(true) {
-        override fun handleOnBackPressed() {
-            if (GeoGebraWebNavigation.handleBack()) {
-                return
-            }
-
-            // Nothing inside GeoGebra can go back: temporarily hand control to
-            // the Activity/system default instead of trapping the user.
-            isEnabled = false
-            onBackPressedDispatcher.onBackPressed()
-            isEnabled = true
-        }
-    }
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -144,11 +129,17 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        onBackPressedDispatcher.addCallback(this, browserBackCallback)
         StereoDebugState.reset()
         SpatialBridgeBus.clear()
         LiveStereoFrameSink.setEnabled(true)
         requestScenePermissionIfNeeded()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (!GeoGebraWebNavigation.handleBack()) {
+            super.onBackPressed()
+        }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
