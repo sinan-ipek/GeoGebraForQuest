@@ -29,13 +29,14 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.23.
+ * GeoGebraForQuest v0.9.24.
  *
- * v0.9.23 preserves the proven v0.9.22 stereo architecture and changes only:
- * - startup splash eye routing is swapped;
- * - GeoGebra login popups use the same local-asset WebView route;
- * - controller B / Android Back can return through WebView popup/history;
- * - explicit eye-pair capture targets 30 fps.
+ * v0.9.24 preserves the proven stereo architecture and changes only:
+ * - keeps the corrected/swapped startup splash eye routing from v0.9.23;
+ * - hardens GeoGebra login callback handling and popup IME focus;
+ * - routes Android/Quest back through Activity/WebView back handling;
+ * - clears stereo when the visible GeoGebra 3D view closes;
+ * - returns explicit eye-pair capture to the proven 20 fps target.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -104,7 +105,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "v0.9.23 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "v0.9.24 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -132,6 +133,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         SpatialBridgeBus.clear()
         LiveStereoFrameSink.setEnabled(true)
         requestScenePermissionIfNeeded()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (!GeoGebraWebNavigation.handleBack()) {
+            super.onBackPressed()
+        }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -212,7 +220,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.23 stereo panel ready at x=1.10m")
+        Log.i(TAG, "v0.9.24 stereo panel ready at x=1.10m")
     }
 
     override fun onDestroy() {

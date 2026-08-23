@@ -20,12 +20,12 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * v0.9.23 live stereo sink.
+ * v0.9.24 live stereo sink.
  *
- * The proven v0.9.22 live eye routing and transparent idle clear are preserved.
- * Only the startup splash eye assignment is swapped: the previous right-eye
- * splash is routed to the left half and the previous left-eye splash to the
- * right half. Live GeoGebra eye routing remains unchanged.
+ * The proven v0.9.22/v0.9.23 explicit left/right eye route is preserved.
+ * The swapped startup splash assignment from v0.9.23 is preserved.
+ * v0.9.24 additionally supports an explicit "3D view inactive" clear signal;
+ * the old idle watchdog remains only as a backup.
  */
 object LiveStereoFrameSink {
     private const val TAG = "GeoGebraForQuest"
@@ -77,7 +77,7 @@ object LiveStereoFrameSink {
             }
         }
 
-        Log.i(TAG, "v0.9.23 renderer-eye sink attached with swapped stereo startup splash")
+        Log.i(TAG, "v0.9.24 renderer-eye sink attached with swapped stereo startup splash")
     }
 
     fun detachSurface(expectedSurface: Surface? = null) {
@@ -88,7 +88,7 @@ object LiveStereoFrameSink {
             latestFrame.set(null)
             frameSerial.set(0L)
             hasRenderedLiveFrame = false
-            Log.i(TAG, "v0.9.23 renderer-eye sink detached")
+            Log.i(TAG, "v0.9.24 renderer-eye sink detached")
         }
     }
 
@@ -104,7 +104,21 @@ object LiveStereoFrameSink {
                 }
             }
         }
-        Log.i(TAG, "v0.9.23 renderer-eye sink enabled=$value")
+        Log.i(TAG, "v0.9.24 renderer-eye sink enabled=$value")
+    }
+
+    fun clearForInactiveView() {
+        if (!enabled) return
+        latestFrame.set(null)
+        frameSerial.incrementAndGet()
+        val generation = surfaceGeneration.get()
+        executor.execute {
+            if (enabled && surfaceGeneration.get() == generation) {
+                clearSurfaceToTransparent()
+                hasRenderedLiveFrame = false
+                Log.i(TAG, "v0.9.24 visible 3D view inactive; stereo panel cleared")
+            }
+        }
     }
 
     fun submitEyeDataUrls(leftDataUrl: String, rightDataUrl: String) {
@@ -145,7 +159,7 @@ object LiveStereoFrameSink {
                         ) {
                             clearSurfaceToTransparent()
                             hasRenderedLiveFrame = false
-                            Log.i(TAG, "v0.9.23 stereo stream idle; panel cleared to transparent")
+                            Log.i(TAG, "v0.9.24 stereo stream idle; panel cleared to transparent")
                         }
                     }
                 }
@@ -181,7 +195,7 @@ object LiveStereoFrameSink {
         val bytes = try {
             Base64.decode(encoded, Base64.DEFAULT)
         } catch (error: IllegalArgumentException) {
-            Log.w(TAG, "v0.9.23 invalid eye-frame Base64", error)
+            Log.w(TAG, "v0.9.24 invalid eye-frame Base64", error)
             return null
         }
 
@@ -239,7 +253,7 @@ object LiveStereoFrameSink {
                 clearColor = null,
                 markAsLive = false,
             )
-            Log.i(TAG, "v0.9.23 stereo startup splash rendered with swapped eyes")
+            Log.i(TAG, "v0.9.24 stereo startup splash rendered with swapped eyes")
         } finally {
             leftBitmap.recycle()
             rightBitmap.recycle()
@@ -299,10 +313,10 @@ object LiveStereoFrameSink {
             if (markAsLive) {
                 hasRenderedLiveFrame = true
                 val count = renderedFrameCount.incrementAndGet()
-                if (count == 1L || count % 60L == 0L) {
+                if (count == 1L || count % 40L == 0L) {
                     Log.i(
                         TAG,
-                        "v0.9.23 explicit-eye frame #$count " +
+                        "v0.9.24 explicit-eye frame #$count " +
                             "left=${leftBitmap.width}x${leftBitmap.height}->$leftDestination " +
                             "right=${rightBitmap.width}x${rightBitmap.height}->$rightDestination " +
                             "surface=${canvas.width}x${canvas.height}",
@@ -310,13 +324,13 @@ object LiveStereoFrameSink {
                 }
             }
         } catch (error: Throwable) {
-            Log.e(TAG, "v0.9.23 eye composition failed", error)
+            Log.e(TAG, "v0.9.24 eye composition failed", error)
         } finally {
             if (canvas != null) {
                 try {
                     targetSurface.unlockCanvasAndPost(canvas)
                 } catch (error: Throwable) {
-                    Log.e(TAG, "v0.9.23 stereo surface post failed", error)
+                    Log.e(TAG, "v0.9.24 stereo surface post failed", error)
                 }
             }
         }
@@ -331,13 +345,13 @@ object LiveStereoFrameSink {
             canvas = targetSurface.lockCanvas(null)
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         } catch (error: Throwable) {
-            Log.e(TAG, "v0.9.23 transparent clear failed", error)
+            Log.e(TAG, "v0.9.24 transparent clear failed", error)
         } finally {
             if (canvas != null) {
                 try {
                     targetSurface.unlockCanvasAndPost(canvas)
                 } catch (error: Throwable) {
-                    Log.e(TAG, "v0.9.23 transparent surface post failed", error)
+                    Log.e(TAG, "v0.9.24 transparent surface post failed", error)
                 }
             }
         }

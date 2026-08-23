@@ -8,12 +8,15 @@
   var lastCanvas = null;
   var scheduled = false;
 
-  // v0.9.23: preserve the explicit renderer-eye capture architecture and raise
-  // the target from 20 fps to approximately 30 fps.
-  var CAPTURE_INTERVAL_MS = 33;
+  // v0.9.24: return to the proven 20 fps target and only capture while a
+  // visible GeoGebra 3D view exists. Renderer-eye canvases may keep updating
+  // after the visible 3D view is closed, so visibility is the source of truth.
+  var CAPTURE_INTERVAL_MS = 50;
   var CAPTURE_MAX_EYE_WIDTH = 720;
   var CAPTURE_JPEG_QUALITY = 0.78;
   var lastCaptureAt = 0;
+  var hasSeenActive3D = false;
+  var inactiveReported = false;
 
   var leftCaptureCanvas = document.createElement('canvas');
   var rightCaptureCanvas = document.createElement('canvas');
@@ -43,11 +46,23 @@
     } catch (_) {}
   }
 
+  function reportStereoInactive() {
+    if (!hasSeenActive3D || inactiveReported) return;
+    inactiveReported = true;
+    bridge('stereoInactive', '');
+  }
+
+  function reportStereoActive() {
+    hasSeenActive3D = true;
+    inactiveReported = false;
+  }
+
   function rectOf(element) {
     if (!element || !element.isConnected) return null;
     var style;
     try { style = getComputedStyle(element); } catch (_) { return null; }
     if (!style || style.display === 'none' || style.visibility === 'hidden') return null;
+    if (Number(style.opacity) === 0) return null;
     var r = element.getBoundingClientRect();
     if (!r || r.width < 2 || r.height < 2) return null;
     if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) return null;
@@ -69,7 +84,7 @@
     }
   }
 
-  function find3DCanvas() {
+  function findVisible3DCanvas() {
     var root = document.getElementById('ggb-element') || document;
     var canvases = Array.prototype.slice.call(root.querySelectorAll('canvas'));
     var best = null;
@@ -90,7 +105,13 @@
     });
 
     if (best) lastCanvas = best;
-    return best || (lastCanvas && lastCanvas.isConnected ? lastCanvas : null);
+    return best;
+  }
+
+  function find3DCanvas() {
+    var visible = findVisible3DCanvas();
+    if (visible) return visible;
+    return lastCanvas && lastCanvas.isConnected ? lastCanvas : null;
   }
 
   function intersects(a, b) {
@@ -193,6 +214,16 @@
   function captureStereoEyes() {
     if (!leftCaptureContext || !rightCaptureContext) return;
 
+    // The visible 3D view, not the hidden renderer-eye canvases, controls
+    // whether stereo output is active. This prevents a closed rotating scene
+    // from continuing to animate on the stereo panel.
+    var visible3DCanvas = findVisible3DCanvas();
+    if (!visible3DCanvas) {
+      reportStereoInactive();
+      return;
+    }
+    reportStereoActive();
+
     var eyes = getRendererEyeCanvases();
     if (!eyes) return;
 
@@ -252,7 +283,10 @@
     if (document.body) resizeObserver.observe(document.body);
   }
 
-  var mutationObserver = new MutationObserver(schedule);
+  var mutationObserver = new MutationObserver(function () {
+    schedule();
+    if (!findVisible3DCanvas()) reportStereoInactive();
+  });
   mutationObserver.observe(document.documentElement, {
     subtree: true,
     childList: true,
