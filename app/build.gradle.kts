@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 77
-        versionName = "0.9.26"
+        versionCode = 78
+        versionName = "0.9.27"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,13 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.26:
-// - fixes the local document picker by launching it from the host SpatialGeoGebraActivity;
-// - maps controller A to a toggleable GeoGebra right-click context menu;
-// - maps controller B exclusively to stereo-panel palette attach/restore;
-// - starts the stereo panel with a slight inward yaw;
-// - uses the new user-supplied L/R startup splash pair;
-// - preserves the proven 20 fps stereo renderer, login and inactive-view clear path.
+// v0.9.27:
+// - increases initial stereo-panel inward yaw to 30 degrees;
+// - makes the right-controller palette upright and half-size while attached;
+// - routes controller A through GeoGebra's native long-touch/right-click path;
+// - replaces the corrupted splash blobs with compact valid L/R WebP assets;
+// - preserves the host-Activity local picker, login, 20 fps stereo renderer and inactive-view clear.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {

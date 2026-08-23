@@ -31,6 +31,9 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0918.py" "$SRC"
 echo "[GGQ] collapsing stereo rendering to one shared W x H viewport"
 python3 "$ROOT/tools/patch-geogebra-quest-v0919.py" "$SRC"
 
+echo "[GGQ] exporting GeoGebra native context-menu hooks for Quest A"
+python3 "$ROOT/tools/patch-geogebra-quest-v0927.py" "$SRC"
+
 echo "[GGQ] compiling GeoGebra Web3D and static runtime resources"
 pushd "$SRC/source/web" >/dev/null
 ../../gradlew \
@@ -81,6 +84,7 @@ bridge=two explicit renderer-eye JPEG data URLs
 native_composition=one renderer-left image to Surface left half; one renderer-right image to Surface right half; aspect preserved
 no_final_sbs_split=true
 no_quarter_diagnostics=true
+quest_context_menu_hook=ggqOpenContextMenu,ggqCloseContextMenu
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included

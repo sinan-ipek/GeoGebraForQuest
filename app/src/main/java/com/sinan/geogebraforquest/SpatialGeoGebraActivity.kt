@@ -24,6 +24,7 @@ import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
 import com.meta.spatial.toolkit.PixelDisplayOptions
 import com.meta.spatial.toolkit.QuadShapeOptions
+import com.meta.spatial.toolkit.Scale
 import com.meta.spatial.toolkit.Transform
 import com.meta.spatial.toolkit.TransformParent
 import com.meta.spatial.toolkit.UIPanelSettings
@@ -32,14 +33,13 @@ import com.meta.spatial.toolkit.getAbsoluteTransform
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.26.
+ * GeoGebraForQuest v0.9.27.
  *
- * v0.9.26 keeps the v0.9.24/v0.9.25 stereo path intact and adds:
- * - a host-Activity backed Android local-file picker;
- * - Quest A as a GeoGebra right-click/context-menu toggle;
- * - Quest B as a stereo-panel controller-palette toggle;
- * - a slightly user-facing initial stereo-panel yaw;
- * - the new user supplied L/R startup splash pair.
+ * v0.9.27 keeps the proven v0.9.24-v0.9.26 stereo/login/local-file path and:
+ * - increases the initial stereo-panel inward yaw from 15 to 30 degrees;
+ * - rotates the controller palette by 90 degrees so the panel face is upright;
+ * - scales the stereo panel to 50% only while attached to the right controller;
+ * - keeps A/B shortcuts handled by the Spatial SDK controller system.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -60,14 +60,17 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private val INITIAL_STEREO_POSE = Pose(
             Vector3(1.10f, 1.30f, 1.15f),
-            Quaternion(0f, 15f, 0f),
+            Quaternion(0f, 30f, 0f),
         )
 
-        // Local pose relative to the right-controller entity while palette mode is active.
+        // v0.9.26 used -55 degrees around X and appeared nearly horizontal in-hand.
+        // Adding 90 degrees makes the palette face upright while keeping the same hand offset.
         private val CONTROLLER_PALETTE_POSE = Pose(
             Vector3(-0.17f, 0.08f, 0.10f),
-            Quaternion(-55f, 0f, -18f),
+            Quaternion(35f, 0f, -18f),
         )
+
+        private val CONTROLLER_PALETTE_SCALE = Vector3(0.5f, 0.5f, 0.5f)
     }
 
     private var sceneReady = false
@@ -76,6 +79,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var stereoSurface: Surface? = null
     private var stereoPaletteAttached = false
     private var stereoPaletteRestorePose: Pose? = null
+    private var stereoPaletteRestoreScale: Vector3? = null
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -121,7 +125,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "v0.9.26 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "v0.9.27 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -176,21 +180,26 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         if (!stereoPaletteAttached) {
             stereoPaletteRestorePose = getAbsoluteTransform(panel)
+            stereoPaletteRestoreScale = panel.tryGetComponent<Scale>()?.scale ?: Vector3(1f, 1f, 1f)
             panel.setComponent(TransformParent(rightControllerEntity))
             panel.setComponent(Transform(CONTROLLER_PALETTE_POSE))
+            panel.setComponent(Scale(CONTROLLER_PALETTE_SCALE))
             panel.setComponent(Grabbable(false))
             stereoPaletteAttached = true
-            Log.i(TAG, "v0.9.26 stereo palette attached to right controller")
+            Log.i(TAG, "v0.9.27 stereo palette attached upright at 50% scale")
             return
         }
 
         val restorePose = stereoPaletteRestorePose ?: INITIAL_STEREO_POSE
+        val restoreScale = stereoPaletteRestoreScale ?: Vector3(1f, 1f, 1f)
         panel.setComponent(TransformParent())
         panel.setComponent(Transform(restorePose))
+        panel.setComponent(Scale(restoreScale))
         panel.setComponent(Grabbable())
         stereoPaletteRestorePose = null
+        stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "v0.9.26 stereo palette restored to pre-B pose")
+        Log.i(TAG, "v0.9.27 stereo palette restored to exact pre-B pose and scale")
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -247,10 +256,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             Entity.create(
                 Panel(R.id.geogebra_stereo_panel),
                 Transform(INITIAL_STEREO_POSE),
+                Scale(Vector3(1f, 1f, 1f)),
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.26 stereo panel ready at x=1.10m with 15-degree inward yaw")
+        Log.i(TAG, "v0.9.27 stereo panel ready at x=1.10m with 30-degree inward yaw")
     }
 
     override fun onDestroy() {
@@ -264,6 +274,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPanelEntity?.destroy()
         stereoPanelEntity = null
         stereoPaletteRestorePose = null
+        stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
 
         super.onDestroy()

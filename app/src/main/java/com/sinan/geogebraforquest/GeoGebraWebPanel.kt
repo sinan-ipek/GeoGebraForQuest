@@ -266,18 +266,71 @@ private fun injectControllerContextMenuSupport(view: WebView) {
             y: Math.max(1, Math.round(window.innerHeight / 2))
           };
 
-          function rememberPointer(event) {
-            if (typeof event.clientX === 'number' && typeof event.clientY === 'number') {
-              window.__ggqLastPointer = { x: event.clientX, y: event.clientY };
+          function setPointer(x, y) {
+            if (typeof x === 'number' && isFinite(x) &&
+                typeof y === 'number' && isFinite(y)) {
+              window.__ggqLastPointer = { x: x, y: y };
             }
+          }
+
+          function rememberPointer(event) {
+            setPointer(event.clientX, event.clientY);
+          }
+
+          function rememberTouch(event) {
+            var touch = null;
+            if (event.touches && event.touches.length) {
+              touch = event.touches[0];
+            } else if (event.changedTouches && event.changedTouches.length) {
+              touch = event.changedTouches[0];
+            }
+            if (touch) setPointer(touch.clientX, touch.clientY);
           }
 
           document.addEventListener('pointermove', rememberPointer, true);
           document.addEventListener('mousemove', rememberPointer, true);
           document.addEventListener('pointerdown', rememberPointer, true);
-          document.addEventListener('click', function () {
-            window.__ggqContextMenuVisible = false;
-          }, true);
+          document.addEventListener('mousedown', rememberPointer, true);
+          document.addEventListener('touchstart', rememberTouch, true);
+          document.addEventListener('touchmove', rememberTouch, true);
+          document.addEventListener('touchend', rememberTouch, true);
+
+          function findViewCoordinates(p) {
+            var target = document.elementFromPoint(p.x, p.y);
+            var canvas = null;
+            if (target && target.tagName && target.tagName.toLowerCase() === 'canvas') {
+              canvas = target;
+            }
+
+            if (!canvas) {
+              var canvases = document.querySelectorAll('canvas');
+              var bestArea = Number.POSITIVE_INFINITY;
+              for (var i = 0; i < canvases.length; i++) {
+                var candidate = canvases[i];
+                var style = window.getComputedStyle(candidate);
+                if (style.display === 'none' || style.visibility === 'hidden' ||
+                    parseFloat(style.opacity || '1') === 0) continue;
+                var r = candidate.getBoundingClientRect();
+                if (r.width < 40 || r.height < 40) continue;
+                if (p.x < r.left || p.x > r.right || p.y < r.top || p.y > r.bottom) continue;
+                var area = r.width * r.height;
+                if (area < bestArea) {
+                  bestArea = area;
+                  canvas = candidate;
+                }
+              }
+            }
+
+            if (canvas) {
+              var rect = canvas.getBoundingClientRect();
+              return {
+                x: Math.max(0, Math.min(rect.width, p.x - rect.left)),
+                y: Math.max(0, Math.min(rect.height, p.y - rect.top))
+              };
+            }
+
+            return { x: p.x, y: p.y };
+          }
 
           function sendEscape(target) {
             try {
@@ -292,46 +345,59 @@ private fun injectControllerContextMenuSupport(view: WebView) {
             } catch (e) {}
           }
 
+          function syntheticRightClick(p) {
+            var target = document.elementFromPoint(p.x, p.y) || document.body;
+            try {
+              target.dispatchEvent(new MouseEvent('mousedown', {
+                bubbles: true, cancelable: true, view: window,
+                clientX: p.x, clientY: p.y, button: 2, buttons: 2
+              }));
+              target.dispatchEvent(new MouseEvent('mouseup', {
+                bubbles: true, cancelable: true, view: window,
+                clientX: p.x, clientY: p.y, button: 2, buttons: 0
+              }));
+              target.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true, view: window,
+                clientX: p.x, clientY: p.y, button: 2, buttons: 2
+              }));
+              return true;
+            } catch (e) {
+              return false;
+            }
+          }
+
           window.__ggqToggleContextMenu = function () {
             var p = window.__ggqLastPointer || { x: 1, y: 1 };
 
             if (window.__ggqContextMenuVisible) {
+              var closed = false;
+              try {
+                if (typeof window.ggqCloseContextMenu === 'function') {
+                  closed = !!window.ggqCloseContextMenu();
+                }
+              } catch (e) {}
+              if (!closed) {
+                sendEscape(document.activeElement || document.body);
+                sendEscape(document);
+              }
               window.__ggqContextMenuVisible = false;
-              sendEscape(document.activeElement || document.body);
-              sendEscape(document);
               return 'closed';
             }
 
-            var target = document.elementFromPoint(p.x, p.y) || document.body;
-            var mouseDown = new MouseEvent('mousedown', {
-              bubbles: true, cancelable: true, view: window,
-              clientX: p.x, clientY: p.y, button: 2, buttons: 2
-            });
-            var mouseUp = new MouseEvent('mouseup', {
-              bubbles: true, cancelable: true, view: window,
-              clientX: p.x, clientY: p.y, button: 2, buttons: 0
-            });
-            var contextMenu = new MouseEvent('contextmenu', {
-              bubbles: true, cancelable: true, view: window,
-              clientX: p.x, clientY: p.y, button: 2, buttons: 2
-            });
-
+            var local = findViewCoordinates(p);
+            var opened = false;
             try {
-              if (window.PointerEvent) {
-                target.dispatchEvent(new PointerEvent('pointerdown', {
-                  bubbles: true, cancelable: true,
-                  clientX: p.x, clientY: p.y,
-                  pointerId: 1, pointerType: 'mouse',
-                  button: 2, buttons: 2, isPrimary: true
-                }));
+              if (typeof window.ggqOpenContextMenu === 'function') {
+                opened = !!window.ggqOpenContextMenu(local.x, local.y);
               }
             } catch (e) {}
 
-            target.dispatchEvent(mouseDown);
-            target.dispatchEvent(mouseUp);
-            target.dispatchEvent(contextMenu);
-            window.__ggqContextMenuVisible = true;
-            return 'opened';
+            if (!opened) {
+              opened = syntheticRightClick(p);
+            }
+
+            window.__ggqContextMenuVisible = opened;
+            return opened ? 'opened' : 'failed';
           };
         })();
         """.trimIndent(),
@@ -439,7 +505,7 @@ private fun configureWebViewCore(
         settings.mediaPlaybackRequiresUserGesture = false
         settings.setSupportMultipleWindows(true)
         settings.javaScriptCanOpenWindowsAutomatically = true
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.26"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.27"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
