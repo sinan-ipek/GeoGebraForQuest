@@ -3,6 +3,7 @@ package com.sinan.geogebraforquest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -37,17 +38,26 @@ private const val LOCAL_ASSET_HOST = "appassets.androidplatform.net"
 private const val REMOTE_LOGIN_CALLBACK_URL =
     "https://www.geogebra.org/apps/latest/web3d/html/ggtcallback.html"
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 object GeoGebraLocalFilePicker {
     const val REQUEST_CODE = 9025
 
     private var pendingCallback: ValueCallback<Array<Uri>>? = null
 
     fun launch(
-        webView: WebView,
+        activity: Activity?,
         callback: ValueCallback<Array<Uri>>,
         params: WebChromeClient.FileChooserParams,
     ): Boolean {
-        val activity = webView.context as? Activity ?: return false
+        if (activity == null) {
+            callback.onReceiveValue(null)
+            return false
+        }
 
         pendingCallback?.onReceiveValue(null)
         pendingCallback = callback
@@ -168,6 +178,17 @@ object GeoGebraWebNavigation {
         }
         return false
     }
+
+    fun toggleContextMenu(): Boolean {
+        val main = mainWebView.get() ?: return false
+        main.post {
+            main.evaluateJavascript(
+                "if(window.__ggqToggleContextMenu){window.__ggqToggleContextMenu();}",
+                null,
+            )
+        }
+        return true
+    }
 }
 
 private class QuestBridge(
@@ -233,6 +254,91 @@ private fun injectQuestScripts(view: WebView) {
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
+private fun injectControllerContextMenuSupport(view: WebView) {
+    view.evaluateJavascript(
+        """
+        (function () {
+          if (window.__ggqContextSupportInstalled) return;
+          window.__ggqContextSupportInstalled = true;
+          window.__ggqContextMenuVisible = false;
+          window.__ggqLastPointer = {
+            x: Math.max(1, Math.round(window.innerWidth / 2)),
+            y: Math.max(1, Math.round(window.innerHeight / 2))
+          };
+
+          function rememberPointer(event) {
+            if (typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+              window.__ggqLastPointer = { x: event.clientX, y: event.clientY };
+            }
+          }
+
+          document.addEventListener('pointermove', rememberPointer, true);
+          document.addEventListener('mousemove', rememberPointer, true);
+          document.addEventListener('pointerdown', rememberPointer, true);
+          document.addEventListener('click', function () {
+            window.__ggqContextMenuVisible = false;
+          }, true);
+
+          function sendEscape(target) {
+            try {
+              target.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+                bubbles: true, cancelable: true
+              }));
+              target.dispatchEvent(new KeyboardEvent('keyup', {
+                key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+                bubbles: true, cancelable: true
+              }));
+            } catch (e) {}
+          }
+
+          window.__ggqToggleContextMenu = function () {
+            var p = window.__ggqLastPointer || { x: 1, y: 1 };
+
+            if (window.__ggqContextMenuVisible) {
+              window.__ggqContextMenuVisible = false;
+              sendEscape(document.activeElement || document.body);
+              sendEscape(document);
+              return 'closed';
+            }
+
+            var target = document.elementFromPoint(p.x, p.y) || document.body;
+            var mouseDown = new MouseEvent('mousedown', {
+              bubbles: true, cancelable: true, view: window,
+              clientX: p.x, clientY: p.y, button: 2, buttons: 2
+            });
+            var mouseUp = new MouseEvent('mouseup', {
+              bubbles: true, cancelable: true, view: window,
+              clientX: p.x, clientY: p.y, button: 2, buttons: 0
+            });
+            var contextMenu = new MouseEvent('contextmenu', {
+              bubbles: true, cancelable: true, view: window,
+              clientX: p.x, clientY: p.y, button: 2, buttons: 2
+            });
+
+            try {
+              if (window.PointerEvent) {
+                target.dispatchEvent(new PointerEvent('pointerdown', {
+                  bubbles: true, cancelable: true,
+                  clientX: p.x, clientY: p.y,
+                  pointerId: 1, pointerType: 'mouse',
+                  button: 2, buttons: 2, isPrimary: true
+                }));
+              }
+            } catch (e) {}
+
+            target.dispatchEvent(mouseDown);
+            target.dispatchEvent(mouseUp);
+            target.dispatchEvent(contextMenu);
+            window.__ggqContextMenuVisible = true;
+            return 'opened';
+          };
+        })();
+        """.trimIndent(),
+        null,
+    )
+}
+
 private fun redirectLocalLoginCallback(view: WebView, uri: Uri): Boolean {
     val path = uri.path.orEmpty()
     if (
@@ -259,6 +365,7 @@ private fun refreshImeConnection(view: View) {
 private class GeoGebraChromeClient(
     private val spatialMode: Boolean,
     private val assetLoader: WebViewAssetLoader,
+    private val hostActivity: Activity?,
 ) : WebChromeClient() {
     override fun onCreateWindow(
         view: WebView,
@@ -276,6 +383,7 @@ private class GeoGebraChromeClient(
             assetLoader = assetLoader,
             injectStereoScripts = false,
             registerAsMain = false,
+            hostActivity = hostActivity,
         )
         parent.addView(
             popup,
@@ -301,7 +409,7 @@ private class GeoGebraChromeClient(
         filePathCallback: ValueCallback<Array<Uri>>,
         fileChooserParams: FileChooserParams,
     ): Boolean = GeoGebraLocalFilePicker.launch(
-        webView = webView,
+        activity = hostActivity,
         callback = filePathCallback,
         params = fileChooserParams,
     )
@@ -314,6 +422,7 @@ private fun configureWebViewCore(
     assetLoader: WebViewAssetLoader,
     injectStereoScripts: Boolean,
     registerAsMain: Boolean,
+    hostActivity: Activity?,
 ) {
     webView.apply {
         setLayerType(View.LAYER_TYPE_HARDWARE, null)
@@ -325,13 +434,12 @@ private fun configureWebViewCore(
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
         settings.allowFileAccess = false
-        // Required for content:// URIs returned by Android's document picker.
         settings.allowContentAccess = true
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
         settings.setSupportMultipleWindows(true)
         settings.javaScriptCanOpenWindowsAutomatically = true
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.25"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.26"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -344,11 +452,12 @@ private fun configureWebViewCore(
         }
 
         setOnKeyListener { _, keyCode, event ->
-            val isBack = keyCode == KeyEvent.KEYCODE_BUTTON_B || keyCode == KeyEvent.KEYCODE_BACK
-            isBack && event.action == KeyEvent.ACTION_DOWN && GeoGebraWebNavigation.handleBack()
+            keyCode == KeyEvent.KEYCODE_BACK &&
+                event.action == KeyEvent.ACTION_DOWN &&
+                GeoGebraWebNavigation.handleBack()
         }
 
-        webChromeClient = GeoGebraChromeClient(spatialMode, assetLoader)
+        webChromeClient = GeoGebraChromeClient(spatialMode, assetLoader, hostActivity)
         webViewClient = object : WebViewClientCompat() {
             override fun shouldOverrideUrlLoading(
                 view: WebView,
@@ -377,6 +486,9 @@ private fun configureWebViewCore(
                 } else {
                     view.post { refreshImeConnection(view) }
                 }
+                if (registerAsMain) {
+                    injectControllerContextMenuSupport(view)
+                }
             }
         }
 
@@ -392,6 +504,7 @@ fun configureGeoGebraWebView(
     webView: WebView,
     spatialMode: Boolean,
     @Suppress("UNUSED_PARAMETER") startStereo: Boolean,
+    hostActivity: Activity? = webView.context.findActivity(),
 ) {
     val context = webView.context
     val assetLoader = WebViewAssetLoader.Builder()
@@ -404,6 +517,7 @@ fun configureGeoGebraWebView(
         assetLoader = assetLoader,
         injectStereoScripts = true,
         registerAsMain = true,
+        hostActivity = hostActivity,
     )
     webView.loadUrl(LOCAL_APP_URL)
 }
