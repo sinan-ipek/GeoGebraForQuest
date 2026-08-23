@@ -28,13 +28,13 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.21.
+ * GeoGebraForQuest v0.9.22.
  *
- * The TEST source and source-selection panel have been removed completely.
- * The registered stereo VideoSurface now has a single source: live GeoGebra.
- * The working v0.9.19 renderer core is preserved unchanged: LEFT_EYE and
- * RIGHT_EYE render sequentially into the same W x H WebGL viewport, are
- * captured independently, and are mapped to the Surface L|R halves.
+ * v0.9.22 keeps the proven v0.9.21 GeoGebra-only stereo route and adds:
+ * - a true stereo startup image (separate left/right eye artwork);
+ * - automatic transparent clearing when the live stereo stream goes idle;
+ * - a 20 fps capture target;
+ * - a slightly more rightward default stereo-panel position.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -100,9 +100,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     }
 
                     stereoSurface = surface
-                    LiveStereoFrameSink.attachSurface(surface)
+                    LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "v0.9.21 GeoGebra-only 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "v0.9.22 1440x720 stereo VideoSurface attached with startup splash")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -185,11 +185,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPanelEntity =
             Entity.create(
                 Panel(R.id.geogebra_stereo_panel),
-                Transform(Pose(Vector3(0.95f, 1.30f, 1.15f))),
+                Transform(Pose(Vector3(1.10f, 1.30f, 1.15f))),
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.21 GeoGebra-only stereo ready")
+        Log.i(TAG, "v0.9.22 stereo panel ready at x=1.10m")
     }
 
     override fun onDestroy() {
