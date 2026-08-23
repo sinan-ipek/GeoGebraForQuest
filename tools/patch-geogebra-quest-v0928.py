@@ -2,6 +2,8 @@
 from pathlib import Path
 import sys
 
+# Applied after the v0.9.27 bridge patch: keep the JS entry point stable, but make
+# A operate on GeoGebra's existing selection instead of re-hit-testing the canvas.
 if len(sys.argv) != 2:
     raise SystemExit("usage: patch-geogebra-quest-v0928.py <geogebra-source-root>")
 
