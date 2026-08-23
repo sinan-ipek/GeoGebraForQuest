@@ -1,11 +1,15 @@
 package com.sinan.geogebraforquest
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Color
 import android.net.Uri
 import android.os.Message
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -26,6 +30,9 @@ private const val LOCAL_APP_URL =
     "https://appassets.androidplatform.net/assets/web/index.html"
 private const val STEREO_LAYOUT_URL =
     "https://appassets.androidplatform.net/assets/web/quest-stereo-layout.js"
+private const val LOCAL_ASSET_HOST = "appassets.androidplatform.net"
+private const val REMOTE_LOGIN_CALLBACK_URL =
+    "https://www.geogebra.org/apps/latest/web3d/html/ggtcallback.html"
 
 object GeoGebraWebNavigation {
     private var mainWebView = WeakReference<WebView>(null)
@@ -113,6 +120,13 @@ private class QuestBridge(
     }
 
     @JavascriptInterface
+    fun stereoInactive() {
+        if (spatialMode) {
+            LiveStereoFrameSink.clearForInactiveView()
+        }
+    }
+
+    @JavascriptInterface
     fun getStereoDebugStatus(): String = StereoDebugState.toJson()
 
     @JavascriptInterface
@@ -147,6 +161,29 @@ private fun injectQuestScripts(view: WebView) {
     injectAssetScript(view, "ggq-stereo-layout", STEREO_LAYOUT_URL)
 }
 
+private fun redirectLocalLoginCallback(view: WebView, uri: Uri): Boolean {
+    val path = uri.path.orEmpty()
+    if (
+        !uri.host.equals(LOCAL_ASSET_HOST, ignoreCase = true) ||
+        !path.endsWith("/ggtcallback.html")
+    ) {
+        return false
+    }
+
+    val remote = Uri.parse(REMOTE_LOGIN_CALLBACK_URL)
+        .buildUpon()
+        .encodedQuery(uri.encodedQuery)
+        .build()
+    view.loadUrl(remote.toString())
+    return true
+}
+
+private fun refreshImeConnection(view: View) {
+    view.requestFocus()
+    val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+    imm?.restartInput(view)
+}
+
 private class GeoGebraChromeClient(
     private val spatialMode: Boolean,
     private val assetLoader: WebViewAssetLoader,
@@ -176,6 +213,7 @@ private class GeoGebraChromeClient(
             ),
         )
         GeoGebraWebNavigation.registerPopup(popup)
+        popup.post { refreshImeConnection(popup) }
 
         transport.webView = popup
         resultMsg.sendToTarget()
@@ -187,7 +225,7 @@ private class GeoGebraChromeClient(
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
 private fun configureWebViewCore(
     webView: WebView,
     spatialMode: Boolean,
@@ -198,6 +236,8 @@ private fun configureWebViewCore(
     webView.apply {
         setLayerType(View.LAYER_TYPE_HARDWARE, null)
         setBackgroundColor(Color.WHITE)
+        isFocusable = true
+        isFocusableInTouchMode = true
 
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
@@ -208,13 +248,34 @@ private fun configureWebViewCore(
         settings.mediaPlaybackRequiresUserGesture = false
         settings.setSupportMultipleWindows(true)
         settings.javaScriptCanOpenWindowsAutomatically = true
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.18"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.24"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
+        setOnTouchListener { touchedView, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                refreshImeConnection(touchedView)
+            }
+            false
+        }
+
+        setOnKeyListener { _, keyCode, event ->
+            val isBack = keyCode == KeyEvent.KEYCODE_BUTTON_B || keyCode == KeyEvent.KEYCODE_BACK
+            isBack && event.action == KeyEvent.ACTION_DOWN && GeoGebraWebNavigation.handleBack()
+        }
+
         webChromeClient = GeoGebraChromeClient(spatialMode, assetLoader)
         webViewClient = object : WebViewClientCompat() {
+            override fun shouldOverrideUrlLoading(
+                view: WebView,
+                request: WebResourceRequest,
+            ): Boolean = redirectLocalLoginCallback(view, request.url)
+
+            @Suppress("DEPRECATION")
+            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
+                redirectLocalLoginCallback(view, Uri.parse(url))
+
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest,
@@ -230,6 +291,8 @@ private fun configureWebViewCore(
                 super.onPageFinished(view, url)
                 if (injectStereoScripts) {
                     injectQuestScripts(view)
+                } else {
+                    view.post { refreshImeConnection(view) }
                 }
             }
         }
