@@ -33,6 +33,8 @@ private const val STEREO_LAYOUT_URL =
 private const val LOCAL_ASSET_HOST = "appassets.androidplatform.net"
 private const val REMOTE_LOGIN_CALLBACK_URL =
     "https://www.geogebra.org/apps/latest/web3d/html/ggtcallback.html"
+private val MATERIAL_ID_REGEX = Regex("^[A-Za-z0-9_-]{3,80}$")
+private val FRAGMENT_MATERIAL_REGEX = Regex("(?:^|/)material/([A-Za-z0-9_-]{3,80})(?:/|$)")
 
 object GeoGebraWebNavigation {
     private var mainWebView = WeakReference<WebView>(null)
@@ -76,6 +78,27 @@ object GeoGebraWebNavigation {
             webView.destroy()
         } catch (_: Throwable) {
         }
+    }
+
+    fun openMaterialInLocalClassic(materialId: String, sourceView: WebView?): Boolean {
+        val cleanId = materialId.trim()
+        if (!MATERIAL_ID_REGEX.matches(cleanId)) return false
+
+        val main = mainWebView.get() ?: return false
+        val target = Uri.parse(LOCAL_APP_URL)
+            .buildUpon()
+            .appendQueryParameter("material_id", cleanId)
+            .build()
+            .toString()
+
+        main.post {
+            if (sourceView != null && sourceView !== main && sourceView.parent != null) {
+                closePopup(sourceView)
+            }
+            main.loadUrl(target)
+            main.requestFocus()
+        }
+        return true
     }
 
     fun handleBack(): Boolean {
@@ -178,6 +201,55 @@ private fun redirectLocalLoginCallback(view: WebView, uri: Uri): Boolean {
     return true
 }
 
+private fun isGeoGebraHost(host: String?): Boolean {
+    val normalized = host?.lowercase().orEmpty()
+    return normalized == "geogebra.org" || normalized.endsWith(".geogebra.org")
+}
+
+private fun validMaterialId(candidate: String?): String? {
+    val clean = candidate?.trim()?.trim('/') ?: return null
+    return clean.takeIf { MATERIAL_ID_REGEX.matches(it) }
+}
+
+private fun extractGeoGebraMaterialId(uri: Uri): String? {
+    if (!isGeoGebraHost(uri.host)) return null
+
+    validMaterialId(uri.getQueryParameter("material_id"))?.let { return it }
+
+    val segments = uri.pathSegments
+    for (index in segments.indices) {
+        when (segments[index].lowercase()) {
+            "m", "classic", "geometry", "3d" -> {
+                validMaterialId(segments.getOrNull(index + 1))?.let { return it }
+            }
+            "id" -> {
+                validMaterialId(segments.getOrNull(index + 1))?.let { return it }
+            }
+        }
+    }
+
+    val pathAllowsIdQuery = segments.any {
+        it.equals("apps", ignoreCase = true) ||
+            it.equals("material", ignoreCase = true) ||
+            it.equals("m", ignoreCase = true)
+    }
+    if (pathAllowsIdQuery) {
+        validMaterialId(uri.getQueryParameter("id"))?.let { return it }
+    }
+
+    val fragment = uri.fragment.orEmpty()
+    FRAGMENT_MATERIAL_REGEX.find(fragment)?.groupValues?.getOrNull(1)?.let { raw ->
+        validMaterialId(raw)?.let { return it }
+    }
+
+    return null
+}
+
+private fun routeMaterialToLocalClassic(view: WebView, uri: Uri): Boolean {
+    val materialId = extractGeoGebraMaterialId(uri) ?: return false
+    return GeoGebraWebNavigation.openMaterialInLocalClassic(materialId, view)
+}
+
 private fun refreshImeConnection(view: View) {
     view.requestFocus()
     val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
@@ -248,7 +320,7 @@ private fun configureWebViewCore(
         settings.mediaPlaybackRequiresUserGesture = false
         settings.setSupportMultipleWindows(true)
         settings.javaScriptCanOpenWindowsAutomatically = true
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.24"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.25"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -270,11 +342,16 @@ private fun configureWebViewCore(
             override fun shouldOverrideUrlLoading(
                 view: WebView,
                 request: WebResourceRequest,
-            ): Boolean = redirectLocalLoginCallback(view, request.url)
+            ): Boolean =
+                redirectLocalLoginCallback(view, request.url) ||
+                    routeMaterialToLocalClassic(view, request.url)
 
             @Suppress("DEPRECATION")
-            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
-                redirectLocalLoginCallback(view, Uri.parse(url))
+            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                val uri = Uri.parse(url)
+                return redirectLocalLoginCallback(view, uri) ||
+                    routeMaterialToLocalClassic(view, uri)
+            }
 
             override fun shouldInterceptRequest(
                 view: WebView,
