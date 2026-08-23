@@ -6,6 +6,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.Surface
 import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
 import com.meta.spatial.core.SpatialFeature
@@ -29,13 +30,14 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.23.
+ * GeoGebraForQuest v0.9.24.
  *
- * v0.9.23 preserves the proven v0.9.22 stereo architecture and changes only:
- * - startup splash eye routing is swapped;
- * - GeoGebra login popups use the same local-asset WebView route;
- * - controller B / Android Back can return through WebView popup/history;
- * - explicit eye-pair capture targets 30 fps.
+ * v0.9.24 preserves the proven stereo architecture and changes only:
+ * - keeps the corrected/swapped startup splash eye routing from v0.9.23;
+ * - hardens GeoGebra login callback handling and popup IME focus;
+ * - routes Android/Quest back through the modern back dispatcher, with key fallback;
+ * - clears stereo when the visible GeoGebra 3D view closes;
+ * - returns explicit eye-pair capture to the proven 20 fps target.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -60,6 +62,20 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var stereoPanelEntity: Entity? = null
     private var stereoSurface: Surface? = null
     private var browserBackKeyConsumed = false
+
+    private val browserBackCallback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            if (GeoGebraWebNavigation.handleBack()) {
+                return
+            }
+
+            // Nothing inside GeoGebra can go back: temporarily hand control to
+            // the Activity/system default instead of trapping the user.
+            isEnabled = false
+            onBackPressedDispatcher.onBackPressed()
+            isEnabled = true
+        }
+    }
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -104,7 +120,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "v0.9.23 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "v0.9.24 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -128,6 +144,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, browserBackCallback)
         StereoDebugState.reset()
         SpatialBridgeBus.clear()
         LiveStereoFrameSink.setEnabled(true)
@@ -212,7 +229,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.23 stereo panel ready at x=1.10m")
+        Log.i(TAG, "v0.9.24 stereo panel ready at x=1.10m")
     }
 
     override fun onDestroy() {
