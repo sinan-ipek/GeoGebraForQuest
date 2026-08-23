@@ -4,11 +4,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
-import android.view.KeyEvent
 import android.view.Surface
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
 import com.meta.spatial.core.Pose
+import com.meta.spatial.core.Quaternion
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector3
 import com.meta.spatial.runtime.ReferenceSpace
@@ -25,17 +25,21 @@ import com.meta.spatial.toolkit.PanelStyleOptions
 import com.meta.spatial.toolkit.PixelDisplayOptions
 import com.meta.spatial.toolkit.QuadShapeOptions
 import com.meta.spatial.toolkit.Transform
+import com.meta.spatial.toolkit.TransformParent
 import com.meta.spatial.toolkit.UIPanelSettings
 import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
+import com.meta.spatial.toolkit.getAbsoluteTransform
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.25.
+ * GeoGebraForQuest v0.9.26.
  *
- * v0.9.25 is based directly on v0.9.24 and adds only Android document-picker
- * support for GeoGebra's existing local-file Open flow. Stereo rendering,
- * login, Back/B handling, splash routing, 20 fps capture, panel placement and
- * active-3D-view transparent clear remain unchanged.
+ * v0.9.26 keeps the v0.9.24/v0.9.25 stereo path intact and adds:
+ * - a host-Activity backed Android local-file picker;
+ * - Quest A as a GeoGebra right-click/context-menu toggle;
+ * - Quest B as a stereo-panel controller-palette toggle;
+ * - a slightly user-facing initial stereo-panel yaw;
+ * - the new user supplied L/R startup splash pair.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -53,13 +57,25 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
+
+        private val INITIAL_STEREO_POSE = Pose(
+            Vector3(1.10f, 1.30f, 1.15f),
+            Quaternion(0f, 15f, 0f),
+        )
+
+        // Local pose relative to the right-controller entity while palette mode is active.
+        private val CONTROLLER_PALETTE_POSE = Pose(
+            Vector3(-0.17f, 0.08f, 0.10f),
+            Quaternion(-55f, 0f, -18f),
+        )
     }
 
     private var sceneReady = false
     private var vrReady = false
     private var stereoPanelEntity: Entity? = null
     private var stereoSurface: Surface? = null
-    private var browserBackKeyConsumed = false
+    private var stereoPaletteAttached = false
+    private var stereoPaletteRestorePose: Pose? = null
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -89,6 +105,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         webView = webView,
                         spatialMode = true,
                         startStereo = true,
+                        hostActivity = this,
                     )
                 },
             ),
@@ -104,7 +121,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "v0.9.25 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "v0.9.26 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -131,6 +148,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         StereoDebugState.reset()
         SpatialBridgeBus.clear()
         LiveStereoFrameSink.setEnabled(true)
+        systemManager.registerSystem(QuestControllerShortcutSystem(this))
         requestScenePermissionIfNeeded()
     }
 
@@ -149,25 +167,30 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         super.onActivityResult(requestCode, resultCode, data)
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val isBrowserBackKey =
-            event.keyCode == KeyEvent.KEYCODE_BUTTON_B ||
-                event.keyCode == KeyEvent.KEYCODE_BACK
+    internal fun onQuestAButtonPressed() {
+        GeoGebraWebNavigation.toggleContextMenu()
+    }
 
-        if (isBrowserBackKey) {
-            if (event.action == KeyEvent.ACTION_DOWN) {
-                if (event.repeatCount == 0 && GeoGebraWebNavigation.handleBack()) {
-                    browserBackKeyConsumed = true
-                    return true
-                }
-                if (browserBackKeyConsumed) return true
-            } else if (event.action == KeyEvent.ACTION_UP && browserBackKeyConsumed) {
-                browserBackKeyConsumed = false
-                return true
-            }
+    internal fun onQuestBButtonPressed(rightControllerEntity: Entity) {
+        val panel = stereoPanelEntity ?: return
+
+        if (!stereoPaletteAttached) {
+            stereoPaletteRestorePose = getAbsoluteTransform(panel)
+            panel.setComponent(TransformParent(rightControllerEntity))
+            panel.setComponent(Transform(CONTROLLER_PALETTE_POSE))
+            panel.setComponent(Grabbable(false))
+            stereoPaletteAttached = true
+            Log.i(TAG, "v0.9.26 stereo palette attached to right controller")
+            return
         }
 
-        return super.dispatchKeyEvent(event)
+        val restorePose = stereoPaletteRestorePose ?: INITIAL_STEREO_POSE
+        panel.setComponent(TransformParent())
+        panel.setComponent(Transform(restorePose))
+        panel.setComponent(Grabbable())
+        stereoPaletteRestorePose = null
+        stereoPaletteAttached = false
+        Log.i(TAG, "v0.9.26 stereo palette restored to pre-B pose")
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -223,11 +246,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPanelEntity =
             Entity.create(
                 Panel(R.id.geogebra_stereo_panel),
-                Transform(Pose(Vector3(1.10f, 1.30f, 1.15f))),
+                Transform(INITIAL_STEREO_POSE),
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.25 stereo panel ready at x=1.10m")
+        Log.i(TAG, "v0.9.26 stereo panel ready at x=1.10m with 15-degree inward yaw")
     }
 
     override fun onDestroy() {
@@ -240,6 +263,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         stereoPanelEntity?.destroy()
         stereoPanelEntity = null
+        stereoPaletteRestorePose = null
+        stereoPaletteAttached = false
 
         super.onDestroy()
     }
