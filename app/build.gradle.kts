@@ -67,6 +67,7 @@ dependencies {
 // - supports GeoGebra login popup/callback through the same local asset loader;
 // - maps controller B / Android Back to WebView popup/history navigation;
 // - targets approximately 30 fps explicit eye-pair capture.
+// CI marker: build this exact v0.9.23 head without changing runtime behavior.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
