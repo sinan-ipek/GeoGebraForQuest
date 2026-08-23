@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 75
-        versionName = "0.9.24"
+        versionCode = 76
+        versionName = "0.9.25"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,13 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.24:
-// - preserves the proven stereo renderer, eye routing, panel size and placement;
-// - preserves the corrected swapped startup splash routing from v0.9.23;
-// - redirects the GeoGebra login callback to the public GeoGebra callback page;
-// - improves popup keyboard focus and browser-back handling;
-// - clears the stereo surface when the visible 3D view closes;
-// - returns explicit eye-pair capture to 20 fps.
+// v0.9.25:
+// - based directly on the working v0.9.24 architecture;
+// - adds Android document-picker support to GeoGebra's existing local-file Open flow;
+// - keeps login, Back/B handling, stereo rendering, panel placement, splash routing,
+//   active-view clear behavior and 20 fps capture unchanged.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
