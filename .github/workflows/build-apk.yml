@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, v0.9.22-splash-20fps, v0.9.23-login-back-30fps, v0.9.24-login-back-clear-20fps, v0.9.25-local-material-open ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, v0.9.24-login-back-clear-20fps ]
   workflow_dispatch:
 
 permissions:
