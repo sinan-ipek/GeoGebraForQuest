@@ -16,9 +16,11 @@ import com.meta.spatial.runtime.StereoMode
 import com.meta.spatial.toolkit.AppSystemActivity
 import com.meta.spatial.toolkit.DpDisplayOptions
 import com.meta.spatial.toolkit.Grabbable
+import com.meta.spatial.toolkit.Hittable
 import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
 import com.meta.spatial.toolkit.MediaPanelRenderOptions
 import com.meta.spatial.toolkit.MediaPanelSettings
+import com.meta.spatial.toolkit.MeshCollision
 import com.meta.spatial.toolkit.Panel
 import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
@@ -33,13 +35,13 @@ import com.meta.spatial.toolkit.getAbsoluteTransform
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.27.
+ * GeoGebraForQuest v0.9.28.
  *
- * v0.9.27 keeps the proven v0.9.24-v0.9.26 stereo/login/local-file path and:
- * - increases the initial stereo-panel inward yaw from 15 to 30 degrees;
- * - rotates the controller palette by 90 degrees so the panel face is upright;
- * - scales the stereo panel to 50% only while attached to the right controller;
- * - keeps A/B shortcuts handled by the Spatial SDK controller system.
+ * v0.9.28 keeps the proven v0.9.24-v0.9.27 stereo/login/local-file path and:
+ * - increases the initial stereo-panel inward yaw from 30 to 45 degrees;
+ * - scales the right-controller palette to 30%;
+ * - makes the controller-attached stereo panel non-hittable so it cannot block the controller ray;
+ * - restores the exact pre-B pose/scale and normal grabbable behavior on the second B press.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -60,17 +62,16 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private val INITIAL_STEREO_POSE = Pose(
             Vector3(1.10f, 1.30f, 1.15f),
-            Quaternion(0f, 30f, 0f),
+            Quaternion(0f, 45f, 0f),
         )
 
-        // v0.9.26 used -55 degrees around X and appeared nearly horizontal in-hand.
-        // Adding 90 degrees makes the palette face upright while keeping the same hand offset.
+        // Keep the v0.9.27 upright palette orientation; only scale/ray behavior changes here.
         private val CONTROLLER_PALETTE_POSE = Pose(
             Vector3(-0.17f, 0.08f, 0.10f),
             Quaternion(35f, 0f, -18f),
         )
 
-        private val CONTROLLER_PALETTE_SCALE = Vector3(0.5f, 0.5f, 0.5f)
+        private val CONTROLLER_PALETTE_SCALE = Vector3(0.30f, 0.30f, 0.30f)
     }
 
     private var sceneReady = false
@@ -125,7 +126,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "v0.9.27 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "v0.9.28 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -185,8 +186,10 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Transform(CONTROLLER_PALETTE_POSE))
             panel.setComponent(Scale(CONTROLLER_PALETTE_SCALE))
             panel.setComponent(Grabbable(false))
+            // A controller-attached palette is display-only: it must not terminate or capture the ray.
+            panel.setComponent(Hittable(MeshCollision.NoCollision))
             stereoPaletteAttached = true
-            Log.i(TAG, "v0.9.27 stereo palette attached upright at 50% scale")
+            Log.i(TAG, "v0.9.28 stereo palette attached upright at 30% scale with ray pass-through")
             return
         }
 
@@ -195,11 +198,12 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         panel.setComponent(TransformParent())
         panel.setComponent(Transform(restorePose))
         panel.setComponent(Scale(restoreScale))
+        panel.tryRemoveComponent<Hittable>()
         panel.setComponent(Grabbable())
         stereoPaletteRestorePose = null
         stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "v0.9.27 stereo palette restored to exact pre-B pose and scale")
+        Log.i(TAG, "v0.9.28 stereo palette restored to exact pre-B pose/scale and normal hit behavior")
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -260,7 +264,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.27 stereo panel ready at x=1.10m with 30-degree inward yaw")
+        Log.i(TAG, "v0.9.28 stereo panel ready at x=1.10m with 45-degree inward yaw")
     }
 
     override fun onDestroy() {
