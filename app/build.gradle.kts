@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 73
-        versionName = "0.9.22"
+        versionCode = 74
+        versionName = "0.9.23"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,13 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.22:
-// - preserves the proven v0.9.21 GeoGebra-only stereo route;
-// - adds separate left/right startup splash images to the stereo VideoSurface;
-// - clears the stereo surface to transparent after the live stream goes idle;
-// - targets 20 fps eye-pair capture;
-// - moves the stereo panel slightly to the right at startup.
+// v0.9.23:
+// - preserves the proven v0.9.22 stereo architecture and panel placement;
+// - swaps only the left/right startup splash routing;
+// - supports GeoGebra login popup/callback through the same local asset loader;
+// - maps controller B / Android Back to WebView popup/history navigation;
+// - targets approximately 30 fps explicit eye-pair capture.
+// CI marker: build this exact v0.9.23 head without changing runtime behavior.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {

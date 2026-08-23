@@ -8,9 +8,9 @@
   var lastCanvas = null;
   var scheduled = false;
 
-  // v0.9.22: keep the explicit renderer-eye canvases and raise the capture
-  // target from 10 fps to 20 fps. The native sink still busy-drops stale work.
-  var CAPTURE_INTERVAL_MS = 50;
+  // v0.9.23: preserve the explicit renderer-eye capture architecture and raise
+  // the target from 20 fps to approximately 30 fps.
+  var CAPTURE_INTERVAL_MS = 33;
   var CAPTURE_MAX_EYE_WIDTH = 720;
   var CAPTURE_JPEG_QUALITY = 0.78;
   var lastCaptureAt = 0;
