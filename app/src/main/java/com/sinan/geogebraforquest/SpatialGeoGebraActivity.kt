@@ -33,6 +33,7 @@ import com.meta.spatial.vr.VRFeature
  *
  * v0.9.25 preserves the v0.9.24 stereo/login/back/clear architecture and adds
  * only local-Classic reopening for GeoGebra materials selected from the account UI.
+ * Material selection therefore returns to the same patched renderer used by stereo.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
