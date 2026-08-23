@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 76
-        versionName = "0.9.25"
+        versionCode = 77
+        versionName = "0.9.26"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,13 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.25:
-// - based directly on the working v0.9.24 architecture;
-// - adds Android document-picker support to GeoGebra's existing local-file Open flow;
-// - keeps login, Back/B handling, stereo rendering, panel placement, splash routing,
-//   active-view clear behavior and 20 fps capture unchanged.
+// v0.9.26:
+// - fixes the local document picker by launching it from the host SpatialGeoGebraActivity;
+// - maps controller A to a toggleable GeoGebra right-click context menu;
+// - maps controller B exclusively to stereo-panel palette attach/restore;
+// - starts the stereo panel with a slight inward yaw;
+// - uses the new user-supplied L/R startup splash pair;
+// - preserves the proven 20 fps stereo renderer, login and inactive-view clear path.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
