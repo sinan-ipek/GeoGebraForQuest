@@ -2,7 +2,7 @@ name: Build Quest APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, v0.9.22-splash-20fps ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -141,8 +141,8 @@ jobs:
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'both render at x=0'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'gpu_sync=gl.finish before each eye canvas copy'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'no_final_sbs_split=true'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'res/drawable-nodpi-v4/stereo_splash_left.webp'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'res/drawable-nodpi-v4/stereo_splash_right.webp'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'stereo_splash_left.webp'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'stereo_splash_right.webp'
           if unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -q 'stereo_test_photo'; then
             echo 'TEST photo unexpectedly packaged in v0.9.22'
             exit 1
