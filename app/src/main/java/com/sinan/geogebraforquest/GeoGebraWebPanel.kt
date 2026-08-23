@@ -1,7 +1,9 @@
 package com.sinan.geogebraforquest
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Message
@@ -12,6 +14,7 @@ import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -33,6 +36,75 @@ private const val STEREO_LAYOUT_URL =
 private const val LOCAL_ASSET_HOST = "appassets.androidplatform.net"
 private const val REMOTE_LOGIN_CALLBACK_URL =
     "https://www.geogebra.org/apps/latest/web3d/html/ggtcallback.html"
+
+object GeoGebraLocalFilePicker {
+    const val REQUEST_CODE = 9025
+
+    private var pendingCallback: ValueCallback<Array<Uri>>? = null
+
+    fun launch(
+        webView: WebView,
+        callback: ValueCallback<Array<Uri>>,
+        params: WebChromeClient.FileChooserParams,
+    ): Boolean {
+        val activity = webView.context as? Activity ?: return false
+
+        pendingCallback?.onReceiveValue(null)
+        pendingCallback = callback
+
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(
+                Intent.EXTRA_ALLOW_MULTIPLE,
+                params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE,
+            )
+        }
+
+        return try {
+            @Suppress("DEPRECATION")
+            activity.startActivityForResult(intent, REQUEST_CODE)
+            true
+        } catch (_: Throwable) {
+            pendingCallback = null
+            callback.onReceiveValue(null)
+            false
+        }
+    }
+
+    fun handleActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?,
+    ): Boolean {
+        if (requestCode != REQUEST_CODE) return false
+
+        val callback = pendingCallback
+        pendingCallback = null
+        if (callback == null) return true
+
+        if (resultCode != Activity.RESULT_OK || data == null) {
+            callback.onReceiveValue(null)
+            return true
+        }
+
+        val clipData = data.clipData
+        val result = when {
+            clipData != null && clipData.itemCount > 0 ->
+                Array(clipData.itemCount) { index -> clipData.getItemAt(index).uri }
+            data.data != null -> arrayOf(data.data!!)
+            else -> null
+        }
+
+        callback.onReceiveValue(result)
+        return true
+    }
+
+    fun cancelPending() {
+        pendingCallback?.onReceiveValue(null)
+        pendingCallback = null
+    }
+}
 
 object GeoGebraWebNavigation {
     private var mainWebView = WeakReference<WebView>(null)
@@ -223,6 +295,16 @@ private class GeoGebraChromeClient(
     override fun onCloseWindow(window: WebView) {
         GeoGebraWebNavigation.closePopup(window)
     }
+
+    override fun onShowFileChooser(
+        webView: WebView,
+        filePathCallback: ValueCallback<Array<Uri>>,
+        fileChooserParams: FileChooserParams,
+    ): Boolean = GeoGebraLocalFilePicker.launch(
+        webView = webView,
+        callback = filePathCallback,
+        params = fileChooserParams,
+    )
 }
 
 @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
@@ -243,12 +325,13 @@ private fun configureWebViewCore(
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
         settings.allowFileAccess = false
-        settings.allowContentAccess = false
+        // Required for content:// URIs returned by Android's document picker.
+        settings.allowContentAccess = true
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.mediaPlaybackRequiresUserGesture = false
         settings.setSupportMultipleWindows(true)
         settings.javaScriptCanOpenWindowsAutomatically = true
-        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.24"
+        settings.userAgentString = settings.userAgentString + " GeoGebraForQuest/0.9.25"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
