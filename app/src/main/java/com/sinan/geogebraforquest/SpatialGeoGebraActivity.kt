@@ -3,6 +3,7 @@ package com.sinan.geogebraforquest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
 import android.view.Surface
 import android.webkit.WebView
 import com.meta.spatial.core.Entity
@@ -28,13 +29,13 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.22.
+ * GeoGebraForQuest v0.9.23.
  *
- * v0.9.22 keeps the proven v0.9.21 GeoGebra-only stereo route and adds:
- * - a true stereo startup image (separate left/right eye artwork);
- * - automatic transparent clearing when the live stereo stream goes idle;
- * - a 20 fps capture target;
- * - a slightly more rightward default stereo-panel position.
+ * v0.9.23 preserves the proven v0.9.22 stereo architecture and changes only:
+ * - startup splash eye routing is swapped;
+ * - GeoGebra login popups use the same local-asset WebView route;
+ * - controller B / Android Back can return through WebView popup/history;
+ * - explicit eye-pair capture targets 30 fps.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -58,6 +59,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var vrReady = false
     private var stereoPanelEntity: Entity? = null
     private var stereoSurface: Surface? = null
+    private var browserBackKeyConsumed = false
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -102,7 +104,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "v0.9.22 1440x720 stereo VideoSurface attached with startup splash")
+                    Log.i(TAG, "v0.9.23 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -130,6 +132,27 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         SpatialBridgeBus.clear()
         LiveStereoFrameSink.setEnabled(true)
         requestScenePermissionIfNeeded()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val isBrowserBackKey =
+            event.keyCode == KeyEvent.KEYCODE_BUTTON_B ||
+                event.keyCode == KeyEvent.KEYCODE_BACK
+
+        if (isBrowserBackKey) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount == 0 && GeoGebraWebNavigation.handleBack()) {
+                    browserBackKeyConsumed = true
+                    return true
+                }
+                if (browserBackKeyConsumed) return true
+            } else if (event.action == KeyEvent.ACTION_UP && browserBackKeyConsumed) {
+                browserBackKeyConsumed = false
+                return true
+            }
+        }
+
+        return super.dispatchKeyEvent(event)
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -189,7 +212,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.22 stereo panel ready at x=1.10m")
+        Log.i(TAG, "v0.9.23 stereo panel ready at x=1.10m")
     }
 
     override fun onDestroy() {
