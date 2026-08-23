@@ -1,5 +1,6 @@
 package com.sinan.geogebraforquest
 
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
@@ -29,14 +30,12 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.24.
+ * GeoGebraForQuest v0.9.25.
  *
- * v0.9.24 preserves the proven stereo architecture and changes only:
- * - keeps the corrected/swapped startup splash eye routing from v0.9.23;
- * - hardens GeoGebra login callback handling and popup IME focus;
- * - routes Android/Quest back through Activity/WebView back handling;
- * - clears stereo when the visible GeoGebra 3D view closes;
- * - returns explicit eye-pair capture to the proven 20 fps target.
+ * v0.9.25 is based directly on v0.9.24 and adds only Android document-picker
+ * support for GeoGebra's existing local-file Open flow. Stereo rendering,
+ * login, Back/B handling, splash routing, 20 fps capture, panel placement and
+ * active-3D-view transparent clear remain unchanged.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -105,7 +104,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "v0.9.24 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "v0.9.25 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -140,6 +139,14 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         if (!GeoGebraWebNavigation.handleBack()) {
             super.onBackPressed()
         }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (GeoGebraLocalFilePicker.handleActivityResult(requestCode, resultCode, data)) {
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -220,10 +227,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.24 stereo panel ready at x=1.10m")
+        Log.i(TAG, "v0.9.25 stereo panel ready at x=1.10m")
     }
 
     override fun onDestroy() {
+        GeoGebraLocalFilePicker.cancelPending()
         SpatialBridgeBus.clear()
         LiveStereoFrameSink.setEnabled(false)
 
