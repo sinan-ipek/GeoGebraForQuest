@@ -353,6 +353,13 @@ private fun configureWebViewCore(
                     routeMaterialToLocalClassic(view, uri)
             }
 
+            override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                super.doUpdateVisitedHistory(view, url, isReload)
+                if (!url.isNullOrBlank()) {
+                    routeMaterialToLocalClassic(view, Uri.parse(url))
+                }
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest,
@@ -366,6 +373,8 @@ private fun configureWebViewCore(
 
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
+                if (routeMaterialToLocalClassic(view, Uri.parse(url))) return
+
                 if (injectStereoScripts) {
                     injectQuestScripts(view)
                 } else {
