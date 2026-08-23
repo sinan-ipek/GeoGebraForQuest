@@ -34,6 +34,9 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0919.py" "$SRC"
 echo "[GGQ] exporting GeoGebra native context-menu hooks for Quest A"
 python3 "$ROOT/tools/patch-geogebra-quest-v0927.py" "$SRC"
 
+echo "[GGQ] routing Quest A to the selected GeoElement context menu"
+python3 "$ROOT/tools/patch-geogebra-quest-v0928.py" "$SRC"
+
 echo "[GGQ] compiling GeoGebra Web3D and static runtime resources"
 pushd "$SRC/source/web" >/dev/null
 ../../gradlew \
@@ -85,6 +88,7 @@ native_composition=one renderer-left image to Surface left half; one renderer-ri
 no_final_sbs_split=true
 no_quarter_diagnostics=true
 quest_context_menu_hook=ggqOpenContextMenu,ggqCloseContextMenu
+quest_context_menu_mode=selected_geoelements
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
