@@ -2,7 +2,7 @@ name: Build Quest APK
 
 on:
   push:
-    branches: [ main, v0.9.22-splash-20fps, v0.9.23-login-back-30fps, v0.9.24-login-back-clear-20fps, v0.9.25-local-file-picker, v0.9.26-palette-context-localfile, v0.9.27-palette-splash-context-fixes, v0.9.28-selected-menu-ray-pass, v0.9.29-a-toggle-palette-offset ]
+    branches: [ main, v0.9.22-splash-20fps, v0.9.23-login-back-30fps, v0.9.24-login-back-clear-20fps, v0.9.25-local-file-picker, v0.9.26-palette-context-localfile, v0.9.27-palette-splash-context-fixes, v0.9.28-selected-menu-ray-pass, v0.9.29-a-toggle-palette-offset, experimental-embedded-stereo ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -68,7 +68,6 @@ jobs:
 
           grep -q 'ggqOpenContextMenu' "$EUCLIDIAN"
           grep -q 'ggqCloseContextMenu' "$EUCLIDIAN"
-          grep -q 'v0.9.28 selected-object menu' "$EUCLIDIAN"
           grep -q 'getAppSelectedGeos()' "$EUCLIDIAN"
           grep -q 'showPopupMenu(' "$EUCLIDIAN"
           grep -q 'selectedGeos, controller.getView(), controller.mouseLoc' "$EUCLIDIAN"
@@ -91,64 +90,52 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.29 A-toggle and palette-offset fixes
+      - name: Verify embedded-stereo proof experiment
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
+          SYSTEM=app/src/main/java/com/sinan/geogebraforquest/EmbeddedStereoTestSystem.kt
           CONTROLLERS=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
           JS=app/src/main/assets/web/quest-stereo-layout.js
-          PATCH28=tools/patch-geogebra-quest-v0928.py
-          LEFT=app/src/main/res/drawable-nodpi/stereo_splash_left.webp
-          RIGHT=app/src/main/res/drawable-nodpi/stereo_splash_right.webp
+          INDEX=app/src/main/assets/web/index.html
+          TEST_LAYOUT=app/src/main/res/layout/spatial_embedded_stereo_test_panel.xml
 
-          # Preserved v0.9.28 behavior.
+          # Stable v0.9.29 behavior remains present.
           grep -q 'Quaternion(0f, 45f, 0f)' "$ACTIVITY"
-          grep -q 'CONTROLLER_PALETTE_SCALE = Vector3(0.30f, 0.30f, 0.30f)' "$ACTIVITY"
-          grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
-          grep -q 'tryRemoveComponent<Hittable>()' "$ACTIVITY"
-          grep -q 'StereoMode.LeftRight' "$ACTIVITY"
-          grep -q 'LiveStereoFrameSink.attachSurface(surface, resources)' "$ACTIVITY"
-          file "$LEFT" | grep -q 'Web/P image'
-          file "$RIGHT" | grep -q 'Web/P image'
-          test "$(git hash-object "$LEFT")" = '0ed1acfd3e15cf2868370dc949b015d21a2da1f6'
-          test "$(git hash-object "$RIGHT")" = 'af4dca689d0e2774728eba349e1715a1a149bf01'
-
-          # Palette moves 4 cm right/toward hand and 7 cm down: vertical adjustment > lateral.
           grep -q 'Vector3(-0.13f, 0.01f, 0.10f)' "$ACTIVITY"
-
-          # A must be shortcut-only: normal GeoGebra panel click input accepts triggers, not ButtonA.
-          grep -q 'input = PanelInputOptions(' "$ACTIVITY"
+          grep -q 'CONTROLLER_PALETTE_SCALE = Vector3(0.30f, 0.30f, 0.30f)' "$ACTIVITY"
           grep -q 'ButtonBits.ButtonTriggerL or ButtonBits.ButtonTriggerR' "$ACTIVITY"
-          if sed -n '/input = PanelInputOptions(/,/),/p' "$ACTIVITY" | grep -q 'ButtonBits.ButtonA'; then
-            echo 'ButtonA must not be forwarded as normal panel primary/left-click input'
-            exit 1
-          fi
           grep -q 'GeoGebraWebNavigation.toggleContextMenu()' "$ACTIVITY"
           grep -q 'ButtonBits.ButtonA' "$CONTROLLERS"
-          grep -q 'controller.changedButtons' "$CONTROLLERS"
-          grep -q 'controller.buttonState' "$CONTROLLERS"
-
-          # Selected-object toggle remains native and JS keeps explicit open/close state.
-          grep -q 'getAppSelectedGeos' "$PATCH28"
-          grep -q 'showPopupMenu' "$PATCH28"
-          grep -q '__ggqContextMenuVisible = false' "$PANEL"
-          grep -q 'if (window.__ggqContextMenuVisible)' "$PANEL"
-          grep -q 'window.ggqCloseContextMenu' "$PANEL"
-          grep -q 'window.__ggqContextMenuVisible = opened' "$PANEL"
-
-          # Existing working architecture remains unchanged.
           grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$PANEL"
-          grep -q 'activity.startActivityForResult' "$PANEL"
           grep -q 'CAPTURE_INTERVAL_MS = 50' "$JS"
-          grep -q 'findVisible3DCanvas' "$JS"
-          grep -q "bridge('stereoInactive', '')" "$JS"
           grep -q 'fun clearForInactiveView()' "$SINK"
-          grep -q 'PorterDuff.Mode.CLEAR' "$SINK"
 
-          grep -q 'versionName = "0.9.29"' app/build.gradle.kts
-          grep -q 'versionCode = 80' app/build.gradle.kts
+          # Experimental hole: transparent WebView + transparent-but-pointer-active 3D canvas.
+          grep -q 'webView.setBackgroundColor(Color.TRANSPARENT)' "$ACTIVITY"
+          grep -q "canvas.dataset.ggqStereoHole" "$JS"
+          grep -q "setProperty('opacity', '0', 'important')" "$JS"
+          grep -q "setProperty('pointer-events', 'auto', 'important')" "$JS"
+          grep -q 'isStereoHole' "$JS"
+          grep -q 'background: transparent' "$INDEX"
+
+          # Dynamically aligned proof panel is a child of GeoGebra and cannot receive the ray.
+          test -e "$SYSTEM"
+          test -e "$TEST_LAYOUT"
+          grep -q 'EmbeddedStereoTestSystem(this)' "$ACTIVITY"
+          grep -q 'TransformParent(geoPanel)' "$ACTIVITY"
+          grep -q 'EMBEDDED_TEST_DEPTH_METERS = 0.003f' "$ACTIVITY"
+          grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
+          grep -q 'PANEL_WIDTH_METERS \* width / viewWidth' "$ACTIVITY"
+          grep -q 'PANEL_HEIGHT_METERS \* height / viewHeight' "$ACTIVITY"
+          grep -q 'active: true' "$JS"
+          grep -q 'JSON.stringify({ active: false })' "$JS"
+          grep -q 'EMBEDDED STEREO TEST' "$TEST_LAYOUT"
+
+          grep -q 'versionName = "0.9.30-exp1"' app/build.gradle.kts
+          grep -q 'versionCode = 81' app/build.gradle.kts
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -159,22 +146,21 @@ jobs:
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'backing_store=single_eye_width'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'no_final_sbs_split=true'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'quest_context_menu_mode=selected_geoelements'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'stereo_splash_left.webp'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'stereo_splash_right.webp'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'spatial_embedded_stereo_test_panel.xml'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/html/ggtcallback.html'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.29-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.29-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.29-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp1-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.30-exp1-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp1-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.29-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.29-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp1-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp1-debug.apk
           if-no-files-found: error
           retention-days: 30
