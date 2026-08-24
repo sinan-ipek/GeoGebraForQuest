@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 80
-        versionName = "0.9.29"
+        versionCode = 81
+        versionName = "0.9.30-exp1"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.29:
-// - keeps the v0.9.28 45-degree startup angle, corrected splash and 30% ray-transparent palette;
-// - moves the palette 4 cm toward the right hand and 7 cm downward;
-// - removes ButtonA from normal GeoGebra panel input so A is only the selected-object context-menu toggle;
-// - keeps the menu open after A release and closes it only on the next A press;
-// - preserves local-file opening, login, 20 fps stereo capture and inactive-view clear.
+// v0.9.30-exp1 is deliberately experimental and lives only on experimental-embedded-stereo.
+// Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
+// This build tests whether a transparent-but-interactive GeoGebra 3D rectangle can reveal a
+// dynamically aligned, non-hittable Spatial panel a few millimetres behind the WebView.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
