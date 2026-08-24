@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/embedded_stereo_test_panel"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#00BFA5">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:padding="20dp"
+        android:background="#CC000000"
+        android:text="EMBEDDED STEREO TEST"
+        android:textColor="#FFFFFFFF"
+        android:textSize="24sp"
+        android:textStyle="bold" />
+
+</FrameLayout>
