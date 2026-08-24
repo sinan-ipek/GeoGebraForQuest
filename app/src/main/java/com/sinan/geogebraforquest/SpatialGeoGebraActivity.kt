@@ -11,6 +11,7 @@ import com.meta.spatial.core.Pose
 import com.meta.spatial.core.Quaternion
 import com.meta.spatial.core.SpatialFeature
 import com.meta.spatial.core.Vector3
+import com.meta.spatial.runtime.ButtonBits
 import com.meta.spatial.runtime.ReferenceSpace
 import com.meta.spatial.runtime.StereoMode
 import com.meta.spatial.toolkit.AppSystemActivity
@@ -22,6 +23,7 @@ import com.meta.spatial.toolkit.MediaPanelRenderOptions
 import com.meta.spatial.toolkit.MediaPanelSettings
 import com.meta.spatial.toolkit.MeshCollision
 import com.meta.spatial.toolkit.Panel
+import com.meta.spatial.toolkit.PanelInputOptions
 import com.meta.spatial.toolkit.PanelRegistration
 import com.meta.spatial.toolkit.PanelStyleOptions
 import com.meta.spatial.toolkit.PixelDisplayOptions
@@ -35,13 +37,13 @@ import com.meta.spatial.toolkit.getAbsoluteTransform
 import com.meta.spatial.vr.VRFeature
 
 /**
- * GeoGebraForQuest v0.9.28.
+ * GeoGebraForQuest v0.9.29.
  *
- * v0.9.28 keeps the proven v0.9.24-v0.9.27 stereo/login/local-file path and:
- * - increases the initial stereo-panel inward yaw from 30 to 45 degrees;
- * - scales the right-controller palette to 30%;
- * - makes the controller-attached stereo panel non-hittable so it cannot block the controller ray;
- * - restores the exact pre-B pose/scale and normal grabbable behavior on the second B press.
+ * v0.9.29 keeps the proven v0.9.28 stereo/login/local-file path and:
+ * - moves the controller palette slightly toward the right hand and more strongly downward;
+ * - reserves controller A exclusively for the GeoGebra context-menu toggle by removing A from
+ *   normal panel click input, so A press/release cannot behave as a primary/left click;
+ * - keeps the selected-object context menu open after A release until the next A press closes it.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -65,9 +67,10 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             Quaternion(0f, 45f, 0f),
         )
 
-        // Keep the v0.9.27 upright palette orientation; only scale/ray behavior changes here.
+        // v0.9.29: compared with (-0.17, 0.08, 0.10), shift 4 cm toward the hand/right
+        // and 7 cm downward. The vertical change is intentionally larger than the lateral one.
         private val CONTROLLER_PALETTE_POSE = Pose(
-            Vector3(-0.17f, 0.08f, 0.10f),
+            Vector3(-0.13f, 0.01f, 0.10f),
             Quaternion(35f, 0f, -18f),
         )
 
@@ -99,6 +102,11 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                             width = PANEL_WIDTH_DP,
                             height = PANEL_HEIGHT_DP,
                         ),
+                        // A is handled only by QuestControllerShortcutSystem as a right-click
+                        // toggle. Do not forward A press/release into Android UI as primary click.
+                        input = PanelInputOptions(
+                            ButtonBits.ButtonTriggerL or ButtonBits.ButtonTriggerR,
+                        ),
                         style = PanelStyleOptions(
                             themeResourceId = R.style.PanelAppThemeTransparent,
                         ),
@@ -126,7 +134,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "v0.9.28 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "v0.9.29 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -186,10 +194,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Transform(CONTROLLER_PALETTE_POSE))
             panel.setComponent(Scale(CONTROLLER_PALETTE_SCALE))
             panel.setComponent(Grabbable(false))
-            // A controller-attached palette is display-only: it must not terminate or capture the ray.
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             stereoPaletteAttached = true
-            Log.i(TAG, "v0.9.28 stereo palette attached upright at 30% scale with ray pass-through")
+            Log.i(TAG, "v0.9.29 stereo palette attached at 30% scale, lower/right, with ray pass-through")
             return
         }
 
@@ -203,7 +210,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPaletteRestorePose = null
         stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "v0.9.28 stereo palette restored to exact pre-B pose/scale and normal hit behavior")
+        Log.i(TAG, "v0.9.29 stereo palette restored to exact pre-B pose/scale and normal hit behavior")
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -264,7 +271,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 Grabbable(),
             )
 
-        Log.i(TAG, "v0.9.28 stereo panel ready at x=1.10m with 45-degree inward yaw")
+        Log.i(TAG, "v0.9.29 stereo panel ready at x=1.10m with 45-degree inward yaw")
     }
 
     override fun onDestroy() {
