@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, v0.9.22-splash-20fps, v0.9.23-login-back-30fps, v0.9.24-login-back-clear-20fps, v0.9.25-local-file-picker, v0.9.26-palette-context-localfile, v0.9.27-palette-splash-context-fixes, v0.9.28-selected-menu-ray-pass, v0.9.29-a-toggle-palette-offset, experimental-embedded-stereo ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, stable-v0.9.29-palette ]
   workflow_dispatch:
 
 permissions:
@@ -102,7 +102,6 @@ jobs:
           INDEX=app/src/main/assets/web/index.html
           TEST_LAYOUT=app/src/main/res/layout/spatial_embedded_stereo_test_panel.xml
 
-          # Stable v0.9.29 behavior remains present.
           grep -q 'Quaternion(0f, 45f, 0f)' "$ACTIVITY"
           grep -q 'Vector3(-0.13f, 0.01f, 0.10f)' "$ACTIVITY"
           grep -q 'CONTROLLER_PALETTE_SCALE = Vector3(0.30f, 0.30f, 0.30f)' "$ACTIVITY"
@@ -113,7 +112,6 @@ jobs:
           grep -q 'CAPTURE_INTERVAL_MS = 50' "$JS"
           grep -q 'fun clearForInactiveView()' "$SINK"
 
-          # Experimental hole: transparent WebView + transparent-but-pointer-active 3D canvas.
           grep -q 'webView.setBackgroundColor(Color.TRANSPARENT)' "$ACTIVITY"
           grep -q "canvas.dataset.ggqStereoHole" "$JS"
           grep -q "setProperty('opacity', '0', 'important')" "$JS"
@@ -121,7 +119,6 @@ jobs:
           grep -q 'isStereoHole' "$JS"
           grep -q 'background: transparent' "$INDEX"
 
-          # Dynamically aligned proof panel is a child of GeoGebra and cannot receive the ray.
           test -e "$SYSTEM"
           test -e "$TEST_LAYOUT"
           grep -q 'EmbeddedStereoTestSystem(this)' "$ACTIVITY"
