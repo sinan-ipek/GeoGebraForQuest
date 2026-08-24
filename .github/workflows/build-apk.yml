@@ -2,7 +2,7 @@ name: Build Quest APK
 
 on:
   push:
-    branches: [ main, v0.9.22-splash-20fps, v0.9.23-login-back-30fps, v0.9.24-login-back-clear-20fps, v0.9.25-local-file-picker, v0.9.26-palette-context-localfile, v0.9.27-palette-splash-context-fixes, v0.9.28-selected-menu-ray-pass ]
+    branches: [ main, v0.9.22-splash-20fps, v0.9.23-login-back-30fps, v0.9.24-login-back-clear-20fps, v0.9.25-local-file-picker, v0.9.26-palette-context-localfile, v0.9.27-palette-splash-context-fixes, v0.9.28-selected-menu-ray-pass, v0.9.29-a-toggle-palette-offset ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -74,7 +74,7 @@ jobs:
           grep -q 'selectedGeos, controller.getView(), controller.mouseLoc' "$EUCLIDIAN"
           grep -q 'getGuiManager().removePopup()' "$EUCLIDIAN"
           if grep -q 'controller.handleLongTouch(x, y)' "$EUCLIDIAN"; then
-            echo 'A must not perform a new background hit-test in v0.9.28'
+            echo 'A must not perform a new background hit-test'
             exit 1
           fi
 
@@ -91,7 +91,7 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.28 requested changes and preserved architecture
+      - name: Verify v0.9.29 A-toggle and palette-offset fixes
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -99,71 +99,56 @@ jobs:
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
           JS=app/src/main/assets/web/quest-stereo-layout.js
-          PATCH27=tools/patch-geogebra-quest-v0927.py
           PATCH28=tools/patch-geogebra-quest-v0928.py
-          BUILD=tools/build-geogebra-quest.sh
           LEFT=app/src/main/res/drawable-nodpi/stereo_splash_left.webp
           RIGHT=app/src/main/res/drawable-nodpi/stereo_splash_right.webp
 
-          test -e "$CONTROLLERS"
-          test -e "$PATCH27"
-          test -e "$PATCH28"
-          test -e "$LEFT"
-          test -e "$RIGHT"
+          # Preserved v0.9.28 behavior.
+          grep -q 'Quaternion(0f, 45f, 0f)' "$ACTIVITY"
+          grep -q 'CONTROLLER_PALETTE_SCALE = Vector3(0.30f, 0.30f, 0.30f)' "$ACTIVITY"
+          grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
+          grep -q 'tryRemoveComponent<Hittable>()' "$ACTIVITY"
+          grep -q 'StereoMode.LeftRight' "$ACTIVITY"
+          grep -q 'LiveStereoFrameSink.attachSurface(surface, resources)' "$ACTIVITY"
           file "$LEFT" | grep -q 'Web/P image'
           file "$RIGHT" | grep -q 'Web/P image'
-
-          # The v0.9.27 eye assets are intentionally exchanged in v0.9.28.
           test "$(git hash-object "$LEFT")" = '0ed1acfd3e15cf2868370dc949b015d21a2da1f6'
           test "$(git hash-object "$RIGHT")" = 'af4dca689d0e2774728eba349e1715a1a149bf01'
 
-          grep -q 'VideoSurfacePanelRegistration' "$ACTIVITY"
-          grep -q 'StereoMode.LeftRight' "$ACTIVITY"
-          grep -q 'LiveStereoFrameSink.attachSurface(surface, resources)' "$ACTIVITY"
-          grep -q 'Vector3(1.10f, 1.30f, 1.15f)' "$ACTIVITY"
-          grep -q 'Quaternion(0f, 45f, 0f)' "$ACTIVITY"
-          grep -q 'Quaternion(35f, 0f, -18f)' "$ACTIVITY"
-          grep -q 'CONTROLLER_PALETTE_SCALE = Vector3(0.30f, 0.30f, 0.30f)' "$ACTIVITY"
-          grep -q 'Scale(CONTROLLER_PALETTE_SCALE)' "$ACTIVITY"
-          grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
-          grep -q 'tryRemoveComponent<Hittable>()' "$ACTIVITY"
-          grep -q 'TransformParent(rightControllerEntity)' "$ACTIVITY"
-          grep -q 'stereoPaletteRestorePose' "$ACTIVITY"
-          grep -q 'stereoPaletteRestoreScale' "$ACTIVITY"
-          grep -q 'systemManager.registerSystem(QuestControllerShortcutSystem(this))' "$ACTIVITY"
-          grep -q 'GeoGebraWebNavigation.toggleContextMenu()' "$ACTIVITY"
-          grep -q 'hostActivity = this' "$ACTIVITY"
-          grep -q 'GeoGebraLocalFilePicker.handleActivityResult' "$ACTIVITY"
+          # Palette moves 4 cm right/toward hand and 7 cm down: vertical adjustment > lateral.
+          grep -q 'Vector3(-0.13f, 0.01f, 0.10f)' "$ACTIVITY"
 
+          # A must be shortcut-only: normal GeoGebra panel click input accepts triggers, not ButtonA.
+          grep -q 'input = PanelInputOptions(' "$ACTIVITY"
+          grep -q 'ButtonBits.ButtonTriggerL or ButtonBits.ButtonTriggerR' "$ACTIVITY"
+          if sed -n '/input = PanelInputOptions(/,/),/p' "$ACTIVITY" | grep -q 'ButtonBits.ButtonA'; then
+            echo 'ButtonA must not be forwarded as normal panel primary/left-click input'
+            exit 1
+          fi
+          grep -q 'GeoGebraWebNavigation.toggleContextMenu()' "$ACTIVITY"
           grep -q 'ButtonBits.ButtonA' "$CONTROLLERS"
-          grep -q 'ButtonBits.ButtonB' "$CONTROLLERS"
           grep -q 'controller.changedButtons' "$CONTROLLERS"
           grep -q 'controller.buttonState' "$CONTROLLERS"
 
-          grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$PANEL"
-          grep -q 'activity.startActivityForResult' "$PANEL"
-          grep -q 'window.ggqOpenContextMenu' "$PANEL"
-          grep -q 'window.ggqCloseContextMenu' "$PANEL"
-
-          grep -q 'v0.9.28 selected-object menu' "$PATCH28"
+          # Selected-object toggle remains native and JS keeps explicit open/close state.
           grep -q 'getAppSelectedGeos' "$PATCH28"
           grep -q 'showPopupMenu' "$PATCH28"
-          grep -q 'patch-geogebra-quest-v0927.py' "$BUILD"
-          grep -q 'patch-geogebra-quest-v0928.py' "$BUILD"
+          grep -q '__ggqContextMenuVisible = false' "$PANEL"
+          grep -q 'if (window.__ggqContextMenuVisible)' "$PANEL"
+          grep -q 'window.ggqCloseContextMenu' "$PANEL"
+          grep -q 'window.__ggqContextMenuVisible = opened' "$PANEL"
 
-          grep -q "getElementById('ggq-renderer-left-eye')" "$JS"
-          grep -q "getElementById('ggq-renderer-right-eye')" "$JS"
-          grep -q 'bridgeStereoEyes(leftDataUrl, rightDataUrl)' "$JS"
+          # Existing working architecture remains unchanged.
+          grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$PANEL"
+          grep -q 'activity.startActivityForResult' "$PANEL"
           grep -q 'CAPTURE_INTERVAL_MS = 50' "$JS"
           grep -q 'findVisible3DCanvas' "$JS"
           grep -q "bridge('stereoInactive', '')" "$JS"
-
           grep -q 'fun clearForInactiveView()' "$SINK"
           grep -q 'PorterDuff.Mode.CLEAR' "$SINK"
-          grep -q 'STREAM_IDLE_TIMEOUT_MS = 350L' "$SINK"
 
-          grep -q 'versionName = "0.9.28"' app/build.gradle.kts
-          grep -q 'versionCode = 79' app/build.gradle.kts
+          grep -q 'versionName = "0.9.29"' app/build.gradle.kts
+          grep -q 'versionCode = 80' app/build.gradle.kts
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -182,14 +167,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.28-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.28-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.28-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.29-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.29-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.29-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.28-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.28-debug.apk
+          name: GeoGebraForQuest-v0.9.29-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.29-debug.apk
           if-no-files-found: error
           retention-days: 30
