@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 100
-        versionName = "0.9.30-exp11-depth-ray-24fps"
+        versionCode = 101
+        versionName = "0.9.30-exp12-visible-ray-24fps"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp11-depth-ray-24fps lives only on experimental-embedded-stereo.
+// v0.9.30-exp12-visible-ray-24fps lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp11 preserves exp10's fixed-720 demand-driven renderer and working Quest A menu, raises the
-// stereo request ceiling slightly (~24fps), and hides only Meta's flat panel laser over the live
-// 3D hole so GeoGebra's own stereo cursor/highlight supplies the visual depth cue.
+// Exp12 preserves exp11's fixed-720 ~24fps renderer and working Quest A menu, but keeps Meta's
+// controller laser visible over the live 3D hole. GeoGebra's stereo cursor/highlight remains the
+// separate depth cue, so pointing remains usable while depth feedback is retained.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
