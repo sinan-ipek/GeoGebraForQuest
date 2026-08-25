@@ -183,8 +183,8 @@ def main() -> None:
         0, 0, eyeWidth, eyeHeight
       );
 
-      // Exp9: JPEG work is asynchronous. Do not block GeoGebra toolbar/menu DOM work
-      // with two synchronous canvas.toDataURL() encodes on every stereo delivery.
+      // Exp9: JPEG work is asynchronous so toolbar/menu DOM work is not held up
+      // by two synchronous JPEG data-URL encodes on every stereo delivery.
       stereoEncodeInFlight = true;
       var leftDataUrl = null;
       var rightDataUrl = null;
