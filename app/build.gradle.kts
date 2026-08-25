@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 83
-        versionName = "0.9.30-exp3"
+        versionCode = 84
+        versionName = "0.9.30-exp3b"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp3 lives only on experimental-embedded-stereo.
+// v0.9.30-exp3b lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp2 proved full Android/Spatial alpha composition. Exp3 keeps the normal GeoGebra UI visible,
-// makes only the live 3D WebGL rectangle and its large visual carrier backgrounds transparent,
-// and dynamically aligns a non-hittable rear Spatial test panel 3 mm behind that rectangle.
+// Exp3b keeps the selective 3D transparency experiment but removes the exp3 feedback loop:
+// the 20 fps capture path is DOM-read-only, style mutations are not observed, and expensive
+// paint-stack scanning runs only when a 3D canvas appears/changes plus two finite settling passes.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
