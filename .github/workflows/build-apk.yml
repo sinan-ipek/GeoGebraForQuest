@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.30-exp5 layering and full-fill stereo
+      - name: Verify v0.9.30-exp6 same-plane stereo and startup splash
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -127,49 +127,58 @@ jobs:
             exit 1
           fi
 
-          # Exp5 keeps the proven embedded geometry unchanged.
+          # Exp6 geometry: B moves onto A's exact Z plane; C stays 10 cm back and grows to 107%.
           test -e "$SYSTEM"
           test -e "$BACKPLATE_LAYOUT"
           test ! -e "$TEST_LAYOUT"
-          grep -q 'EMBEDDED_STEREO_DEPTH_METERS = 0.003f' "$ACTIVITY"
+          grep -q 'EMBEDDED_STEREO_DEPTH_METERS = 0.0f' "$ACTIVITY"
           grep -q 'EMBEDDED_BACKPLATE_DEPTH_METERS = 0.10f' "$ACTIVITY"
-          grep -q 'EMBEDDED_BACKPLATE_SCALE = Vector3(1.06f, 1.06f, 1f)' "$ACTIVITY"
+          grep -q 'EMBEDDED_BACKPLATE_SCALE = Vector3(1.07f, 1.07f, 1f)' "$ACTIVITY"
           grep -q 'Scale(EMBEDDED_BACKPLATE_SCALE)' "$ACTIVITY"
           grep -q 'Transform(Pose(Vector3(0f, 0f, EMBEDDED_BACKPLATE_DEPTH_METERS)))' "$ACTIVITY"
           grep -q '#FFFFFFFF' "$BACKPLATE_LAYOUT"
 
-          # Live SBS VideoSurface remains embedded and dynamically follows the 3D view.
+          # Live SBS VideoSurface still follows the 3D view and keeps the proven compositor order.
           grep -q 'Panel(R.id.geogebra_stereo_panel)' "$ACTIVITY"
-          grep -q 'TransformParent(geoPanel)' "$ACTIVITY"
           grep -q 'widthMeters / STEREO_PANEL_WIDTH_METERS' "$ACTIVITY"
           grep -q 'heightMeters / STEREO_PANEL_HEIGHT_METERS' "$ACTIVITY"
+          grep -q 'panel.setComponent(TransformParent(geoPanel))' "$ACTIVITY"
           grep -q 'panel.setComponent(Transform(embeddedStereoPose))' "$ACTIVITY"
           grep -q 'panel.setComponent(Scale(embeddedStereoScale))' "$ACTIVITY"
-          grep -q 'panel.setComponent(Visible(embeddedStereoVisible))' "$ACTIVITY"
           grep -q 'stereoMode = StereoMode.LeftRight' "$ACTIVITY"
-          grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
-
-          # Exp5 layering test: do not force the media surface above GeoGebra UI.
           grep -q 'zIndex = 0' "$ACTIVITY"
+          grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
           if grep -q 'zIndex = 20' "$ACTIVITY"; then
-            echo 'Exp5 must not retain the old foreground media z-index'
+            echo 'Exp6 must not restore the old foreground media z-index'
             exit 1
           fi
 
-          # Exp5 black-band fix: each eye must fill its complete SBS half; no fitCenter letterbox.
+          # Full-half fill from exp5 remains frozen; black letterbox bands must not return.
           grep -q 'val leftDestination = Rect(0, 0, halfWidth, canvas.height)' "$SINK"
           grep -q 'val rightDestination = Rect(halfWidth, 0, canvas.width, canvas.height)' "$SINK"
           if grep -q 'fitCenter' "$SINK"; then
-            echo 'Exp5 must not aspect-fit eye frames inside square SBS halves'
+            echo 'Exp6 must not restore fitCenter letterboxing'
             exit 1
           fi
 
+          # Exp6 one-shot startup splash: visible before 3D, permanently dismissed on first 3D.
+          grep -q 'INITIAL_STEREO_POSE = Pose' "$ACTIVITY"
+          grep -q 'Vector3(1.10f, 1.30f, 1.15f)' "$ACTIVITY"
+          grep -q 'private var startupSplashActive = true' "$ACTIVITY"
+          grep -q 'LiveStereoFrameSink.resetForAppLaunch()' "$ACTIVITY"
+          grep -q 'LiveStereoFrameSink.dismissStartupSplash()' "$ACTIVITY"
+          grep -q 'Visible(true)' "$ACTIVITY"
+          grep -q 'fun resetForAppLaunch()' "$SINK"
+          grep -q 'fun dismissStartupSplash()' "$SINK"
+          grep -q 'private var startupSplashAllowed = true' "$SINK"
+          grep -q 'startupSplashAllowed = false' "$SINK"
+
           if grep -q 'embeddedTestPanelEntity' "$ACTIVITY"; then
-            echo 'Exp5 must not retain the proof-panel entity'
+            echo 'Exp6 must not retain the proof-panel entity'
             exit 1
           fi
           if grep -q 'R.id.embedded_stereo_test_panel' "$ACTIVITY"; then
-            echo 'Exp5 must not register or instantiate the proof panel'
+            echo 'Exp6 must not register or instantiate the proof panel'
             exit 1
           fi
 
@@ -179,8 +188,8 @@ jobs:
           grep -q 'rootView.alpha = 1f' "$ACTIVITY"
           grep -q 'webView.alpha = 1f' "$ACTIVITY"
 
-          grep -q 'versionName = "0.9.30-exp5"' app/build.gradle.kts
-          grep -q 'versionCode = 94' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp6"' app/build.gradle.kts
+          grep -q 'versionCode = 95' app/build.gradle.kts
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -202,14 +211,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp5-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.30-exp5-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp5-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp6-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.30-exp6-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp6-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp5-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp5-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp6-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp6-debug.apk
           if-no-files-found: error
           retention-days: 30
