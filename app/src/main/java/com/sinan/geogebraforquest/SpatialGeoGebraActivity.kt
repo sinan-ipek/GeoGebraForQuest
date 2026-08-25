@@ -37,15 +37,15 @@ import com.meta.spatial.toolkit.VideoSurfacePanelRegistration
 import com.meta.spatial.toolkit.Visible
 import com.meta.spatial.toolkit.getAbsoluteTransform
 import com.meta.spatial.vr.VRFeature
+import org.json.JSONObject
 
 /**
- * v0.9.30-exp2: full-panel alpha diagnostic, based directly on stable v0.9.29.
+ * v0.9.30-exp3: selective 3D transparency proof, based on frozen stable v0.9.29.
  *
- * Exp1 proved that the invisible GeoGebra 3D view could still receive ray/controller input, but
- * the rear test panel was hidden by a white layer. Exp2 removes all DOM-specific transparency
- * edits and tests the next layer directly: after a short visible baseline, the entire Android
- * GeoGebra root/WebView is faded to alpha 0 while a bright, non-hittable Spatial panel sits behind
- * the whole GeoGebra panel. If the bright panel appears, Spatial UI-panel alpha composition works.
+ * Exp2 proved that Android/Spatial panel alpha can reveal a rear Spatial panel while the front
+ * GeoGebra panel remains the input target. Exp3 keeps the whole GeoGebra UI visible and asks the
+ * web layer to clear only the visual carriers covering the live 3D WebGL rectangle. A bright,
+ * non-hittable Spatial panel is dynamically fitted 3 mm behind exactly that rectangle.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -60,10 +60,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val STEREO_TEXTURE_WIDTH = 1440
         private const val STEREO_TEXTURE_HEIGHT = 720
 
-        // Full-size rear panel for the compositor test. Two centimetres is intentionally much
-        // larger than the final embedded target offset so there is no ambiguity during diagnosis.
-        private const val EMBEDDED_TEST_DEPTH_METERS = 0.020f
-        private const val ALPHA_DIAGNOSTIC_DELAY_MS = 10_000L
+        private const val EMBEDDED_TEST_DEPTH_METERS = 0.003f
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
@@ -90,6 +87,10 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var stereoPaletteAttached = false
     private var stereoPaletteRestorePose: Pose? = null
     private var stereoPaletteRestoreScale: Vector3? = null
+
+    @Volatile
+    private var pendingEmbeddedLayout: String? = null
+    private var lastAppliedEmbeddedLayout: String? = null
 
     override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
 
@@ -125,25 +126,13 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         hostActivity = this,
                     )
 
-                    // Exp2 isolates Android/Spatial alpha from the web content itself. The HTML and
-                    // stereo-layout script are the stable v0.9.29 versions. We keep the GeoGebra
-                    // panel fully visible for ten seconds, then make its entire Android content
-                    // optically transparent without disabling the Spatial panel or its input.
+                    // Exp2 proved the Spatial/UI composition path. For exp3 the Android backing
+                    // must remain alpha-capable, but the view itself stays fully visible (alpha=1).
+                    // JavaScript selectively clears only the visual layers covering the 3D canvas.
                     rootView.setBackgroundColor(Color.TRANSPARENT)
                     webView.setBackgroundColor(Color.TRANSPARENT)
                     rootView.alpha = 1f
                     webView.alpha = 1f
-                    rootView.postDelayed(
-                        {
-                            rootView.alpha = 0f
-                            webView.alpha = 0f
-                            Log.i(
-                                TAG,
-                                "embedded-exp2 alpha phase: GeoGebra root/WebView alpha=0; input panel remains active",
-                            )
-                        },
-                        ALPHA_DIAGNOSTIC_DELAY_MS,
-                    )
                 },
             ),
             LayoutXMLPanelRegistration(
@@ -177,7 +166,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "embedded-exp2 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "embedded-exp3 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -203,8 +192,10 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         super.onCreate(savedInstanceState)
         StereoDebugState.reset()
         SpatialBridgeBus.clear()
+        SpatialBridgeBus.onStereoLayout = { json -> pendingEmbeddedLayout = json }
         LiveStereoFrameSink.setEnabled(true)
         systemManager.registerSystem(QuestControllerShortcutSystem(this))
+        systemManager.registerSystem(EmbeddedStereoTestSystem(this))
         requestScenePermissionIfNeeded()
     }
 
@@ -239,7 +230,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Grabbable(false))
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             stereoPaletteAttached = true
-            Log.i(TAG, "embedded-exp2 stable palette attached at 30% scale with ray pass-through")
+            Log.i(TAG, "embedded-exp3 stable palette attached at 30% scale with ray pass-through")
             return
         }
 
@@ -253,7 +244,65 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPaletteRestorePose = null
         stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "embedded-exp2 stable palette restored")
+        Log.i(TAG, "embedded-exp3 stable palette restored")
+    }
+
+    /** Runs on the Spatial system thread via EmbeddedStereoTestSystem. */
+    internal fun applyPendingEmbeddedLayout() {
+        val panel = embeddedTestPanelEntity ?: return
+        val json = pendingEmbeddedLayout ?: return
+        if (json == lastAppliedEmbeddedLayout) return
+        lastAppliedEmbeddedLayout = json
+
+        try {
+            val root = JSONObject(json)
+            if (!root.optBoolean("active", true)) {
+                panel.setComponent(Visible(false))
+                return
+            }
+
+            val stereo = root.optJSONObject("stereo") ?: return
+            val viewWidth = root.optDouble("viewWidth", 0.0)
+            val viewHeight = root.optDouble("viewHeight", 0.0)
+            val left = stereo.optDouble("left", 0.0)
+            val top = stereo.optDouble("top", 0.0)
+            val width = stereo.optDouble("width", 0.0)
+            val height = stereo.optDouble("height", 0.0)
+
+            if (viewWidth <= 1.0 || viewHeight <= 1.0 || width <= 1.0 || height <= 1.0) {
+                panel.setComponent(Visible(false))
+                return
+            }
+
+            val widthMeters = (PANEL_WIDTH_METERS * width / viewWidth).toFloat()
+            val heightMeters = (PANEL_HEIGHT_METERS * height / viewHeight).toFloat()
+            val centerX = (
+                PANEL_WIDTH_METERS * ((left + width * 0.5) / viewWidth - 0.5)
+            ).toFloat()
+            val centerY = (
+                PANEL_HEIGHT_METERS * (0.5 - (top + height * 0.5) / viewHeight)
+            ).toFloat()
+
+            panel.setComponent(
+                Transform(
+                    Pose(
+                        Vector3(centerX, centerY, EMBEDDED_TEST_DEPTH_METERS),
+                    ),
+                ),
+            )
+            panel.setComponent(
+                Scale(
+                    Vector3(
+                        widthMeters / PANEL_WIDTH_METERS,
+                        heightMeters / PANEL_HEIGHT_METERS,
+                        1f,
+                    ),
+                ),
+            )
+            panel.setComponent(Visible(true))
+        } catch (t: Throwable) {
+            Log.w(TAG, "embedded-exp3 layout parse/apply failed", t)
+        }
     }
 
     private fun requestScenePermissionIfNeeded() {
@@ -313,9 +362,9 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     Panel(R.id.embedded_stereo_test_panel),
                     TransformParent(geoPanel),
                     Transform(Pose(Vector3(0f, 0f, EMBEDDED_TEST_DEPTH_METERS))),
-                    Scale(Vector3(1f, 1f, 1f)),
+                    Scale(Vector3(0.01f, 0.01f, 1f)),
                     Hittable(MeshCollision.NoCollision),
-                    Visible(true),
+                    Visible(false),
                 ),
             )
         }
@@ -330,7 +379,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         Log.i(
             TAG,
-            "embedded-exp2 ready: normal GeoGebra for 10s, then full Android alpha=0 over bright rear panel",
+            "embedded-exp3 ready: normal GeoGebra UI + selective transparent 3D hole + dynamic rear panel",
         )
     }
 
@@ -343,6 +392,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoSurface = null
 
         embeddedTestPanelEntity = null
+        pendingEmbeddedLayout = null
+        lastAppliedEmbeddedLayout = null
 
         stereoPanelEntity?.destroy()
         stereoPanelEntity = null
