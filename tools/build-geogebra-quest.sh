@@ -34,6 +34,9 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0919.py" "$SRC"
 echo "[GGQ] reusing final main WebGL canvas for RIGHT_EYE"
 python3 "$ROOT/tools/patch-geogebra-quest-v0920.py" "$SRC"
 
+echo "[GGQ] enabling demand-driven LEFT_EYE stereo pairs"
+python3 "$ROOT/tools/patch-geogebra-quest-v0921.py" "$SRC"
+
 echo "[GGQ] exporting GeoGebra native context-menu hooks for Quest A"
 python3 "$ROOT/tools/patch-geogebra-quest-v0927.py" "$SRC"
 
@@ -75,18 +78,20 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.20
+version=0.9.21
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour stereo camera math)
 renderer=QuestStereoRenderer
 backing_store=single_eye_width
 viewport=LEFT_EYE and RIGHT_EYE both render at x=0
 preserve_drawing_buffer=true
-renderer_eye_capture=LEFT_EYE snapshot only; RIGHT_EYE remains in main WebGL canvas
+renderer_normal_frame=RIGHT_EYE only
+renderer_stereo_pair=requested LEFT_EYE snapshot then RIGHT_EYE main WebGL canvas
 renderer_eye_sources=left=ggq-renderer-left-eye;right=main_webgl_canvas_alias_ggq-renderer-right-eye
-gpu_sync=gl.finish only for LEFT_EYE hidden-canvas snapshot
+stereo_request_hooks=ggqRequestStereoFrame,ggqGetStereoFrameSerial
+gpu_sync=gl.finish only when a requested LEFT_EYE snapshot is produced
 presentation=registered VideoSurfacePanelRegistration with StereoMode.LeftRight
-bridge=two JPEG data URLs: left hidden snapshot plus right main WebGL canvas
+bridge=serial-gated JPEG pair delivery; active 540px, idle 720px, quality 0.78
 native_composition=left and right JPEGs to Surface SBS halves; full-half fill preserved
 no_final_sbs_split=true
 no_quarter_diagnostics=true
