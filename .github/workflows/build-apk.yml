@@ -48,24 +48,34 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Verify renderer, right-eye reuse and context-menu hook
+      - name: Verify demand-driven renderer and context-menu hook
         shell: bash
         run: |
           SRC=.geogebra-source-work/geogebra
+          RENDERER="$SRC/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/openGL/Renderer.java"
           QUEST="$SRC/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/openGL/QuestStereoRenderer.java"
           WEB="$SRC/source/web/web/src/main/java/org/geogebra/web/geogebra3D/web/euclidian3D/openGL/RendererWithImplW.java"
           EUCLIDIAN="$SRC/source/web/web-common/src/main/java/org/geogebra/web/html5/euclidian/EuclidianControllerW.java"
 
-          # Exp7 keeps two stereo render passes but snapshots only LEFT_EYE.
+          # Exp8 ordinary GeoGebra repaints are RIGHT_EYE-only. LEFT_EYE is produced only
+          # after the JS VideoSurface scheduler explicitly requests a new stereo pair.
+          grep -q 'requestQuestStereoFrame()' "$RENDERER"
+          grep -q 'getQuestStereoFrameSerial()' "$RENDERER"
+          grep -q 'private boolean stereoPairRequested = true;' "$QUEST"
+          grep -q 'boolean renderStereoPair = stereoPairRequested;' "$QUEST"
+          grep -q 'stereoPairRequested = false;' "$QUEST"
+          grep -q 'if (renderStereoPair)' "$QUEST"
           grep -q 'renderer.captureQuestEye(Renderer.EYE_LEFT)' "$QUEST"
           grep -q 'renderer.clearColorBuffer()' "$QUEST"
+          grep -q 'renderer.eye = Renderer.EYE_RIGHT;' "$QUEST"
+          grep -q 'stereoFrameSerial++;' "$QUEST"
           if grep -q 'renderer.captureQuestEye(Renderer.EYE_RIGHT)' "$QUEST"; then
-            echo 'Exp7 must not take a renderer-level RIGHT_EYE snapshot'
+            echo 'Exp8 must not take a renderer-level RIGHT_EYE snapshot'
             exit 1
           fi
 
-          # The final RIGHT_EYE remains in the single W x H WebGL canvas and is aliased to the
-          # existing DOM source name so the proven JS JPEG bridge needs no architectural change.
+          # RIGHT_EYE remains in the main W x H WebGL canvas; JsInterop exports a request
+          # function and completed-pair serial for the browser-side scheduler.
           grep -q 'int backingWidth = (int) (w \* ratio);' "$WEB"
           grep -q 'return 0;' "$WEB"
           grep -q 'int sourceX = 0;' "$WEB"
@@ -73,9 +83,12 @@ jobs:
           grep -q 'ggq-renderer-left-eye' "$WEB"
           grep -q 'questRightEyeCanvas = Js.uncheckedCast(webGLCanvas.getElement());' "$WEB"
           grep -q 'questRightEyeCanvas.id = "ggq-renderer-right-eye";' "$WEB"
-          grep -q 'if (eye == EYE_RIGHT)' "$WEB"
+          grep -q 'name = "ggqRequestStereoFrame"' "$WEB"
+          grep -q 'name = "ggqGetStereoFrameSerial"' "$WEB"
+          grep -q 'renderer.requestQuestStereoFrame();' "$WEB"
+          grep -q 'renderer.getView().repaintView();' "$WEB"
           if grep -q 'createQuestEyeCanvas("ggq-renderer-right-eye")' "$WEB"; then
-            echo 'Exp7 must not allocate a separate RIGHT_EYE hidden canvas'
+            echo 'Exp8 must not allocate a separate RIGHT_EYE hidden canvas'
             exit 1
           fi
 
@@ -94,16 +107,12 @@ jobs:
             echo 'Renderer must keep a single-eye-width WebGL backing store'
             exit 1
           fi
-          if grep -q 'sourceX = eye == EYE_RIGHT ? eyeWidth : 0' "$WEB"; then
-            echo 'Right eye must not be read from x=W'
-            exit 1
-          fi
 
       - name: Build debug APK
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.30-exp7-performance-a
+      - name: Verify v0.9.30-exp8-performance-b
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -113,21 +122,41 @@ jobs:
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
           JS=app/src/main/assets/web/quest-stereo-layout.js
           PATCH20=tools/patch-geogebra-quest-v0920.py
+          PATCH21=tools/patch-geogebra-quest-v0921.py
+          JSPATCH=tools/patch-quest-stereo-js-exp8.py
           TEST_LAYOUT=app/src/main/res/layout/spatial_embedded_stereo_test_panel.xml
           BACKPLATE_LAYOUT=app/src/main/res/layout/spatial_embedded_backplate_panel.xml
 
-          # Performance-a changes only the right renderer snapshot path.
+          # Exp8 performance architecture exists and is wired into every source build.
           test -e "$PATCH20"
-          grep -q 'remove redundant right-eye renderer snapshot' "$PATCH20"
-          grep -q 'alias right-eye DOM source to main WebGL canvas' "$PATCH20"
-          grep -q 'python3 "$ROOT/tools/patch-geogebra-quest-v0920.py" "$SRC"' tools/build-geogebra-quest.sh
+          test -e "$PATCH21"
+          test -e "$JSPATCH"
+          grep -q 'demand-driven stereo-pair patch' "$PATCH21"
+          grep -q 'serial-gated demand capture' "$JSPATCH"
+          grep -q 'python3 "$ROOT/tools/patch-geogebra-quest-v0921.py" "$SRC"' tools/build-geogebra-quest.sh
+          grep -q 'patch-quest-stereo-js-exp8.py' tools/build-geogebra-quest.sh
 
-          # Capture cadence/quality/resolution remain frozen for an apples-to-apples exp6 test.
+          # Build-time-patched JS: 20 fps remains only the maximum requested pair cadence.
+          # Each completed pair serial is encoded once; manipulation drops capture width to 540,
+          # and 720 quality returns after 300 ms idle.
           grep -q 'CAPTURE_INTERVAL_MS = 50' "$JS"
-          grep -q 'CAPTURE_MAX_EYE_WIDTH = 720' "$JS"
+          grep -q 'CAPTURE_ACTIVE_EYE_WIDTH = 540' "$JS"
+          grep -q 'CAPTURE_IDLE_EYE_WIDTH = 720' "$JS"
+          grep -q 'CAPTURE_IDLE_DELAY_MS = 300' "$JS"
           grep -q 'CAPTURE_JPEG_QUALITY = 0.78' "$JS"
-          grep -q "document.getElementById('ggq-renderer-left-eye')" "$JS"
-          grep -q "document.getElementById('ggq-renderer-right-eye')" "$JS"
+          grep -q 'pendingStereoSerial' "$JS"
+          grep -q 'lastDeliveredStereoSerial' "$JS"
+          grep -q 'window.ggqRequestStereoFrame' "$JS"
+          grep -q 'window.ggqGetStereoFrameSerial' "$JS"
+          grep -q 'serial === lastDeliveredStereoSerial' "$JS"
+          grep -q 'maxEyeWidth = captureEyeWidth(now)' "$JS"
+          grep -q 'renderLatency >= CAPTURE_INTERVAL_MS' "$JS"
+          grep -q 'now + 16' "$JS"
+          grep -q "document.addEventListener('pointermove', markPointerMotion, true)" "$JS"
+          if grep -q 'CAPTURE_MAX_EYE_WIDTH = 720' "$JS"; then
+            echo 'Exp8 must use dynamic 540/720 capture width instead of the old fixed width'
+            exit 1
+          fi
 
           # Stable interaction behavior remains present.
           grep -q 'Vector3(-0.13f, 0.01f, 0.10f)' "$ACTIVITY"
@@ -138,18 +167,17 @@ jobs:
           grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$PANEL"
           grep -q 'fun clearForInactiveView()' "$SINK"
 
-          # Anti-recursion guarantees remain unchanged.
+          # Selective-hole anti-recursion guarantees remain unchanged.
           grep -q 'ggqStereoHole' "$JS"
           grep -q 'applySelectiveHole' "$JS"
           grep -q 'Pure read-only lookup' "$JS"
-          grep -q 'Read-only 20 fps path' "$JS"
           grep -q "attributeFilter: \['class', 'hidden', 'aria-hidden'\]" "$JS"
           if grep -q "attributeFilter: .*'style'" "$JS"; then
             echo 'Selective-hole code must never observe its own style writes'
             exit 1
           fi
           if grep -A35 'function findVisible3DCanvas' "$JS" | grep -q 'applySelectiveHole'; then
-            echo '20 fps canvas lookup must stay DOM-read-only'
+            echo 'High-frequency canvas lookup must stay DOM-read-only'
             exit 1
           fi
 
@@ -174,7 +202,7 @@ jobs:
           grep -q 'val leftDestination = Rect(0, 0, halfWidth, canvas.height)' "$SINK"
           grep -q 'val rightDestination = Rect(halfWidth, 0, canvas.width, canvas.height)' "$SINK"
           if grep -q 'fitCenter' "$SINK"; then
-            echo 'Exp7 must not restore fitCenter letterboxing'
+            echo 'Exp8 must not restore fitCenter letterboxing'
             exit 1
           fi
 
@@ -189,11 +217,11 @@ jobs:
           grep -q 'private var startupSplashAllowed = true' "$SINK"
 
           if grep -q 'embeddedTestPanelEntity' "$ACTIVITY"; then
-            echo 'Exp7 must not retain the proof-panel entity'
+            echo 'Exp8 must not retain the proof-panel entity'
             exit 1
           fi
           if grep -q 'R.id.embedded_stereo_test_panel' "$ACTIVITY"; then
-            echo 'Exp7 must not register or instantiate the proof panel'
+            echo 'Exp8 must not register or instantiate the proof panel'
             exit 1
           fi
 
@@ -203,8 +231,8 @@ jobs:
           grep -q 'rootView.alpha = 1f' "$ACTIVITY"
           grep -q 'webView.alpha = 1f' "$ACTIVITY"
 
-          grep -q 'versionName = "0.9.30-exp7-performance-a"' app/build.gradle.kts
-          grep -q 'versionCode = 96' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp8-performance-b"' app/build.gradle.kts
+          grep -q 'versionCode = 97' app/build.gradle.kts
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -213,9 +241,11 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/web3d.nocache.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/css/bundles/bundle.css'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'backing_store=single_eye_width'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.20'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'renderer_eye_capture=LEFT_EYE snapshot only; RIGHT_EYE remains in main WebGL canvas'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'right=main_webgl_canvas_alias_ggq-renderer-right-eye'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.21'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'renderer_normal_frame=RIGHT_EYE only'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'renderer_stereo_pair=requested LEFT_EYE snapshot then RIGHT_EYE main WebGL canvas'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'stereo_request_hooks=ggqRequestStereoFrame,ggqGetStereoFrameSerial'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'bridge=serial-gated JPEG pair delivery; active 540px, idle 720px, quality 0.78'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'no_final_sbs_split=true'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'quest_context_menu_mode=selected_geoelements'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'spatial_embedded_backplate_panel.xml'
@@ -229,14 +259,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp7-performance-a-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.30-exp7-performance-a-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp7-performance-a-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp8-performance-b-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.30-exp8-performance-b-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp8-performance-b-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp7-performance-a-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp7-performance-a-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp8-performance-b-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp8-performance-b-debug.apk
           if-no-files-found: error
           retention-days: 30
