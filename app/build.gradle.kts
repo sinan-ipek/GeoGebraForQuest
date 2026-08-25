@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 95
-        versionName = "0.9.30-exp6"
+        versionCode = 96
+        versionName = "0.9.30-exp7-performance-a"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,10 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp6 lives only on experimental-embedded-stereo.
+// v0.9.30-exp7-performance-a lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp6 moves B from 3 mm to A's exact Z plane while retaining zIndex=0, grows C to 107% at the
-// proven 10 cm depth, and restores the stereo startup splash only until the first active 3D view.
+// Exp7 preserves all exp6 geometry, splash, compositor and full-half-fill behavior. The only
+// functional change is the small stereo transport optimization: LEFT_EYE keeps its hidden-canvas
+// snapshot, while the completed RIGHT_EYE is reused directly from GeoGebra's main WebGL canvas.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
