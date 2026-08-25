@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 98
-        versionName = "0.9.30-exp9-ui-priority"
+        versionCode = 99
+        versionName = "0.9.30-exp10-rightclick"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp9-ui-priority lives only on experimental-embedded-stereo.
+// v0.9.30-exp10-rightclick lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp9 preserves exp8 demand-driven RIGHT-only normal frames and dynamic 540/720 capture, while
-// prioritizing GeoGebra UI: async JPEG encoding, adaptive slow-scene backoff, popup/menu capture
-// pause, retained last stereo frame, and a robust selected-first A-button pointer-hit fallback.
+// Exp10 returns capture scheduling to exp8's demand-driven RIGHT-only normal-frame architecture,
+// keeps both active and idle stereo capture fixed at 720px, and focuses changes on robust Quest A
+// context-menu routing. Exp9's 350ms idle clear removal is retained because it does not trade 3D
+// render budget for UI responsiveness.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
