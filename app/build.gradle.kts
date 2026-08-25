@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 88
-        versionName = "0.9.30-exp3f"
+        versionCode = 89
+        versionName = "0.9.30-exp3g"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp3f lives only on experimental-embedded-stereo.
+// v0.9.30-exp3g lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp3e proved that the simple physical A-B-C order works with C at 20 cm, but that produced
-// visible parallax. Exp3f keeps solid C, brings it to 5 cm behind A, and scales it to 108% so
-// parallax is reduced while the larger white surface keeps covering the GeoGebra background.
+// Exp3f kept C 5 cm behind A but 108% overscan visibly protruded beyond GeoGebra. Exp3g keeps
+// the same physical A-B-C spacing and same local center, reducing only C to 105%. No fixed X/Y
+// correction is introduced because the smaller top margin in the test image is viewpoint-dependent.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
