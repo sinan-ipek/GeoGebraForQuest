@@ -12,9 +12,9 @@ import com.meta.spatial.toolkit.Controller
  * A is reserved for the GeoGebra right-click context-menu toggle.
  * B is reserved for the stereo-panel palette toggle.
  *
- * Exp11 also hides Meta's flat panel laser while the pointer is inside the live 3D hole. The
- * controller still targets the transparent A panel, so GeoGebra input/picking is unchanged; the
- * visible depth cue comes from GeoGebra's own stereo 3D cursor/highlight instead.
+ * Exp12 keeps Meta's controller laser visible everywhere, including over the live 3D hole.
+ * GeoGebra's own stereo 3D cursor/highlight remains the depth cue, while the visible Meta beam
+ * preserves the basic pointing affordance needed to use the panel reliably.
  */
 class QuestControllerShortcutSystem(
     private val activity: SpatialGeoGebraActivity,
@@ -22,13 +22,13 @@ class QuestControllerShortcutSystem(
 
     override fun execute() {
         val controllers = Query.where { has(Controller.id) }.eval().filter { it.isLocal() }
-        val laserEnabled = !DepthPointerState.active
 
         for (entity in controllers) {
             val controller = entity.getComponent<Controller>()
 
-            if (controller.laserEnabled != laserEnabled) {
-                controller.laserEnabled = laserEnabled
+            // EXP12_VISIBLE_RAY: never hide the system beam over the stereo hole.
+            if (!controller.laserEnabled) {
+                controller.laserEnabled = true
                 entity.setComponent(controller)
             }
 
