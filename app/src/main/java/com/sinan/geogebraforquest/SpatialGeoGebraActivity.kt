@@ -40,13 +40,12 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * v0.9.30-exp3e: A-B-C physical depth-sort experiment.
+ * v0.9.30-exp3f: closer + oversized C-panel A-B-C experiment.
  *
- * A is the alpha-capable interactive GeoGebra panel. B is the dynamic magenta proof panel only
- * 3 mm behind the live 3D rectangle. C is a full-size solid white panel placed a much larger
- * 20 cm behind A. This deliberately returns to the simple A > B > C idea, but with enough physical
- * separation to test whether Meta Spatial panel composition starts respecting the intended depth
- * order once C is no longer only a few millimetres behind B.
+ * Exp3e proved the simple physical A > B > C architecture can work when C is far enough back,
+ * but the 20 cm separation creates obvious parallax in GeoGebra regions that reveal the white C
+ * panel. Exp3f keeps A and B unchanged, moves C much closer (5 cm behind A), and enlarges C to
+ * 108% so small head-motion parallax does not expose its edges as easily.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -62,7 +61,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val STEREO_TEXTURE_HEIGHT = 720
 
         private const val EMBEDDED_TEST_DEPTH_METERS = 0.003f
-        private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.20f
+        private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.05f
+        private val EMBEDDED_BACKPLATE_SCALE = Vector3(1.08f, 1.08f, 1f)
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
@@ -130,7 +130,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     )
 
                     // The Android backing stays alpha-capable; JavaScript owns the selective 3D
-                    // hole. Exp3e intentionally tests a solid white C panel far behind A.
+                    // hole. Exp3f keeps a solid white C panel, now closer and slightly oversized.
                     rootView.setBackgroundColor(Color.TRANSPARENT)
                     webView.setBackgroundColor(Color.TRANSPARENT)
                     rootView.alpha = 1f
@@ -187,7 +187,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "embedded-exp3e 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "embedded-exp3f 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -251,7 +251,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Grabbable(false))
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             stereoPaletteAttached = true
-            Log.i(TAG, "embedded-exp3e stable palette attached at 30% scale with ray pass-through")
+            Log.i(TAG, "embedded-exp3f stable palette attached at 30% scale with ray pass-through")
             return
         }
 
@@ -265,7 +265,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPaletteRestorePose = null
         stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "embedded-exp3e stable palette restored")
+        Log.i(TAG, "embedded-exp3f stable palette restored")
     }
 
     /** Runs on the Spatial system thread via EmbeddedStereoTestSystem. */
@@ -322,7 +322,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             )
             panel.setComponent(Visible(true))
         } catch (t: Throwable) {
-            Log.w(TAG, "embedded-exp3e layout parse/apply failed", t)
+            Log.w(TAG, "embedded-exp3f layout parse/apply failed", t)
         }
     }
 
@@ -383,7 +383,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     Panel(R.id.embedded_backplate_panel),
                     TransformParent(geoPanel),
                     Transform(Pose(Vector3(0f, 0f, EMBEDDED_BACKPLATE_DEPTH_METERS))),
-                    Scale(Vector3(1f, 1f, 1f)),
+                    Scale(EMBEDDED_BACKPLATE_SCALE),
                     Hittable(MeshCollision.NoCollision),
                     Visible(true),
                 ),
@@ -413,7 +413,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         Log.i(
             TAG,
-            "embedded-exp3e ready: A GeoGebra, B proof at 3mm, solid white C at 20cm",
+            "embedded-exp3f ready: A GeoGebra, B proof at 3mm, solid white C at 5cm and 108% scale",
         )
     }
 
