@@ -8,17 +8,15 @@
   var lastCanvas = null;
   var scheduled = false;
 
-  // Keep the proven stable capture path untouched: 20 fps, explicit left/right eye canvases.
+  // v0.9.24: return to the proven 20 fps target and only capture while a
+  // visible GeoGebra 3D view exists. Renderer-eye canvases may keep updating
+  // after the visible 3D view is closed, so visibility is the source of truth.
   var CAPTURE_INTERVAL_MS = 50;
   var CAPTURE_MAX_EYE_WIDTH = 720;
   var CAPTURE_JPEG_QUALITY = 0.78;
   var lastCaptureAt = 0;
   var hasSeenActive3D = false;
   var inactiveReported = false;
-
-  // Experimental embedded-stereo test: the visible 3D canvas is made optically transparent,
-  // but remains pointer-active. Android places a non-hittable Spatial test panel behind it.
-  var transparentRootPrepared = false;
 
   var leftCaptureCanvas = document.createElement('canvas');
   var rightCaptureCanvas = document.createElement('canvas');
@@ -52,8 +50,6 @@
     if (!hasSeenActive3D || inactiveReported) return;
     inactiveReported = true;
     bridge('stereoInactive', '');
-    // Also hide the embedded proof panel when the real 3D view is closed.
-    bridge('updateStereoLayout', JSON.stringify({ active: false }));
   }
 
   function reportStereoActive() {
@@ -61,79 +57,12 @@
     inactiveReported = false;
   }
 
-  function prepareTransparentRoot() {
-    if (transparentRootPrepared) return;
-    transparentRootPrepared = true;
-
-    try {
-      document.documentElement.style.setProperty('background', 'transparent', 'important');
-      if (document.body) {
-        document.body.style.setProperty('background', 'transparent', 'important');
-      }
-      var root = document.getElementById('ggb-element');
-      if (root) {
-        root.style.setProperty('background', 'transparent', 'important');
-      }
-    } catch (_) {}
-  }
-
-  function markTransparentCarrier(node, canvasRect) {
-    if (!node || node === document.documentElement || node === document.body) return;
-    if (node.dataset && node.dataset.ggqStereoHoleCarrier === 'true') return;
-
-    try {
-      var r = node.getBoundingClientRect();
-      var closeToCanvas =
-        Math.abs(r.left - canvasRect.left) < 8 &&
-        Math.abs(r.top - canvasRect.top) < 8 &&
-        Math.abs(r.width - canvasRect.width) < 16 &&
-        Math.abs(r.height - canvasRect.height) < 16;
-      if (!closeToCanvas) return;
-
-      if (node.dataset) node.dataset.ggqStereoHoleCarrier = 'true';
-      node.style.setProperty('background', 'transparent', 'important');
-      node.style.setProperty('background-color', 'transparent', 'important');
-    } catch (_) {}
-  }
-
-  function ensureEmbeddedStereoHole(canvas) {
-    if (!canvas || !canvas.isConnected) return;
-    prepareTransparentRoot();
-
-    try {
-      if (!(canvas.dataset && canvas.dataset.ggqStereoHole === 'true')) {
-        if (canvas.dataset) canvas.dataset.ggqStereoHole = 'true';
-        // opacity:0 keeps hit-testing/pointer routing alive; do not use display:none,
-        // visibility:hidden or pointer-events:none here.
-        canvas.style.setProperty('opacity', '0', 'important');
-        canvas.style.setProperty('background', 'transparent', 'important');
-        canvas.style.setProperty('background-color', 'transparent', 'important');
-        canvas.style.setProperty('pointer-events', 'auto', 'important');
-      }
-
-      var canvasRect = canvas.getBoundingClientRect();
-      var node = canvas.parentElement;
-      var depth = 0;
-      while (node && depth < 6) {
-        markTransparentCarrier(node, canvasRect);
-        node = node.parentElement;
-        depth++;
-      }
-    } catch (_) {}
-  }
-
   function rectOf(element) {
     if (!element || !element.isConnected) return null;
     var style;
     try { style = getComputedStyle(element); } catch (_) { return null; }
     if (!style || style.display === 'none' || style.visibility === 'hidden') return null;
-
-    // The deliberately transparent 3D canvas is still an active view in this experiment.
-    var isStereoHole = !!(
-      element.dataset && element.dataset.ggqStereoHole === 'true'
-    );
-    if (Number(style.opacity) === 0 && !isStereoHole) return null;
-
+    if (Number(style.opacity) === 0) return null;
     var r = element.getBoundingClientRect();
     if (!r || r.width < 2 || r.height < 2) return null;
     if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) return null;
@@ -175,10 +104,7 @@
       }
     });
 
-    if (best) {
-      lastCanvas = best;
-      ensureEmbeddedStereoHole(best);
-    }
+    if (best) lastCanvas = best;
     return best;
   }
 
@@ -251,7 +177,6 @@
     if (!stereoRect) return;
 
     var payload = JSON.stringify({
-      active: true,
       stereo: stereoRect,
       viewWidth: innerWidth,
       viewHeight: innerHeight,
@@ -289,6 +214,9 @@
   function captureStereoEyes() {
     if (!leftCaptureContext || !rightCaptureContext) return;
 
+    // The visible 3D view, not the hidden renderer-eye canvases, controls
+    // whether stereo output is active. This prevents a closed rotating scene
+    // from continuing to animate on the stereo panel.
     var visible3DCanvas = findVisible3DCanvas();
     if (!visible3DCanvas) {
       reportStereoInactive();
@@ -337,6 +265,7 @@
       }
     } catch (_) {
       // Renderer canvases can be replaced during a 3D view reconstruction.
+      // The next capture loop simply resolves the current explicit eye canvases.
     }
   }
 
