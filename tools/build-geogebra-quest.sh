@@ -45,6 +45,10 @@ echo "[GGQ] removing dynamic 540 capture and fixing stereo capture at 720px"
 python3 "$ROOT/tools/patch-quest-stereo-js-exp10.py" \
   "$ROOT/app/src/main/assets/web/quest-stereo-layout.js"
 
+echo "[GGQ] raising stereo cadence to ~24fps and reporting depth-pointer hover"
+python3 "$ROOT/tools/patch-quest-stereo-js-exp11.py" \
+  "$ROOT/app/src/main/assets/web/quest-stereo-layout.js"
+
 echo "[GGQ] exporting GeoGebra native context-menu hooks for Quest A"
 python3 "$ROOT/tools/patch-geogebra-quest-v0927.py" "$SRC"
 
@@ -62,6 +66,9 @@ python3 "$ROOT/tools/patch-android-ui-exp9.py" "$ROOT"
 
 echo "[GGQ] removing UI-priority scheduling and fixing stereo-hole right-click routing"
 python3 "$ROOT/tools/patch-android-rightclick-exp10.py" "$ROOT"
+
+echo "[GGQ] bridging stereo-hole pointer state to Meta laser presentation"
+python3 "$ROOT/tools/patch-android-ray-exp11.py" "$ROOT"
 
 echo "[GGQ] compiling GeoGebra Web3D and static runtime resources"
 pushd "$SRC/source/web" >/dev/null
@@ -98,7 +105,7 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.23
+version=0.9.24
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour stereo camera math)
 renderer=QuestStereoRenderer
@@ -111,14 +118,15 @@ renderer_eye_sources=left=ggq-renderer-left-eye;right=main_webgl_canvas_alias_gg
 stereo_request_hooks=ggqRequestStereoFrame,ggqGetStereoFrameSerial
 gpu_sync=gl.finish only when a requested LEFT_EYE snapshot is produced
 presentation=registered VideoSurfacePanelRegistration with StereoMode.LeftRight
-bridge=exp8 serial-gated JPEG pair delivery; fixed 720px; no dynamic resolution; quality 0.78
-stereo_scheduler=exp8 demand cadence; no exp9 UI-priority/adaptive backoff; last frame retained across slow gaps
+bridge=serial-gated JPEG pair delivery; fixed 720px; no dynamic resolution; quality 0.78
+stereo_scheduler=42ms (~24fps) demand cadence; no UI-priority/adaptive backoff; last frame retained across slow gaps
 native_composition=left and right JPEGs to Surface SBS halves; full-half fill preserved
 no_final_sbs_split=true
 no_quarter_diagnostics=true
 quest_context_menu_hook=ggqOpenContextMenu,ggqCloseContextMenu
 quest_context_menu_mode=selected_geoelements_then_exact_pointer_native_3d_hit
 quest_context_pointer=transparent stereo-hole canvas remains valid input surface
+depth_pointer=Meta flat laser hidden only over live 3D hole; GeoGebra stereo cursor/highlight remains depth cue
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
