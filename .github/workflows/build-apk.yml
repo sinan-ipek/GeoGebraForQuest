@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Verify exp11 renderer, right-click and depth-pointer patches
+      - name: Verify exp12 renderer, right-click and visible-ray behavior
         shell: bash
         run: |
           SRC=.geogebra-source-work/geogebra
@@ -74,7 +74,7 @@ jobs:
           grep -q 'name = "ggqRequestStereoFrame"' "$WEB"
           grep -q 'name = "ggqGetStereoFrameSerial"' "$WEB"
 
-          # Exp11 nudges only the demand cadence: fixed 720px and no dynamic-quality tradeoff.
+          # Exp12 keeps exp11 cadence: fixed 720px, ~24fps, no dynamic-quality tradeoff.
           grep -q 'CAPTURE_INTERVAL_MS = 42' "$JS"
           grep -q 'CAPTURE_MAX_EYE_WIDTH = 720' "$JS"
           grep -q 'CAPTURE_JPEG_QUALITY = 0.78' "$JS"
@@ -92,16 +92,16 @@ jobs:
             'captureEyeWidth(' \
             '540'; do
             if grep -q "$forbidden" "$JS"; then
-              echo "Dynamic capture residue must not exist in exp11: $forbidden"
+              echo "Dynamic capture residue must not exist in exp12: $forbidden"
               exit 1
             fi
           done
           if grep -q 'EXP9_UI_PRIORITY' "$JS"; then
-            echo 'UI-priority scheduler must not be active in exp11'
+            echo 'UI-priority scheduler must not be active in exp12'
             exit 1
           fi
           if grep -q 'adaptiveStereoDelay' "$JS"; then
-            echo 'Adaptive backoff must not be active in exp11'
+            echo 'Adaptive backoff must not be active in exp12'
             exit 1
           fi
 
@@ -112,7 +112,7 @@ jobs:
             exit 1
           fi
 
-          # Working exp10 Quest A/right-click behavior must remain unchanged.
+          # Working exp10 Quest A/right-click behavior remains unchanged.
           grep -q 'v0.9.30 Quest-pointer anchored context menu' "$EUCLIDIAN"
           grep -q 'controller.setMouseLocation(false, questX, questY);' "$EUCLIDIAN"
           grep -q 'setHits(controller.mouseLoc, PointerEventType.MOUSE)' "$EUCLIDIAN"
@@ -121,24 +121,33 @@ jobs:
           grep -q 'var nativeAvailable = typeof window.ggqOpenContextMenu' "$PANEL"
           grep -q 'function isVisibleContextPopup()' "$PANEL"
 
-          # Exp11 depth-pointer presentation: A remains the hit surface; only Meta's flat visual
-          # laser is disabled while the WebView pointer is inside the live 3D hole.
+          # Keep the depth-hover bridge for diagnostics and GeoGebra cursor feedback, but never
+          # hide Meta's controller beam. Video regression in exp11 showed that beam suppression
+          # makes the stereo panel unusable as a pointing surface.
           grep -q 'EXP11_DEPTH_POINTER' "$JS"
           grep -q "bridge('setDepthPointerActive', active ? '1' : '0')" "$JS"
-          grep -q 'depthPointerUiOccluded' "$JS"
           grep -q 'EXP11_DEPTH_POINTER_BRIDGE' "$PANEL"
           grep -q 'DepthPointerState.setActive' "$PANEL"
           grep -q 'DepthPointerState.reset()' "$ACTIVITY"
           grep -q 'var active: Boolean = false' "$DEPTH"
-          grep -q 'val laserEnabled = !DepthPointerState.active' "$SHORTCUT"
-          grep -q 'controller.laserEnabled = laserEnabled' "$SHORTCUT"
+          grep -q 'EXP12_VISIBLE_RAY' "$SHORTCUT"
+          grep -q 'if (!controller.laserEnabled)' "$SHORTCUT"
+          grep -q 'controller.laserEnabled = true' "$SHORTCUT"
           grep -q 'entity.setComponent(controller)' "$SHORTCUT"
+          if grep -q 'val laserEnabled = !DepthPointerState.active' "$SHORTCUT"; then
+            echo 'Exp11 laser suppression must not return'
+            exit 1
+          fi
+          if grep -q 'controller.laserEnabled = false' "$SHORTCUT"; then
+            echo 'Controller laser must remain visible in exp12'
+            exit 1
+          fi
 
       - name: Build debug APK
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify frozen geometry and exp11 package
+      - name: Verify frozen geometry and exp12 package
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -154,26 +163,26 @@ jobs:
           grep -q '#FFFFFFFF' "$BACKPLATE"
           grep -q 'val leftDestination = Rect(0, 0, halfWidth, canvas.height)' "$SINK"
           grep -q 'val rightDestination = Rect(halfWidth, 0, canvas.width, canvas.height)' "$SINK"
-          grep -q 'versionName = "0.9.30-exp11-depth-ray-24fps"' app/build.gradle.kts
-          grep -q 'versionCode = 100' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp12-visible-ray-24fps"' app/build.gradle.kts
+          grep -q 'versionCode = 101' app/build.gradle.kts
 
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.24'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.25'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'renderer_normal_frame=RIGHT_EYE only'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'fixed 720px; no dynamic resolution'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep '42ms (~24fps) demand cadence'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'selected_geoelements_then_exact_pointer_native_3d_hit'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'Meta flat laser hidden only over live 3D hole'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'Meta controller laser always visible'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp11-depth-ray-24fps-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp11-depth-ray-24fps-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp12-visible-ray-24fps-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp12-visible-ray-24fps-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp11-depth-ray-24fps-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp11-depth-ray-24fps-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp12-visible-ray-24fps-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp12-visible-ray-24fps-debug.apk
           if-no-files-found: error
