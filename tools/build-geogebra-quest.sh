@@ -41,7 +41,7 @@ echo "[GGQ] restoring exp8 serial-gated demand capture scheduler"
 python3 "$ROOT/tools/patch-quest-stereo-js-exp8.py" \
   "$ROOT/app/src/main/assets/web/quest-stereo-layout.js"
 
-echo "[GGQ] forcing fixed 720px stereo capture during manipulation"
+echo "[GGQ] removing dynamic 540 capture and fixing stereo capture at 720px"
 python3 "$ROOT/tools/patch-quest-stereo-js-exp10.py" \
   "$ROOT/app/src/main/assets/web/quest-stereo-layout.js"
 
@@ -111,7 +111,7 @@ renderer_eye_sources=left=ggq-renderer-left-eye;right=main_webgl_canvas_alias_gg
 stereo_request_hooks=ggqRequestStereoFrame,ggqGetStereoFrameSerial
 gpu_sync=gl.finish only when a requested LEFT_EYE snapshot is produced
 presentation=registered VideoSurfacePanelRegistration with StereoMode.LeftRight
-bridge=exp8 serial-gated JPEG pair delivery; fixed 720px active+idle; quality 0.78
+bridge=exp8 serial-gated JPEG pair delivery; fixed 720px; no dynamic resolution; quality 0.78
 stereo_scheduler=exp8 demand cadence; no exp9 UI-priority/adaptive backoff; last frame retained across slow gaps
 native_composition=left and right JPEGs to Surface SBS halves; full-half fill preserved
 no_final_sbs_split=true
