@@ -40,12 +40,12 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * v0.9.30-exp3i: 10 cm C-panel stability test with 105% overscan.
+ * v0.9.30-exp3j: 10 cm C-panel with 108% overscan.
  *
- * Exp3h moved the solid white C panel to 6 cm behind A while keeping 105% centered overscan.
- * Device testing still showed the white panel entering the transparent 3D hole when the GeoGebra
- * panel was moved upward. Exp3i therefore changes only C depth to 10 cm. B stays at 3 mm, C stays
- * at 105%, and the local X/Y center remains exactly zero so this test isolates depth-order stability.
+ * Exp3i established 10 cm behind A as a stable compositor-order safety distance while C stayed at
+ * 105% centered overscan. Device testing then showed the white backplate coverage was slightly too
+ * small. Exp3j changes only C scale to 108%. B stays at 3 mm, C stays at 10 cm, and the local X/Y
+ * center remains exactly zero so this test isolates the overscan increase.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -62,7 +62,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         private const val EMBEDDED_TEST_DEPTH_METERS = 0.003f
         private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.10f
-        private val EMBEDDED_BACKPLATE_SCALE = Vector3(1.05f, 1.05f, 1f)
+        private val EMBEDDED_BACKPLATE_SCALE = Vector3(1.08f, 1.08f, 1f)
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
@@ -129,8 +129,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         hostActivity = this,
                     )
 
-                    // JavaScript owns the selective 3D hole. C stays solid white, now 10 cm behind A,
-                    // with the same centered 5% overscan used in exp3g/exp3h.
+                    // JavaScript owns the selective 3D hole. C stays solid white 10 cm behind A,
+                    // now with 8% centered overscan.
                     rootView.setBackgroundColor(Color.TRANSPARENT)
                     webView.setBackgroundColor(Color.TRANSPARENT)
                     rootView.alpha = 1f
@@ -187,7 +187,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "embedded-exp3i 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "embedded-exp3j 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -251,7 +251,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Grabbable(false))
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             stereoPaletteAttached = true
-            Log.i(TAG, "embedded-exp3i stable palette attached at 30% scale with ray pass-through")
+            Log.i(TAG, "embedded-exp3j stable palette attached at 30% scale with ray pass-through")
             return
         }
 
@@ -265,7 +265,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPaletteRestorePose = null
         stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "embedded-exp3i stable palette restored")
+        Log.i(TAG, "embedded-exp3j stable palette restored")
     }
 
     /** Runs on the Spatial system thread via EmbeddedStereoTestSystem. */
@@ -322,7 +322,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             )
             panel.setComponent(Visible(true))
         } catch (t: Throwable) {
-            Log.w(TAG, "embedded-exp3i layout parse/apply failed", t)
+            Log.w(TAG, "embedded-exp3j layout parse/apply failed", t)
         }
     }
 
@@ -413,7 +413,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         Log.i(
             TAG,
-            "embedded-exp3i ready: A GeoGebra, B proof at 3mm, solid white C at 10cm and 105% scale",
+            "embedded-exp3j ready: A GeoGebra, B proof at 3mm, solid white C at 10cm and 108% scale",
         )
     }
 
