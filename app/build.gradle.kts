@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 89
-        versionName = "0.9.30-exp3g"
+        versionCode = 90
+        versionName = "0.9.30-exp3h"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp3g lives only on experimental-embedded-stereo.
+// v0.9.30-exp3h lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp3f kept C 5 cm behind A but 108% overscan visibly protruded beyond GeoGebra. Exp3g keeps
-// the same physical A-B-C spacing and same local center, reducing only C to 105%. No fixed X/Y
-// correction is introduced because the smaller top margin in the test image is viewpoint-dependent.
+// Exp3g used C at 5 cm and 105% scale. Device testing showed occasional short white flashes in
+// the transparent 3D hole, so exp3h keeps the same 105% centered overscan and moves only C to
+// 6 cm behind A to test whether that extra 1 cm restores stable panel ordering.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
