@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 85
-        versionName = "0.9.30-exp3c"
+        versionCode = 86
+        versionName = "0.9.30-exp3d"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp3c lives only on experimental-embedded-stereo.
+// v0.9.30-exp3d lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp3b's non-recursive selective hole is preserved. Exp3c adds a full-size white Spatial
-// backplate 6 mm behind GeoGebra; the magenta 3D proof panel remains 3 mm behind. This restores
-// the normal white background outside the hole without making the WebView/root opaque again.
+// Exp3d keeps exp3b's non-recursive selective WebView hole. The exp3c rear white panel no longer
+// paints through the 3D rectangle: its Android view draws four white strips around a dynamic
+// transparent hole synchronized from the exact same stereo layout JSON as the rear proof panel.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
