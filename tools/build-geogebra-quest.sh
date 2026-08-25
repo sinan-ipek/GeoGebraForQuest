@@ -37,6 +37,10 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0920.py" "$SRC"
 echo "[GGQ] enabling demand-driven LEFT_EYE stereo pairs"
 python3 "$ROOT/tools/patch-geogebra-quest-v0921.py" "$SRC"
 
+echo "[GGQ] patching serial-gated dynamic stereo capture scheduler"
+python3 "$ROOT/tools/patch-quest-stereo-js-exp8.py" \
+  "$ROOT/app/src/main/assets/web/quest-stereo-layout.js"
+
 echo "[GGQ] exporting GeoGebra native context-menu hooks for Quest A"
 python3 "$ROOT/tools/patch-geogebra-quest-v0927.py" "$SRC"
 
