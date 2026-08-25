@@ -40,12 +40,14 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * v0.9.30-exp3: selective 3D transparency proof, based on frozen stable v0.9.29.
+ * v0.9.30-exp3c: selective 3D transparency + rear white backplate.
  *
- * Exp2 proved that Android/Spatial panel alpha can reveal a rear Spatial panel while the front
- * GeoGebra panel remains the input target. Exp3 keeps the whole GeoGebra UI visible and asks the
- * web layer to clear only the visual carriers covering the live 3D WebGL rectangle. A bright,
- * non-hittable Spatial panel is dynamically fitted 3 mm behind exactly that rectangle.
+ * Exp3b proved the non-recursive selective hole works, but clearing GeoGebra's shared root/body
+ * backgrounds also made the left Input panel visually transparent. Exp3c leaves that proven web
+ * path untouched and fixes the visual side in Spatial composition: a full-size white, non-hittable
+ * panel sits farther behind the whole GeoGebra panel, while the magenta proof panel remains closer
+ * and occupies only the live 3D rectangle. Outside the 3D hole the white backplate restores the
+ * normal GeoGebra background; inside the hole the closer proof panel is visible.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -61,6 +63,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val STEREO_TEXTURE_HEIGHT = 720
 
         private const val EMBEDDED_TEST_DEPTH_METERS = 0.003f
+        private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.006f
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
@@ -83,6 +86,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var vrReady = false
     private var stereoPanelEntity: Entity? = null
     private var embeddedTestPanelEntity: Entity? = null
+    private var embeddedBackplateEntity: Entity? = null
     private var stereoSurface: Surface? = null
     private var stereoPaletteAttached = false
     private var stereoPaletteRestorePose: Pose? = null
@@ -126,13 +130,32 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         hostActivity = this,
                     )
 
-                    // Exp2 proved the Spatial/UI composition path. For exp3 the Android backing
-                    // must remain alpha-capable, but the view itself stays fully visible (alpha=1).
-                    // JavaScript selectively clears only the visual layers covering the 3D canvas.
+                    // The Android backing stays alpha-capable; JavaScript owns the selective 3D
+                    // hole. Exp3c restores the ordinary white UI background with a rear Spatial
+                    // backplate instead of reintroducing an opaque WebView/root background.
                     rootView.setBackgroundColor(Color.TRANSPARENT)
                     webView.setBackgroundColor(Color.TRANSPARENT)
                     rootView.alpha = 1f
                     webView.alpha = 1f
+                },
+            ),
+            LayoutXMLPanelRegistration(
+                R.id.embedded_backplate_panel,
+                layoutIdCreator = { R.layout.spatial_embedded_backplate_panel },
+                settingsCreator = {
+                    UIPanelSettings(
+                        shape = QuadShapeOptions(
+                            width = PANEL_WIDTH_METERS,
+                            height = PANEL_HEIGHT_METERS,
+                        ),
+                        display = DpDisplayOptions(
+                            width = PANEL_WIDTH_DP,
+                            height = PANEL_HEIGHT_DP,
+                        ),
+                        style = PanelStyleOptions(
+                            themeResourceId = R.style.PanelAppThemeTransparent,
+                        ),
+                    )
                 },
             ),
             LayoutXMLPanelRegistration(
@@ -166,7 +189,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "embedded-exp3 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "embedded-exp3c 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -230,7 +253,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Grabbable(false))
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             stereoPaletteAttached = true
-            Log.i(TAG, "embedded-exp3 stable palette attached at 30% scale with ray pass-through")
+            Log.i(TAG, "embedded-exp3c stable palette attached at 30% scale with ray pass-through")
             return
         }
 
@@ -244,7 +267,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPaletteRestorePose = null
         stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "embedded-exp3 stable palette restored")
+        Log.i(TAG, "embedded-exp3c stable palette restored")
     }
 
     /** Runs on the Spatial system thread via EmbeddedStereoTestSystem. */
@@ -301,7 +324,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             )
             panel.setComponent(Visible(true))
         } catch (t: Throwable) {
-            Log.w(TAG, "embedded-exp3 layout parse/apply failed", t)
+            Log.w(TAG, "embedded-exp3c layout parse/apply failed", t)
         }
     }
 
@@ -356,6 +379,19 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             ),
         )
 
+        embeddedBackplateEntity = Entity(R.id.embedded_backplate_panel).also { panel ->
+            panel.setComponents(
+                listOf(
+                    Panel(R.id.embedded_backplate_panel),
+                    TransformParent(geoPanel),
+                    Transform(Pose(Vector3(0f, 0f, EMBEDDED_BACKPLATE_DEPTH_METERS))),
+                    Scale(Vector3(1f, 1f, 1f)),
+                    Hittable(MeshCollision.NoCollision),
+                    Visible(true),
+                ),
+            )
+        }
+
         embeddedTestPanelEntity = Entity(R.id.embedded_stereo_test_panel).also { panel ->
             panel.setComponents(
                 listOf(
@@ -379,7 +415,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         Log.i(
             TAG,
-            "embedded-exp3 ready: normal GeoGebra UI + selective transparent 3D hole + dynamic rear panel",
+            "embedded-exp3c ready: selective 3D hole + close proof panel + farther white backplate",
         )
     }
 
@@ -392,6 +428,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoSurface = null
 
         embeddedTestPanelEntity = null
+        embeddedBackplateEntity = null
         pendingEmbeddedLayout = null
         lastAppliedEmbeddedLayout = null
 
