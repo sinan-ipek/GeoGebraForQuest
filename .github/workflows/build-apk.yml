@@ -71,15 +71,28 @@ jobs:
           grep -q 'name = "ggqRequestStereoFrame"' "$WEB"
           grep -q 'name = "ggqGetStereoFrameSerial"' "$WEB"
 
-          # Exp10 deliberately returns capture scheduling to exp8 and fixes quality at 720px.
+          # Exp10 uses exp8 demand scheduling, but dynamic 540/720 resolution is removed.
           grep -q 'CAPTURE_INTERVAL_MS = 50' "$JS"
-          grep -q 'CAPTURE_ACTIVE_EYE_WIDTH = 720' "$JS"
-          grep -q 'CAPTURE_IDLE_EYE_WIDTH = 720' "$JS"
+          grep -q 'CAPTURE_MAX_EYE_WIDTH = 720' "$JS"
           grep -q 'CAPTURE_JPEG_QUALITY = 0.78' "$JS"
           grep -q 'pendingStereoSerial' "$JS"
           grep -q 'lastDeliveredStereoSerial' "$JS"
           grep -q 'now + 16' "$JS"
           grep -q 'toDataURL(' "$JS"
+          for forbidden in \
+            'CAPTURE_ACTIVE_EYE_WIDTH' \
+            'CAPTURE_IDLE_EYE_WIDTH' \
+            'CAPTURE_IDLE_DELAY_MS' \
+            'lastStereoMotionAt' \
+            'markStereoMotion' \
+            'markPointerMotion' \
+            'captureEyeWidth(' \
+            '540'; do
+            if grep -q "$forbidden" "$JS"; then
+              echo "Dynamic capture residue must not exist in exp10: $forbidden"
+              exit 1
+            fi
+          done
           if grep -q 'EXP9_UI_PRIORITY' "$JS"; then
             echo 'Exp9 UI-priority scheduler must not be active in exp10'
             exit 1
@@ -147,7 +160,7 @@ jobs:
 
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'version=0.9.23'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'renderer_normal_frame=RIGHT_EYE only'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'fixed 720px active+idle'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'fixed 720px; no dynamic resolution'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'no exp9 UI-priority/adaptive backoff'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'selected_geoelements_then_exact_pointer_native_3d_hit'
 
