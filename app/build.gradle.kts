@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 94
-        versionName = "0.9.30-exp5"
+        versionCode = 95
+        versionName = "0.9.30-exp6"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,10 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp5 lives only on experimental-embedded-stereo.
+// v0.9.30-exp6 lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp4 embedded the live SBS surface at 3 mm. Exp5 keeps the geometry unchanged, lowers the media
-// compositor z-index to 0 so GeoGebra UI can stay in front, and fills each SBS half completely to
-// remove the black letterbox bands. C remains at 10 cm with 106% centered overscan.
+// Exp6 moves B from 3 mm to A's exact Z plane while retaining zIndex=0, grows C to 107% at the
+// proven 10 cm depth, and restores the stereo startup splash only until the first active 3D view.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
