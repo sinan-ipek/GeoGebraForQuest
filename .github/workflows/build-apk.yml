@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.30-exp3b non-recursive selective transparency
+      - name: Verify v0.9.30-exp3c selective hole with white backplate
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -100,6 +100,7 @@ jobs:
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
           JS=app/src/main/assets/web/quest-stereo-layout.js
           TEST_LAYOUT=app/src/main/res/layout/spatial_embedded_stereo_test_panel.xml
+          BACKPLATE_LAYOUT=app/src/main/res/layout/spatial_embedded_backplate_panel.xml
 
           # Frozen v0.9.29 behavior remains present.
           grep -q 'Quaternion(0f, 45f, 0f)' "$ACTIVITY"
@@ -112,47 +113,45 @@ jobs:
           grep -q 'CAPTURE_INTERVAL_MS = 50' "$JS"
           grep -q 'fun clearForInactiveView()' "$SINK"
 
-          # Selective transparent-but-interactive 3D hole remains, but exp3 recursion is removed.
+          # Exp3b anti-recursion guarantees remain unchanged.
           grep -q 'ggqStereoHole' "$JS"
           grep -q 'applySelectiveHole' "$JS"
-          grep -q 'restoreSelectiveHole' "$JS"
-          grep -q 'collectCoveringLayers' "$JS"
-          grep -q 'document.elementsFromPoint' "$JS"
-          grep -q "forceStyle(canvas, 'opacity', '0')" "$JS"
-          grep -q "forceStyle(canvas, 'pointer-events', 'auto')" "$JS"
           grep -q 'Pure read-only lookup' "$JS"
           grep -q 'Read-only 20 fps path' "$JS"
           grep -q "attributeFilter: \['class', 'hidden', 'aria-hidden'\]" "$JS"
           if grep -q "attributeFilter: .*'style'" "$JS"; then
-            echo 'Exp3b must never observe its own style writes'
+            echo 'Selective-hole code must never observe its own style writes'
             exit 1
           fi
           if grep -A35 'function findVisible3DCanvas' "$JS" | grep -q 'applySelectiveHole'; then
             echo '20 fps canvas lookup must stay DOM-read-only'
             exit 1
           fi
-          if grep -q 'ensureSelectiveHole(holeCanvas)' "$JS"; then
-            echo 'Exp3 repeating style-write loop must not return'
-            exit 1
-          fi
-          grep -q 'setInterval(schedule, 500)' "$JS"
-          grep -q 'active: true' "$JS"
-          grep -q 'JSON.stringify({ active: false })' "$JS"
 
-          # Rear proof panel still tracks the live 3D rectangle and cannot receive the ray.
+          # Exp3c composition: proof panel at 3 mm, full white backplate farther at 6 mm.
           test -e "$SYSTEM"
-          grep -q 'EmbeddedStereoTestSystem(this)' "$ACTIVITY"
+          test -e "$BACKPLATE_LAYOUT"
           grep -q 'SpatialBridgeBus.onStereoLayout' "$ACTIVITY"
           grep -q 'EMBEDDED_TEST_DEPTH_METERS = 0.003f' "$ACTIVITY"
-          grep -q 'PANEL_WIDTH_METERS \* width / viewWidth' "$ACTIVITY"
-          grep -q 'PANEL_HEIGHT_METERS \* height / viewHeight' "$ACTIVITY"
+          grep -q 'EMBEDDED_BACKPLATE_DEPTH_METERS = 0.006f' "$ACTIVITY"
+          grep -q 'R.id.embedded_backplate_panel' "$ACTIVITY"
+          grep -q 'R.layout.spatial_embedded_backplate_panel' "$ACTIVITY"
           grep -q 'TransformParent(geoPanel)' "$ACTIVITY"
+          grep -q 'EMBEDDED_BACKPLATE_DEPTH_METERS' "$ACTIVITY"
           grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
-          grep -q 'EXP3 REAR PANEL' "$TEST_LAYOUT"
+          grep -q 'Visible(true)' "$ACTIVITY"
+          grep -q '#FFFFFFFF' "$BACKPLATE_LAYOUT"
+          grep -q 'EXP3C REAR PANEL' "$TEST_LAYOUT"
           grep -q '#FFFF00FF' "$TEST_LAYOUT"
 
-          grep -q 'versionName = "0.9.30-exp3b"' app/build.gradle.kts
-          grep -q 'versionCode = 84' app/build.gradle.kts
+          # Android/WebView stays alpha-capable; the backplate restores background visually.
+          grep -q 'rootView.setBackgroundColor(Color.TRANSPARENT)' "$ACTIVITY"
+          grep -q 'webView.setBackgroundColor(Color.TRANSPARENT)' "$ACTIVITY"
+          grep -q 'rootView.alpha = 1f' "$ACTIVITY"
+          grep -q 'webView.alpha = 1f' "$ACTIVITY"
+
+          grep -q 'versionName = "0.9.30-exp3c"' app/build.gradle.kts
+          grep -q 'versionCode = 85' app/build.gradle.kts
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -164,20 +163,21 @@ jobs:
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'no_final_sbs_split=true'
           unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'quest_context_menu_mode=selected_geoelements'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'spatial_embedded_stereo_test_panel.xml'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'spatial_embedded_backplate_panel.xml'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/html/ggtcallback.html'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp3b-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.30-exp3b-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp3b-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp3c-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.30-exp3c-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp3c-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp3b-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp3b-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp3c-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp3c-debug.apk
           if-no-files-found: error
           retention-days: 30
