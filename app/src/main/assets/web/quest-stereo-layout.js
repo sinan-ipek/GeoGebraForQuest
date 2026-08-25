@@ -7,8 +7,13 @@
   var lastPayload = '';
   var lastCanvas = null;
   var scheduled = false;
+
+  // Exp3b selective-hole state. The critical rule is that the 20 fps capture path is read-only:
+  // it may locate the 3D canvas, but it must never mutate DOM styles.
   var holeCanvas = null;
   var holeStyleRecords = [];
+  var holeRectSignature = '';
+  var holeApplyGeneration = 0;
 
   var CAPTURE_INTERVAL_MS = 50;
   var CAPTURE_MAX_EYE_WIDTH = 720;
@@ -74,8 +79,14 @@
 
   function forceStyle(node, property, value) {
     if (!node || !node.style) return;
-    saveInlineStyle(node, property);
     try {
+      // Avoid even a no-op style mutation. Exp3 repeatedly wrote the same values and its
+      // MutationObserver watched style changes, creating a self-triggering UI-thread loop.
+      if (node.style.getPropertyValue(property) === value &&
+          node.style.getPropertyPriority(property) === 'important') {
+        return;
+      }
+      saveInlineStyle(node, property);
       node.style.setProperty(property, value, 'important');
     } catch (_) {}
   }
@@ -88,6 +99,7 @@
   }
 
   function restoreSelectiveHole() {
+    holeApplyGeneration++;
     for (var i = holeStyleRecords.length - 1; i >= 0; i--) {
       var record = holeStyleRecords[i];
       if (!record.node || !record.node.style) continue;
@@ -104,6 +116,7 @@
       try { delete holeCanvas.dataset.ggqStereoHole; } catch (_) {}
     }
     holeCanvas = null;
+    holeRectSignature = '';
   }
 
   function rawRect(element) {
@@ -119,6 +132,16 @@
       width: r.width,
       height: r.height
     };
+  }
+
+  function rectSignature(rect) {
+    if (!rect) return '';
+    return [
+      Math.round(rect.left),
+      Math.round(rect.top),
+      Math.round(rect.width),
+      Math.round(rect.height)
+    ].join(':');
   }
 
   function intersectionArea(a, b) {
@@ -148,7 +171,6 @@
       layers.push(node);
     }
 
-    // Every ancestor background between the WebGL canvas and the GeoGebra root must be clear.
     var root = document.getElementById('ggb-element');
     var node = canvas;
     while (node) {
@@ -160,10 +182,8 @@
     add(document.body);
     add(document.documentElement);
 
-    // Exp1 only cleared ancestors whose rectangles closely matched the canvas. That left an
-    // opaque GeoGebra carrier behind. Exp3 samples the paint stack inside the 3D rectangle and
-    // also clears large background layers that cover most of that rectangle, while leaving small
-    // tool buttons, menus and overlays untouched.
+    // This paint-stack sampling is intentionally expensive, so exp3b executes it only when
+    // a new 3D canvas appears or its rectangle actually changes, plus two finite settling passes.
     var insetX = Math.max(2, Math.min(12, canvasRect.width * 0.05));
     var insetY = Math.max(2, Math.min(12, canvasRect.height * 0.05));
     var samples = [
@@ -183,7 +203,9 @@
           continue;
         }
         if (!root || candidate === root || root.contains(candidate)) {
-          if (candidate === canvas || candidate.contains(canvas) || coversMostOfCanvas(candidate, canvasRect)) {
+          if (candidate === canvas ||
+              candidate.contains(canvas) ||
+              coversMostOfCanvas(candidate, canvasRect)) {
             add(candidate);
           }
         }
@@ -193,26 +215,51 @@
     return layers;
   }
 
-  function ensureSelectiveHole(canvas) {
+  function applySelectiveHole(canvas, force) {
     if (!canvas || !canvas.isConnected) return;
-
-    if (holeCanvas && holeCanvas !== canvas) {
-      restoreSelectiveHole();
-    }
-
-    if (!holeCanvas) {
-      holeCanvas = canvas;
-      if (canvas.dataset) canvas.dataset.ggqStereoHole = 'true';
-      forceStyle(canvas, 'opacity', '0');
-      forceStyle(canvas, 'pointer-events', 'auto');
-      transparentBackground(canvas);
-    }
 
     var canvasRect = rawRect(canvas);
     if (!canvasRect) return;
+    var signature = rectSignature(canvasRect);
+
+    if (!force && holeCanvas === canvas && holeRectSignature === signature) {
+      return;
+    }
+
+    // When the target or geometry changes, restore the previous finite set first so we never
+    // accumulate stale transparent styles on old GeoGebra carriers.
+    if (holeCanvas) {
+      restoreSelectiveHole();
+    }
+
+    holeCanvas = canvas;
+    holeRectSignature = signature;
+    var generation = ++holeApplyGeneration;
+
+    if (canvas.dataset) canvas.dataset.ggqStereoHole = 'true';
+    forceStyle(canvas, 'opacity', '0');
+    forceStyle(canvas, 'pointer-events', 'auto');
+    transparentBackground(canvas);
+
     var layers = collectCoveringLayers(canvas, canvasRect);
     for (var i = 0; i < layers.length; i++) {
       if (layers[i] !== canvas) transparentBackground(layers[i]);
+    }
+
+    // GeoGebra can finish constructing a carrier shortly after the WebGL canvas appears.
+    // Do exactly two delayed settling passes, never a repeating style-write loop.
+    if (!force) {
+      setTimeout(function () {
+        if (generation !== holeApplyGeneration || holeCanvas !== canvas || !canvas.isConnected) {
+          return;
+        }
+        applySelectiveHole(canvas, true);
+      }, 250);
+
+      setTimeout(function () {
+        if (holeCanvas !== canvas || !canvas.isConnected) return;
+        applySelectiveHole(canvas, true);
+      }, 1000);
     }
   }
 
@@ -248,6 +295,7 @@
     }
   }
 
+  // Pure read-only lookup. Never call applySelectiveHole() from here.
   function findVisible3DCanvas() {
     var root = document.getElementById('ggb-element') || document;
     var canvases = Array.prototype.slice.call(root.querySelectorAll('canvas'));
@@ -268,10 +316,7 @@
       }
     });
 
-    if (best) {
-      lastCanvas = best;
-      ensureSelectiveHole(best);
-    }
+    if (best) lastCanvas = best;
     return best;
   }
 
@@ -339,7 +384,20 @@
 
   function sendLayout() {
     scheduled = false;
-    var canvas = find3DCanvas();
+
+    var canvas = findVisible3DCanvas();
+    if (!canvas) {
+      if (holeCanvas) restoreSelectiveHole();
+      reportStereoInactive();
+      return;
+    }
+
+    reportStereoActive();
+
+    // This is the only normal path that mutates styles. It runs on layout/DOM signals or the
+    // 500 ms watchdog, and applySelectiveHole() becomes a no-op unless target geometry changed.
+    applySelectiveHole(canvas, false);
+
     var stereoRect = rectOf(canvas);
     if (!stereoRect) return;
 
@@ -382,6 +440,7 @@
   function captureStereoEyes() {
     if (!leftCaptureContext || !rightCaptureContext) return;
 
+    // Read-only 20 fps path: no selective-hole style writes and no elementsFromPoint scanning.
     var visible3DCanvas = findVisible3DCanvas();
     if (!visible3DCanvas) {
       reportStereoInactive();
@@ -446,24 +505,22 @@
   }
 
   var mutationObserver = new MutationObserver(function () {
+    // Never observe "style": exp3's own transparent style writes recursively retriggered this
+    // observer and froze the GeoGebra WebView. Structural/class/visibility changes are enough to
+    // detect view creation/removal; the 500 ms watchdog covers missed cases.
     schedule();
-    var canvas = findVisible3DCanvas();
-    if (!canvas) reportStereoInactive();
   });
   mutationObserver.observe(document.documentElement, {
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ['class', 'style', 'hidden', 'aria-hidden']
+    attributeFilter: ['class', 'hidden', 'aria-hidden']
   });
 
   addEventListener('resize', schedule, { passive: true });
   addEventListener('scroll', schedule, true);
 
-  setInterval(function () {
-    schedule();
-    if (holeCanvas && holeCanvas.isConnected) ensureSelectiveHole(holeCanvas);
-  }, 500);
+  setInterval(schedule, 500);
 
   schedule();
   requestAnimationFrame(captureLoop);
