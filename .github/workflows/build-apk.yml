@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.30-exp3h 6cm stability experiment
+      - name: Verify v0.9.30-exp3i 10cm stability experiment
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -128,11 +128,11 @@ jobs:
             exit 1
           fi
 
-          # Exp3h changes only C depth: 5 cm -> 6 cm. Scale remains 105%, center remains exact.
+          # Exp3i changes only C depth: 6 cm -> 10 cm. Scale remains 105%, center remains exact.
           test -e "$SYSTEM"
           test -e "$BACKPLATE_LAYOUT"
           grep -q 'EMBEDDED_TEST_DEPTH_METERS = 0.003f' "$ACTIVITY"
-          grep -q 'EMBEDDED_BACKPLATE_DEPTH_METERS = 0.06f' "$ACTIVITY"
+          grep -q 'EMBEDDED_BACKPLATE_DEPTH_METERS = 0.10f' "$ACTIVITY"
           grep -q 'EMBEDDED_BACKPLATE_SCALE = Vector3(1.05f, 1.05f, 1f)' "$ACTIVITY"
           grep -q 'Scale(EMBEDDED_BACKPLATE_SCALE)' "$ACTIVITY"
           grep -q 'Transform(Pose(Vector3(0f, 0f, EMBEDDED_BACKPLATE_DEPTH_METERS)))' "$ACTIVITY"
@@ -140,11 +140,11 @@ jobs:
           grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
           grep -q '#FFFFFFFF' "$BACKPLATE_LAYOUT"
           if grep -q 'EmbeddedBackplateHoleView' "$BACKPLATE_LAYOUT"; then
-            echo 'Exp3h C panel must stay solid white'
+            echo 'Exp3i C panel must stay solid white'
             exit 1
           fi
-          grep -q 'EXP3H B PANEL' "$TEST_LAYOUT"
-          grep -q 'C = 6 CM / 105%' "$TEST_LAYOUT"
+          grep -q 'EXP3I B PANEL' "$TEST_LAYOUT"
+          grep -q 'C = 10 CM / 105%' "$TEST_LAYOUT"
           grep -q '#FFFF00FF' "$TEST_LAYOUT"
 
           # Android/WebView stays alpha-capable.
@@ -153,8 +153,8 @@ jobs:
           grep -q 'rootView.alpha = 1f' "$ACTIVITY"
           grep -q 'webView.alpha = 1f' "$ACTIVITY"
 
-          grep -q 'versionName = "0.9.30-exp3h"' app/build.gradle.kts
-          grep -q 'versionCode = 90' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp3i"' app/build.gradle.kts
+          grep -q 'versionCode = 91' app/build.gradle.kts
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -173,14 +173,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp3h-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.30-exp3h-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp3h-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp3i-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.30-exp3i-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp3i-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp3h-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp3h-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp3i-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp3i-debug.apk
           if-no-files-found: error
           retention-days: 30
