@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 97
-        versionName = "0.9.30-exp8-performance-b"
+        versionCode = 98
+        versionName = "0.9.30-exp9-ui-priority"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp8-performance-b lives only on experimental-embedded-stereo.
+// v0.9.30-exp9-ui-priority lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp8 preserves exp6/exp7 geometry, splash, compositor and right-eye reuse. Normal GeoGebra
-// repaints now render RIGHT_EYE only; LEFT_EYE is rendered/snapshotted only for a requested
-// stereo pair. Pair delivery is serial-gated, with 540px captures during manipulation and
-// automatic return to 720px after 300ms idle.
+// Exp9 preserves exp8 demand-driven RIGHT-only normal frames and dynamic 540/720 capture, while
+// prioritizing GeoGebra UI: async JPEG encoding, adaptive slow-scene backoff, popup/menu capture
+// pause, retained last stereo frame, and a robust selected-first A-button pointer-hit fallback.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
