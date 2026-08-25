@@ -54,6 +54,9 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0928.py" "$SRC"
 echo "[GGQ] adding selected-first pointer-hit fallback for Quest A"
 python3 "$ROOT/tools/patch-geogebra-quest-v0929.py" "$SRC"
 
+echo "[GGQ] patching Android/WebView UI-priority behavior"
+python3 "$ROOT/tools/patch-android-ui-exp9.py" "$ROOT"
+
 echo "[GGQ] compiling GeoGebra Web3D and static runtime resources"
 pushd "$SRC/source/web" >/dev/null
 ../../gradlew \
