@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 99
-        versionName = "0.9.30-exp10-rightclick"
+        versionCode = 100
+        versionName = "0.9.30-exp11-depth-ray-24fps"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp10-rightclick lives only on experimental-embedded-stereo.
+// v0.9.30-exp11-depth-ray-24fps lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp10 returns capture scheduling to exp8's demand-driven RIGHT-only normal-frame architecture,
-// keeps both active and idle stereo capture fixed at 720px, and focuses changes on robust Quest A
-// context-menu routing. Exp9's 350ms idle clear removal is retained because it does not trade 3D
-// render budget for UI responsiveness.
+// Exp11 preserves exp10's fixed-720 demand-driven renderer and working Quest A menu, raises the
+// stereo request ceiling slightly (~24fps), and hides only Meta's flat panel laser over the live
+// 3D hole so GeoGebra's own stereo cursor/highlight supplies the visual depth cue.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
