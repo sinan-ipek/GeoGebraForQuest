@@ -12,7 +12,7 @@
         android:padding="24dp"
         android:background="#E6000000"
         android:gravity="center"
-        android:text="EXP3G B PANEL\nC = 5 CM / 105%"
+        android:text="EXP3H B PANEL\nC = 6 CM / 105%"
         android:textColor="#FFFFFFFF"
         android:textSize="28sp"
         android:textStyle="bold" />
