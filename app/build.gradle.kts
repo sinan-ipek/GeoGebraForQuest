@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 96
-        versionName = "0.9.30-exp7-performance-a"
+        versionCode = 97
+        versionName = "0.9.30-exp8-performance-b"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp7-performance-a lives only on experimental-embedded-stereo.
+// v0.9.30-exp8-performance-b lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp7 preserves all exp6 geometry, splash, compositor and full-half-fill behavior. The only
-// functional change is the small stereo transport optimization: LEFT_EYE keeps its hidden-canvas
-// snapshot, while the completed RIGHT_EYE is reused directly from GeoGebra's main WebGL canvas.
+// Exp8 preserves exp6/exp7 geometry, splash, compositor and right-eye reuse. Normal GeoGebra
+// repaints now render RIGHT_EYE only; LEFT_EYE is rendered/snapshotted only for a requested
+// stereo pair. Pair delivery is serial-gated, with 540px captures during manipulation and
+// automatic return to 720px after 300ms idle.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
