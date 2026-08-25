@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 90
-        versionName = "0.9.30-exp3h"
+        versionCode = 91
+        versionName = "0.9.30-exp3i"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp3h lives only on experimental-embedded-stereo.
+// v0.9.30-exp3i lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp3g used C at 5 cm and 105% scale. Device testing showed occasional short white flashes in
-// the transparent 3D hole, so exp3h keeps the same 105% centered overscan and moves only C to
-// 6 cm behind A to test whether that extra 1 cm restores stable panel ordering.
+// Exp3h used C at 6 cm and 105% scale, but moving the GeoGebra panel upward could still expose
+// the white C panel in the transparent 3D hole. Exp3i keeps the same 105% centered overscan and
+// moves only C to 10 cm behind A to test a larger compositor depth-order safety margin.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
