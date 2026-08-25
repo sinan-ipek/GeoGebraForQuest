@@ -7,10 +7,9 @@
   var lastPayload = '';
   var lastCanvas = null;
   var scheduled = false;
+  var holeCanvas = null;
+  var holeStyleRecords = [];
 
-  // v0.9.24: return to the proven 20 fps target and only capture while a
-  // visible GeoGebra 3D view exists. Renderer-eye canvases may keep updating
-  // after the visible 3D view is closed, so visibility is the source of truth.
   var CAPTURE_INTERVAL_MS = 50;
   var CAPTURE_MAX_EYE_WIDTH = 720;
   var CAPTURE_JPEG_QUALITY = 0.78;
@@ -49,7 +48,9 @@
   function reportStereoInactive() {
     if (!hasSeenActive3D || inactiveReported) return;
     inactiveReported = true;
+    restoreSelectiveHole();
     bridge('stereoInactive', '');
+    bridge('updateStereoLayout', JSON.stringify({ active: false }));
   }
 
   function reportStereoActive() {
@@ -57,12 +58,175 @@
     inactiveReported = false;
   }
 
+  function saveInlineStyle(node, property) {
+    if (!node || !node.style) return;
+    for (var i = 0; i < holeStyleRecords.length; i++) {
+      var record = holeStyleRecords[i];
+      if (record.node === node && record.property === property) return;
+    }
+    holeStyleRecords.push({
+      node: node,
+      property: property,
+      value: node.style.getPropertyValue(property),
+      priority: node.style.getPropertyPriority(property)
+    });
+  }
+
+  function forceStyle(node, property, value) {
+    if (!node || !node.style) return;
+    saveInlineStyle(node, property);
+    try {
+      node.style.setProperty(property, value, 'important');
+    } catch (_) {}
+  }
+
+  function transparentBackground(node) {
+    if (!node || !node.style) return;
+    forceStyle(node, 'background', 'transparent');
+    forceStyle(node, 'background-color', 'transparent');
+    forceStyle(node, 'background-image', 'none');
+  }
+
+  function restoreSelectiveHole() {
+    for (var i = holeStyleRecords.length - 1; i >= 0; i--) {
+      var record = holeStyleRecords[i];
+      if (!record.node || !record.node.style) continue;
+      try {
+        if (record.value) {
+          record.node.style.setProperty(record.property, record.value, record.priority || '');
+        } else {
+          record.node.style.removeProperty(record.property);
+        }
+      } catch (_) {}
+    }
+    holeStyleRecords = [];
+    if (holeCanvas && holeCanvas.dataset) {
+      try { delete holeCanvas.dataset.ggqStereoHole; } catch (_) {}
+    }
+    holeCanvas = null;
+  }
+
+  function rawRect(element) {
+    if (!element || !element.isConnected) return null;
+    var r;
+    try { r = element.getBoundingClientRect(); } catch (_) { return null; }
+    if (!r || r.width < 2 || r.height < 2) return null;
+    return {
+      left: r.left,
+      top: r.top,
+      right: r.right,
+      bottom: r.bottom,
+      width: r.width,
+      height: r.height
+    };
+  }
+
+  function intersectionArea(a, b) {
+    var left = Math.max(a.left, b.left);
+    var top = Math.max(a.top, b.top);
+    var right = Math.min(a.right, b.right);
+    var bottom = Math.min(a.bottom, b.bottom);
+    if (right <= left || bottom <= top) return 0;
+    return (right - left) * (bottom - top);
+  }
+
+  function coversMostOfCanvas(node, canvasRect) {
+    var r = rawRect(node);
+    if (!r) return false;
+    var canvasArea = canvasRect.width * canvasRect.height;
+    if (canvasArea <= 0) return false;
+    return intersectionArea(r, canvasRect) / canvasArea >= 0.55;
+  }
+
+  function collectCoveringLayers(canvas, canvasRect) {
+    var layers = [];
+    var seen = new Set();
+
+    function add(node) {
+      if (!node || seen.has(node)) return;
+      seen.add(node);
+      layers.push(node);
+    }
+
+    // Every ancestor background between the WebGL canvas and the GeoGebra root must be clear.
+    var root = document.getElementById('ggb-element');
+    var node = canvas;
+    while (node) {
+      add(node);
+      if (node === root) break;
+      node = node.parentElement;
+    }
+    add(root);
+    add(document.body);
+    add(document.documentElement);
+
+    // Exp1 only cleared ancestors whose rectangles closely matched the canvas. That left an
+    // opaque GeoGebra carrier behind. Exp3 samples the paint stack inside the 3D rectangle and
+    // also clears large background layers that cover most of that rectangle, while leaving small
+    // tool buttons, menus and overlays untouched.
+    var insetX = Math.max(2, Math.min(12, canvasRect.width * 0.05));
+    var insetY = Math.max(2, Math.min(12, canvasRect.height * 0.05));
+    var samples = [
+      [canvasRect.left + canvasRect.width * 0.50, canvasRect.top + canvasRect.height * 0.50],
+      [canvasRect.left + insetX, canvasRect.top + insetY],
+      [canvasRect.right - insetX, canvasRect.top + insetY],
+      [canvasRect.left + insetX, canvasRect.bottom - insetY],
+      [canvasRect.right - insetX, canvasRect.bottom - insetY]
+    ];
+
+    samples.forEach(function (point) {
+      var stack = [];
+      try { stack = document.elementsFromPoint(point[0], point[1]); } catch (_) {}
+      for (var i = 0; i < stack.length; i++) {
+        var candidate = stack[i];
+        if (!candidate || candidate === document.documentElement || candidate === document.body) {
+          continue;
+        }
+        if (!root || candidate === root || root.contains(candidate)) {
+          if (candidate === canvas || candidate.contains(canvas) || coversMostOfCanvas(candidate, canvasRect)) {
+            add(candidate);
+          }
+        }
+      }
+    });
+
+    return layers;
+  }
+
+  function ensureSelectiveHole(canvas) {
+    if (!canvas || !canvas.isConnected) return;
+
+    if (holeCanvas && holeCanvas !== canvas) {
+      restoreSelectiveHole();
+    }
+
+    if (!holeCanvas) {
+      holeCanvas = canvas;
+      if (canvas.dataset) canvas.dataset.ggqStereoHole = 'true';
+      forceStyle(canvas, 'opacity', '0');
+      forceStyle(canvas, 'pointer-events', 'auto');
+      transparentBackground(canvas);
+    }
+
+    var canvasRect = rawRect(canvas);
+    if (!canvasRect) return;
+    var layers = collectCoveringLayers(canvas, canvasRect);
+    for (var i = 0; i < layers.length; i++) {
+      if (layers[i] !== canvas) transparentBackground(layers[i]);
+    }
+  }
+
   function rectOf(element) {
     if (!element || !element.isConnected) return null;
     var style;
     try { style = getComputedStyle(element); } catch (_) { return null; }
     if (!style || style.display === 'none' || style.visibility === 'hidden') return null;
-    if (Number(style.opacity) === 0) return null;
+
+    var isStereoHole = !!(
+      element.dataset && element.dataset.ggqStereoHole === 'true'
+    );
+    if (Number(style.opacity) === 0 && !isStereoHole) return null;
+
     var r = element.getBoundingClientRect();
     if (!r || r.width < 2 || r.height < 2) return null;
     if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) return null;
@@ -104,7 +268,10 @@
       }
     });
 
-    if (best) lastCanvas = best;
+    if (best) {
+      lastCanvas = best;
+      ensureSelectiveHole(best);
+    }
     return best;
   }
 
@@ -177,6 +344,7 @@
     if (!stereoRect) return;
 
     var payload = JSON.stringify({
+      active: true,
       stereo: stereoRect,
       viewWidth: innerWidth,
       viewHeight: innerHeight,
@@ -214,9 +382,6 @@
   function captureStereoEyes() {
     if (!leftCaptureContext || !rightCaptureContext) return;
 
-    // The visible 3D view, not the hidden renderer-eye canvases, controls
-    // whether stereo output is active. This prevents a closed rotating scene
-    // from continuing to animate on the stereo panel.
     var visible3DCanvas = findVisible3DCanvas();
     if (!visible3DCanvas) {
       reportStereoInactive();
@@ -263,10 +428,7 @@
       ) {
         bridgeStereoEyes(leftDataUrl, rightDataUrl);
       }
-    } catch (_) {
-      // Renderer canvases can be replaced during a 3D view reconstruction.
-      // The next capture loop simply resolves the current explicit eye canvases.
-    }
+    } catch (_) {}
   }
 
   function captureLoop(now) {
@@ -285,7 +447,8 @@
 
   var mutationObserver = new MutationObserver(function () {
     schedule();
-    if (!findVisible3DCanvas()) reportStereoInactive();
+    var canvas = findVisible3DCanvas();
+    if (!canvas) reportStereoInactive();
   });
   mutationObserver.observe(document.documentElement, {
     subtree: true,
@@ -297,7 +460,10 @@
   addEventListener('resize', schedule, { passive: true });
   addEventListener('scroll', schedule, true);
 
-  setInterval(schedule, 500);
+  setInterval(function () {
+    schedule();
+    if (holeCanvas && holeCanvas.isConnected) ensureSelectiveHole(holeCanvas);
+  }, 500);
 
   schedule();
   requestAnimationFrame(captureLoop);
