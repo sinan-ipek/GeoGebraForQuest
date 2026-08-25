@@ -3,7 +3,7 @@ package com.sinan.geogebraforquest
 import com.meta.spatial.core.SystemBase
 
 /**
- * Applies WebView-reported 3D-view geometry on the Spatial thread.
+ * Applies WebView-reported 3D-view geometry to the live stereo surface on the Spatial thread.
  * This exists only on the experimental embedded-stereo branch.
  */
 class EmbeddedStereoTestSystem(
