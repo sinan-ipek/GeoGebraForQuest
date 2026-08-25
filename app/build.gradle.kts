@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 81
-        versionName = "0.9.30-exp1"
+        versionCode = 82
+        versionName = "0.9.30-exp2"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,10 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp1 is deliberately experimental and lives only on experimental-embedded-stereo.
+// v0.9.30-exp2 lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// This build tests whether a transparent-but-interactive GeoGebra 3D rectangle can reveal a
-// dynamically aligned, non-hittable Spatial panel a few millimetres behind the WebView.
+// This diagnostic restores the normal GeoGebra DOM/render path and then fades the entire Android
+// GeoGebra panel content to alpha 0, while a bright non-hittable full-size Spatial panel sits
+// behind it. If that rear panel becomes visible, Spatial UI-panel alpha composition is working.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
