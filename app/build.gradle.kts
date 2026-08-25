@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 86
-        versionName = "0.9.30-exp3d"
+        versionCode = 87
+        versionName = "0.9.30-exp3e"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp3d lives only on experimental-embedded-stereo.
+// v0.9.30-exp3e lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp3d keeps exp3b's non-recursive selective WebView hole. The exp3c rear white panel no longer
-// paints through the 3D rectangle: its Android view draws four white strips around a dynamic
-// transparent hole synchronized from the exact same stereo layout JSON as the rear proof panel.
+// Exp3e is a controlled A-B-C depth-sort experiment: A is GeoGebra, B is the dynamic proof panel
+// 3 mm behind the 3D rectangle, and C is again a solid white full-size panel but now 20 cm behind A.
+// The goal is to test whether a large physical separation makes Spatial panel depth ordering reliable.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
