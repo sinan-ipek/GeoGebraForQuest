@@ -40,7 +40,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          distribution: temurin
           gradle-version: '9.4.1'
 
       - name: Build patched GeoGebra web3d from source
