@@ -67,7 +67,7 @@ python3 "$ROOT/tools/patch-android-ui-exp9.py" "$ROOT"
 echo "[GGQ] removing UI-priority scheduling and fixing stereo-hole right-click routing"
 python3 "$ROOT/tools/patch-android-rightclick-exp10.py" "$ROOT"
 
-echo "[GGQ] bridging stereo-hole pointer state to Meta laser presentation"
+echo "[GGQ] keeping depth-pointer hover bridge for stereo cursor diagnostics"
 python3 "$ROOT/tools/patch-android-ray-exp11.py" "$ROOT"
 
 echo "[GGQ] compiling GeoGebra Web3D and static runtime resources"
@@ -105,7 +105,7 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.24
+version=0.9.25
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour stereo camera math)
 renderer=QuestStereoRenderer
@@ -126,7 +126,7 @@ no_quarter_diagnostics=true
 quest_context_menu_hook=ggqOpenContextMenu,ggqCloseContextMenu
 quest_context_menu_mode=selected_geoelements_then_exact_pointer_native_3d_hit
 quest_context_pointer=transparent stereo-hole canvas remains valid input surface
-depth_pointer=Meta flat laser hidden only over live 3D hole; GeoGebra stereo cursor/highlight remains depth cue
+depth_pointer=Meta controller laser always visible; GeoGebra stereo cursor/highlight remains separate depth cue
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
