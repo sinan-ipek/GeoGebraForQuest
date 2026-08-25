@@ -40,13 +40,12 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * v0.9.30-exp3h: 6 cm C-panel stability test with 105% overscan.
+ * v0.9.30-exp3i: 10 cm C-panel stability test with 105% overscan.
  *
- * Exp3g kept the solid white C panel 5 cm behind A at 105% scale. That reduced parallax well,
- * but device testing showed occasional brief white flashes in the transparent 3D hole, suggesting
- * the 5 cm A-B-C depth separation is close to the compositor's reliable ordering threshold.
- * Exp3h changes only the C depth to 6 cm. B stays at 3 mm, C stays at 105%, and the local X/Y
- * center remains exactly zero so there is no baked-in recentering bias.
+ * Exp3h moved the solid white C panel to 6 cm behind A while keeping 105% centered overscan.
+ * Device testing still showed the white panel entering the transparent 3D hole when the GeoGebra
+ * panel was moved upward. Exp3i therefore changes only C depth to 10 cm. B stays at 3 mm, C stays
+ * at 105%, and the local X/Y center remains exactly zero so this test isolates depth-order stability.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -62,7 +61,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val STEREO_TEXTURE_HEIGHT = 720
 
         private const val EMBEDDED_TEST_DEPTH_METERS = 0.003f
-        private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.06f
+        private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.10f
         private val EMBEDDED_BACKPLATE_SCALE = Vector3(1.05f, 1.05f, 1f)
 
         private const val TAG = "GeoGebraForQuest"
@@ -130,8 +129,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         hostActivity = this,
                     )
 
-                    // JavaScript owns the selective 3D hole. C stays solid white, now 6 cm behind A,
-                    // with the same centered 5% overscan used in exp3g.
+                    // JavaScript owns the selective 3D hole. C stays solid white, now 10 cm behind A,
+                    // with the same centered 5% overscan used in exp3g/exp3h.
                     rootView.setBackgroundColor(Color.TRANSPARENT)
                     webView.setBackgroundColor(Color.TRANSPARENT)
                     rootView.alpha = 1f
@@ -188,7 +187,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "embedded-exp3h 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "embedded-exp3i 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -252,7 +251,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Grabbable(false))
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             stereoPaletteAttached = true
-            Log.i(TAG, "embedded-exp3h stable palette attached at 30% scale with ray pass-through")
+            Log.i(TAG, "embedded-exp3i stable palette attached at 30% scale with ray pass-through")
             return
         }
 
@@ -266,7 +265,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPaletteRestorePose = null
         stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "embedded-exp3h stable palette restored")
+        Log.i(TAG, "embedded-exp3i stable palette restored")
     }
 
     /** Runs on the Spatial system thread via EmbeddedStereoTestSystem. */
@@ -323,7 +322,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             )
             panel.setComponent(Visible(true))
         } catch (t: Throwable) {
-            Log.w(TAG, "embedded-exp3h layout parse/apply failed", t)
+            Log.w(TAG, "embedded-exp3i layout parse/apply failed", t)
         }
     }
 
@@ -414,7 +413,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         Log.i(
             TAG,
-            "embedded-exp3h ready: A GeoGebra, B proof at 3mm, solid white C at 6cm and 105% scale",
+            "embedded-exp3i ready: A GeoGebra, B proof at 3mm, solid white C at 10cm and 105% scale",
         )
     }
 
