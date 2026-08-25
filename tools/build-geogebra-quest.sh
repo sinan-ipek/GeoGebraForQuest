@@ -37,12 +37,12 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0920.py" "$SRC"
 echo "[GGQ] enabling demand-driven LEFT_EYE stereo pairs"
 python3 "$ROOT/tools/patch-geogebra-quest-v0921.py" "$SRC"
 
-echo "[GGQ] patching serial-gated dynamic stereo capture scheduler"
+echo "[GGQ] restoring exp8 serial-gated demand capture scheduler"
 python3 "$ROOT/tools/patch-quest-stereo-js-exp8.py" \
   "$ROOT/app/src/main/assets/web/quest-stereo-layout.js"
 
-echo "[GGQ] patching UI-priority async stereo capture scheduler"
-python3 "$ROOT/tools/patch-quest-stereo-js-exp9.py" \
+echo "[GGQ] forcing fixed 720px stereo capture during manipulation"
+python3 "$ROOT/tools/patch-quest-stereo-js-exp10.py" \
   "$ROOT/app/src/main/assets/web/quest-stereo-layout.js"
 
 echo "[GGQ] exporting GeoGebra native context-menu hooks for Quest A"
@@ -54,8 +54,14 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0928.py" "$SRC"
 echo "[GGQ] adding selected-first pointer-hit fallback for Quest A"
 python3 "$ROOT/tools/patch-geogebra-quest-v0929.py" "$SRC"
 
-echo "[GGQ] patching Android/WebView UI-priority behavior"
+echo "[GGQ] anchoring Quest A popup and fallback hit-test to real pointer coordinates"
+python3 "$ROOT/tools/patch-geogebra-quest-v0930.py" "$SRC"
+
+echo "[GGQ] retaining last stereo frame and real popup-state detection"
 python3 "$ROOT/tools/patch-android-ui-exp9.py" "$ROOT"
+
+echo "[GGQ] removing UI-priority scheduling and fixing stereo-hole right-click routing"
+python3 "$ROOT/tools/patch-android-rightclick-exp10.py" "$ROOT"
 
 echo "[GGQ] compiling GeoGebra Web3D and static runtime resources"
 pushd "$SRC/source/web" >/dev/null
@@ -92,7 +98,7 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.22
+version=0.9.23
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour stereo camera math)
 renderer=QuestStereoRenderer
@@ -105,13 +111,14 @@ renderer_eye_sources=left=ggq-renderer-left-eye;right=main_webgl_canvas_alias_gg
 stereo_request_hooks=ggqRequestStereoFrame,ggqGetStereoFrameSerial
 gpu_sync=gl.finish only when a requested LEFT_EYE snapshot is produced
 presentation=registered VideoSurfacePanelRegistration with StereoMode.LeftRight
-bridge=serial-gated async JPEG pair delivery; active 540px, idle 720px, quality 0.78
-stereo_scheduler=adaptive backoff plus popup/UI-priority pause; last frame retained while paused
+bridge=exp8 serial-gated JPEG pair delivery; fixed 720px active+idle; quality 0.78
+stereo_scheduler=exp8 demand cadence; no exp9 UI-priority/adaptive backoff; last frame retained across slow gaps
 native_composition=left and right JPEGs to Surface SBS halves; full-half fill preserved
 no_final_sbs_split=true
 no_quarter_diagnostics=true
 quest_context_menu_hook=ggqOpenContextMenu,ggqCloseContextMenu
-quest_context_menu_mode=selected_geoelements_first_then_native_pointer_hit_fallback
+quest_context_menu_mode=selected_geoelements_then_exact_pointer_native_3d_hit
+quest_context_pointer=transparent stereo-hole canvas remains valid input surface
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
