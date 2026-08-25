@@ -39,16 +39,15 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * v0.9.30-exp4: first live embedded-stereo test.
+ * v0.9.30-exp5: embedded-stereo layering and fill test.
  *
- * Exp3i established 10 cm behind A as the stable C-backplate safety distance. Exp3j showed that
- * 108% centered overscan is visually more than necessary, so C is reduced to 106% here. The
- * magenta B proof panel is removed: the real SBS VideoSurface is now parented directly to A and
- * follows the WebView-reported GeoGebra 3D-view rectangle at 3 mm depth.
+ * Exp4 successfully replaced the magenta proof panel with the real SBS VideoSurface at 3 mm.
+ * Exp5 keeps that geometry unchanged and lowers the VideoSurface compositor z-index from 20 to 0
+ * so GeoGebra UI/menu layers can remain visually in front while the stereo image is visible through
+ * the selective 3D hole. C remains at the established 10 cm safety depth with 106% overscan.
  *
- * The existing B-button controller palette behavior is preserved. While the palette is attached to
- * the controller, layout updates are remembered but not applied spatially; restoring the palette
- * returns the live stereo surface to its latest embedded 3D-view pose and scale.
+ * Live eye frames are also stretched to fill each half of the SBS texture in LiveStereoFrameSink;
+ * the physical stereo panel's dynamic non-uniform scale then restores the GeoGebra 3D-view aspect.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -129,8 +128,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         hostActivity = this,
                     )
 
-                    // JavaScript owns the selective 3D hole. C remains solid white 10 cm behind A,
-                    // now with a centered 6% overscan. The live stereo VideoSurface fills the hole.
+                    // JavaScript owns the selective 3D hole. C remains solid white 10 cm behind A
+                    // with centered 6% overscan. The live stereo VideoSurface fills the hole.
                     rootView.setBackgroundColor(Color.TRANSPARENT)
                     webView.setBackgroundColor(Color.TRANSPARENT)
                     rootView.alpha = 1f
@@ -168,7 +167,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "embedded-exp4 1440x720 live stereo VideoSurface attached")
+                    Log.i(TAG, "embedded-exp5 1440x720 live stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -182,7 +181,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         ),
                         rendering = MediaPanelRenderOptions(
                             stereoMode = StereoMode.LeftRight,
-                            zIndex = 20,
+                            zIndex = 0,
                         ),
                     )
                 },
@@ -231,7 +230,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             panel.setComponent(Visible(true))
             stereoPaletteAttached = true
-            Log.i(TAG, "embedded-exp4 live stereo palette attached at 30% scale with ray pass-through")
+            Log.i(TAG, "embedded-exp5 live stereo palette attached at 30% scale with ray pass-through")
             return
         }
 
@@ -243,7 +242,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         panel.setComponent(Hittable(MeshCollision.NoCollision))
         panel.setComponent(Visible(embeddedStereoVisible))
         stereoPaletteAttached = false
-        Log.i(TAG, "embedded-exp4 live stereo palette restored to 3D view")
+        Log.i(TAG, "embedded-exp5 live stereo palette restored to 3D view")
     }
 
     /** Runs on the Spatial system thread via EmbeddedStereoTestSystem. */
@@ -304,7 +303,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                 panel.setComponent(Visible(true))
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "embedded-exp4 live stereo layout parse/apply failed", t)
+            Log.w(TAG, "embedded-exp5 live stereo layout parse/apply failed", t)
         }
     }
 
@@ -386,7 +385,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         Log.i(
             TAG,
-            "embedded-exp4 ready: A GeoGebra, live SBS stereo at 3mm, solid white C at 10cm and 106% scale",
+            "embedded-exp5 ready: A GeoGebra, live SBS stereo at 3mm zIndex=0, solid white C at 10cm and 106% scale",
         )
     }
 
