@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.30-exp3c selective hole with white backplate
+      - name: Verify v0.9.30-exp3d masked white backplate
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -98,6 +98,8 @@ jobs:
           CONTROLLERS=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
+          BUS=app/src/main/java/com/sinan/geogebraforquest/SpatialBridgeBus.kt
+          BACKPLATE_VIEW=app/src/main/java/com/sinan/geogebraforquest/EmbeddedBackplateHoleView.kt
           JS=app/src/main/assets/web/quest-stereo-layout.js
           TEST_LAYOUT=app/src/main/res/layout/spatial_embedded_stereo_test_panel.xml
           BACKPLATE_LAYOUT=app/src/main/res/layout/spatial_embedded_backplate_panel.xml
@@ -128,30 +130,36 @@ jobs:
             exit 1
           fi
 
-          # Exp3c composition: proof panel at 3 mm, full white backplate farther at 6 mm.
+          # Exp3d: the white backplate is no longer a solid panel texture.
           test -e "$SYSTEM"
+          test -e "$BACKPLATE_VIEW"
           test -e "$BACKPLATE_LAYOUT"
-          grep -q 'SpatialBridgeBus.onStereoLayout' "$ACTIVITY"
           grep -q 'EMBEDDED_TEST_DEPTH_METERS = 0.003f' "$ACTIVITY"
           grep -q 'EMBEDDED_BACKPLATE_DEPTH_METERS = 0.006f' "$ACTIVITY"
-          grep -q 'R.id.embedded_backplate_panel' "$ACTIVITY"
-          grep -q 'R.layout.spatial_embedded_backplate_panel' "$ACTIVITY"
-          grep -q 'TransformParent(geoPanel)' "$ACTIVITY"
-          grep -q 'EMBEDDED_BACKPLATE_DEPTH_METERS' "$ACTIVITY"
           grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
-          grep -q 'Visible(true)' "$ACTIVITY"
-          grep -q '#FFFFFFFF' "$BACKPLATE_LAYOUT"
+          grep -q 'EmbeddedBackplateHoleView' "$BACKPLATE_LAYOUT"
+          grep -q '@android:color/transparent' "$BACKPLATE_LAYOUT"
+          if grep -q '#FFFFFFFF' "$BACKPLATE_LAYOUT"; then
+            echo 'Exp3d backplate layout must not be solid white'
+            exit 1
+          fi
+          grep -q 'onBackplateLayout' "$BUS"
+          grep -q 'onBackplateLayout?.invoke(json)' "$BUS"
+          grep -q 'class EmbeddedBackplateHoleView' "$BACKPLATE_VIEW"
+          grep -q 'canvas.drawRect(0f, 0f, width.toFloat(), top, whitePaint)' "$BACKPLATE_VIEW"
+          grep -q 'holeRect = RectF(left, top, right, bottom)' "$BACKPLATE_VIEW"
+          grep -q 'setBackgroundColor(Color.TRANSPARENT)' "$BACKPLATE_VIEW"
           grep -q 'EXP3C REAR PANEL' "$TEST_LAYOUT"
           grep -q '#FFFF00FF' "$TEST_LAYOUT"
 
-          # Android/WebView stays alpha-capable; the backplate restores background visually.
+          # Android/WebView stays alpha-capable.
           grep -q 'rootView.setBackgroundColor(Color.TRANSPARENT)' "$ACTIVITY"
           grep -q 'webView.setBackgroundColor(Color.TRANSPARENT)' "$ACTIVITY"
           grep -q 'rootView.alpha = 1f' "$ACTIVITY"
           grep -q 'webView.alpha = 1f' "$ACTIVITY"
 
-          grep -q 'versionName = "0.9.30-exp3c"' app/build.gradle.kts
-          grep -q 'versionCode = 85' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp3d"' app/build.gradle.kts
+          grep -q 'versionCode = 86' app/build.gradle.kts
 
       - name: Verify source-built GeoGebra runtime layout
         shell: bash
@@ -170,14 +178,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp3c-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.30-exp3c-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp3c-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp3d-debug.apk
+          ls -lh dist/GeoGebraForQuest-v0.9.30-exp3d-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp3d-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp3c-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp3c-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp3d-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp3d-debug.apk
           if-no-files-found: error
           retention-days: 30
