@@ -9,12 +9,12 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:padding="28dp"
+        android:padding="24dp"
         android:background="#E6000000"
         android:gravity="center"
-        android:text="EXP2 BACK PANEL\nALPHA WORKS"
+        android:text="EXP3 REAR PANEL\nSELECTIVE HOLE WORKS"
         android:textColor="#FFFFFFFF"
-        android:textSize="34sp"
+        android:textSize="28sp"
         android:textStyle="bold" />
 
 </FrameLayout>
