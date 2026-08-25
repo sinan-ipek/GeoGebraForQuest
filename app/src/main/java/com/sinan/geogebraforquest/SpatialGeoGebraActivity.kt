@@ -40,16 +40,13 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * v0.9.30-exp3g: 5 cm C-panel with reduced 105% overscan.
+ * v0.9.30-exp3h: 6 cm C-panel stability test with 105% overscan.
  *
- * Exp3f showed that 5 cm is close enough to reduce the large exp3e parallax while preserving the
- * working physical A > B > C ordering, but 108% made the solid white C visibly protrude beyond A.
- * Exp3g changes only the C scale: 105%, still centered exactly on A with no fixed X/Y offset.
- *
- * The screenshot also showed the top white margin smaller than the lower/side margins. That is a
- * perspective/head-position effect: a fixed Y correction would improve one viewing pose but bake a
- * centering error into other head positions and after grabbing/moving A. This experiment therefore
- * keeps the same local center and isolates the scale change first.
+ * Exp3g kept the solid white C panel 5 cm behind A at 105% scale. That reduced parallax well,
+ * but device testing showed occasional brief white flashes in the transparent 3D hole, suggesting
+ * the 5 cm A-B-C depth separation is close to the compositor's reliable ordering threshold.
+ * Exp3h changes only the C depth to 6 cm. B stays at 3 mm, C stays at 105%, and the local X/Y
+ * center remains exactly zero so there is no baked-in recentering bias.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -65,7 +62,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val STEREO_TEXTURE_HEIGHT = 720
 
         private const val EMBEDDED_TEST_DEPTH_METERS = 0.003f
-        private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.05f
+        private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.06f
         private val EMBEDDED_BACKPLATE_SCALE = Vector3(1.05f, 1.05f, 1f)
 
         private const val TAG = "GeoGebraForQuest"
@@ -133,8 +130,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         hostActivity = this,
                     )
 
-                    // JavaScript owns the selective 3D hole. C stays solid white, 5 cm behind A,
-                    // with only 5% centered overscan in this experiment.
+                    // JavaScript owns the selective 3D hole. C stays solid white, now 6 cm behind A,
+                    // with the same centered 5% overscan used in exp3g.
                     rootView.setBackgroundColor(Color.TRANSPARENT)
                     webView.setBackgroundColor(Color.TRANSPARENT)
                     rootView.alpha = 1f
@@ -191,7 +188,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "embedded-exp3g 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "embedded-exp3h 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -255,7 +252,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Grabbable(false))
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             stereoPaletteAttached = true
-            Log.i(TAG, "embedded-exp3g stable palette attached at 30% scale with ray pass-through")
+            Log.i(TAG, "embedded-exp3h stable palette attached at 30% scale with ray pass-through")
             return
         }
 
@@ -269,7 +266,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPaletteRestorePose = null
         stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "embedded-exp3g stable palette restored")
+        Log.i(TAG, "embedded-exp3h stable palette restored")
     }
 
     /** Runs on the Spatial system thread via EmbeddedStereoTestSystem. */
@@ -326,7 +323,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             )
             panel.setComponent(Visible(true))
         } catch (t: Throwable) {
-            Log.w(TAG, "embedded-exp3g layout parse/apply failed", t)
+            Log.w(TAG, "embedded-exp3h layout parse/apply failed", t)
         }
     }
 
@@ -417,7 +414,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         Log.i(
             TAG,
-            "embedded-exp3g ready: A GeoGebra, B proof at 3mm, solid white C at 5cm and 105% scale",
+            "embedded-exp3h ready: A GeoGebra, B proof at 3mm, solid white C at 6cm and 105% scale",
         )
     }
 
