@@ -40,14 +40,13 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * v0.9.30-exp3c: selective 3D transparency + rear white backplate.
+ * v0.9.30-exp3e: A-B-C physical depth-sort experiment.
  *
- * Exp3b proved the non-recursive selective hole works, but clearing GeoGebra's shared root/body
- * backgrounds also made the left Input panel visually transparent. Exp3c leaves that proven web
- * path untouched and fixes the visual side in Spatial composition: a full-size white, non-hittable
- * panel sits farther behind the whole GeoGebra panel, while the magenta proof panel remains closer
- * and occupies only the live 3D rectangle. Outside the 3D hole the white backplate restores the
- * normal GeoGebra background; inside the hole the closer proof panel is visible.
+ * A is the alpha-capable interactive GeoGebra panel. B is the dynamic magenta proof panel only
+ * 3 mm behind the live 3D rectangle. C is a full-size solid white panel placed a much larger
+ * 20 cm behind A. This deliberately returns to the simple A > B > C idea, but with enough physical
+ * separation to test whether Meta Spatial panel composition starts respecting the intended depth
+ * order once C is no longer only a few millimetres behind B.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -63,7 +62,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val STEREO_TEXTURE_HEIGHT = 720
 
         private const val EMBEDDED_TEST_DEPTH_METERS = 0.003f
-        private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.006f
+        private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.20f
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
@@ -131,8 +130,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     )
 
                     // The Android backing stays alpha-capable; JavaScript owns the selective 3D
-                    // hole. Exp3c restores the ordinary white UI background with a rear Spatial
-                    // backplate instead of reintroducing an opaque WebView/root background.
+                    // hole. Exp3e intentionally tests a solid white C panel far behind A.
                     rootView.setBackgroundColor(Color.TRANSPARENT)
                     webView.setBackgroundColor(Color.TRANSPARENT)
                     rootView.alpha = 1f
@@ -189,7 +187,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "embedded-exp3c 1440x720 stereo VideoSurface attached")
+                    Log.i(TAG, "embedded-exp3e 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -253,7 +251,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Grabbable(false))
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             stereoPaletteAttached = true
-            Log.i(TAG, "embedded-exp3c stable palette attached at 30% scale with ray pass-through")
+            Log.i(TAG, "embedded-exp3e stable palette attached at 30% scale with ray pass-through")
             return
         }
 
@@ -267,7 +265,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPaletteRestorePose = null
         stereoPaletteRestoreScale = null
         stereoPaletteAttached = false
-        Log.i(TAG, "embedded-exp3c stable palette restored")
+        Log.i(TAG, "embedded-exp3e stable palette restored")
     }
 
     /** Runs on the Spatial system thread via EmbeddedStereoTestSystem. */
@@ -324,7 +322,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             )
             panel.setComponent(Visible(true))
         } catch (t: Throwable) {
-            Log.w(TAG, "embedded-exp3c layout parse/apply failed", t)
+            Log.w(TAG, "embedded-exp3e layout parse/apply failed", t)
         }
     }
 
@@ -415,7 +413,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
 
         Log.i(
             TAG,
-            "embedded-exp3c ready: selective 3D hole + close proof panel + farther white backplate",
+            "embedded-exp3e ready: A GeoGebra, B proof at 3mm, solid white C at 20cm",
         )
     }
 
