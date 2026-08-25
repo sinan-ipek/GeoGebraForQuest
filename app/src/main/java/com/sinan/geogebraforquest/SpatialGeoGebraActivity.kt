@@ -39,15 +39,17 @@ import com.meta.spatial.vr.VRFeature
 import org.json.JSONObject
 
 /**
- * v0.9.30-exp5: embedded-stereo layering and fill test.
+ * v0.9.30-exp6: same-plane embedded stereo plus one-shot startup splash.
  *
- * Exp4 successfully replaced the magenta proof panel with the real SBS VideoSurface at 3 mm.
- * Exp5 keeps that geometry unchanged and lowers the VideoSurface compositor z-index from 20 to 0
- * so GeoGebra UI/menu layers can remain visually in front while the stereo image is visible through
- * the selective 3D hole. C remains at the established 10 cm safety depth with 106% overscan.
+ * Exp5 proved that compositor ordering, not the 3 mm physical offset, was what kept GeoGebra menus
+ * behind the VideoSurface. Exp6 therefore moves the live SBS surface onto A's exact local Z plane
+ * while keeping media zIndex=0. C remains at the proven 10 cm safety depth and grows from 106% to
+ * 107% centered overscan.
  *
- * Live eye frames are also stretched to fill each half of the SBS texture in LiveStereoFrameSink;
- * the physical stereo panel's dynamic non-uniform scale then restores the GeoGebra 3D-view aspect.
+ * The stereo surface is also visible once at app startup in the proven v0.9.29 standalone pose so
+ * the existing stereo splash can be seen before a 3D view exists. The first active 3D-view layout
+ * permanently dismisses startup-splash mode and reparents the same surface into A. Closing 3D later
+ * hides the stereo surface; the splash never returns during that app session.
  */
 class SpatialGeoGebraActivity : AppSystemActivity() {
 
@@ -62,13 +64,18 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         private const val STEREO_TEXTURE_WIDTH = 1440
         private const val STEREO_TEXTURE_HEIGHT = 720
 
-        private const val EMBEDDED_STEREO_DEPTH_METERS = 0.003f
+        private const val EMBEDDED_STEREO_DEPTH_METERS = 0.0f
         private const val EMBEDDED_BACKPLATE_DEPTH_METERS = 0.10f
-        private val EMBEDDED_BACKPLATE_SCALE = Vector3(1.06f, 1.06f, 1f)
+        private val EMBEDDED_BACKPLATE_SCALE = Vector3(1.07f, 1.07f, 1f)
 
         private const val TAG = "GeoGebraForQuest"
         private const val PERMISSION_USE_SCENE = "com.oculus.permission.USE_SCENE"
         private const val REQUEST_USE_SCENE = 701
+
+        private val INITIAL_STEREO_POSE = Pose(
+            Vector3(1.10f, 1.30f, 1.15f),
+            Quaternion(0f, 45f, 0f),
+        )
 
         private val CONTROLLER_PALETTE_POSE = Pose(
             Vector3(-0.13f, 0.01f, 0.10f),
@@ -85,6 +92,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
     private var embeddedBackplateEntity: Entity? = null
     private var stereoSurface: Surface? = null
     private var stereoPaletteAttached = false
+    private var startupSplashActive = true
 
     private var embeddedStereoPose = Pose(Vector3(0f, 0f, EMBEDDED_STEREO_DEPTH_METERS))
     private var embeddedStereoScale = Vector3(0.01f, 0.01f, 1f)
@@ -128,8 +136,8 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                         hostActivity = this,
                     )
 
-                    // JavaScript owns the selective 3D hole. C remains solid white 10 cm behind A
-                    // with centered 6% overscan. The live stereo VideoSurface fills the hole.
+                    // JavaScript owns the selective 3D hole. C stays solid white 10 cm behind A
+                    // with centered 7% overscan. The live stereo VideoSurface fills the hole at A Z=0.
                     rootView.setBackgroundColor(Color.TRANSPARENT)
                     webView.setBackgroundColor(Color.TRANSPARENT)
                     rootView.alpha = 1f
@@ -167,7 +175,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
                     stereoSurface = surface
                     LiveStereoFrameSink.attachSurface(surface, resources)
                     LiveStereoFrameSink.setEnabled(true)
-                    Log.i(TAG, "embedded-exp5 1440x720 live stereo VideoSurface attached")
+                    Log.i(TAG, "embedded-exp6 1440x720 stereo VideoSurface attached")
                 },
                 settingsCreator = {
                     MediaPanelSettings(
@@ -194,6 +202,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         StereoDebugState.reset()
         SpatialBridgeBus.clear()
         SpatialBridgeBus.onStereoLayout = { json -> pendingEmbeddedLayout = json }
+        LiveStereoFrameSink.resetForAppLaunch()
         LiveStereoFrameSink.setEnabled(true)
         systemManager.registerSystem(QuestControllerShortcutSystem(this))
         systemManager.registerSystem(EmbeddedStereoTestSystem(this))
@@ -230,7 +239,19 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             panel.setComponent(Hittable(MeshCollision.NoCollision))
             panel.setComponent(Visible(true))
             stereoPaletteAttached = true
-            Log.i(TAG, "embedded-exp5 live stereo palette attached at 30% scale with ray pass-through")
+            Log.i(TAG, "embedded-exp6 stereo palette attached at 30% scale with ray pass-through")
+            return
+        }
+
+        if (startupSplashActive) {
+            panel.setComponent(TransformParent())
+            panel.setComponent(Transform(INITIAL_STEREO_POSE))
+            panel.setComponent(Scale(Vector3(1f, 1f, 1f)))
+            panel.setComponent(Grabbable(false))
+            panel.setComponent(Hittable(MeshCollision.NoCollision))
+            panel.setComponent(Visible(true))
+            stereoPaletteAttached = false
+            Log.i(TAG, "embedded-exp6 startup splash restored to standalone pose")
             return
         }
 
@@ -242,7 +263,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         panel.setComponent(Hittable(MeshCollision.NoCollision))
         panel.setComponent(Visible(embeddedStereoVisible))
         stereoPaletteAttached = false
-        Log.i(TAG, "embedded-exp5 live stereo palette restored to 3D view")
+        Log.i(TAG, "embedded-exp6 stereo palette restored to embedded 3D view")
     }
 
     /** Runs on the Spatial system thread via EmbeddedStereoTestSystem. */
@@ -256,13 +277,23 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             val root = JSONObject(json)
             if (!root.optBoolean("active", true)) {
                 embeddedStereoVisible = false
-                if (!stereoPaletteAttached) {
+                if (!stereoPaletteAttached && !startupSplashActive) {
                     panel.setComponent(Visible(false))
                 }
                 return
             }
 
-            val stereo = root.optJSONObject("stereo") ?: return
+            if (startupSplashActive) {
+                startupSplashActive = false
+                LiveStereoFrameSink.dismissStartupSplash()
+                Log.i(TAG, "embedded-exp6 first active 3D view: startup splash permanently dismissed")
+            }
+
+            val stereo = root.optJSONObject("stereo") ?: run {
+                embeddedStereoVisible = false
+                if (!stereoPaletteAttached) panel.setComponent(Visible(false))
+                return
+            }
             val viewWidth = root.optDouble("viewWidth", 0.0)
             val viewHeight = root.optDouble("viewHeight", 0.0)
             val left = stereo.optDouble("left", 0.0)
@@ -298,12 +329,16 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
             embeddedStereoVisible = true
 
             if (!stereoPaletteAttached) {
+                val geoPanel = geoPanelEntity ?: return
+                panel.setComponent(TransformParent(geoPanel))
                 panel.setComponent(Transform(embeddedStereoPose))
                 panel.setComponent(Scale(embeddedStereoScale))
+                panel.setComponent(Grabbable(false))
+                panel.setComponent(Hittable(MeshCollision.NoCollision))
                 panel.setComponent(Visible(true))
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "embedded-exp5 live stereo layout parse/apply failed", t)
+            Log.w(TAG, "embedded-exp6 stereo layout parse/apply failed", t)
         }
     }
 
@@ -375,17 +410,16 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPanelEntity =
             Entity.create(
                 Panel(R.id.geogebra_stereo_panel),
-                TransformParent(geoPanel),
-                Transform(embeddedStereoPose),
-                Scale(embeddedStereoScale),
+                Transform(INITIAL_STEREO_POSE),
+                Scale(Vector3(1f, 1f, 1f)),
                 Grabbable(false),
                 Hittable(MeshCollision.NoCollision),
-                Visible(false),
+                Visible(true),
             )
 
         Log.i(
             TAG,
-            "embedded-exp5 ready: A GeoGebra, live SBS stereo at 3mm zIndex=0, solid white C at 10cm and 106% scale",
+            "embedded-exp6 ready: startup splash visible; B at A Z=0 after 3D opens; C at 10cm/107%",
         )
     }
 
@@ -405,6 +439,7 @@ class SpatialGeoGebraActivity : AppSystemActivity() {
         stereoPanelEntity?.destroy()
         stereoPanelEntity = null
         stereoPaletteAttached = false
+        startupSplashActive = true
         embeddedStereoVisible = false
 
         super.onDestroy()
