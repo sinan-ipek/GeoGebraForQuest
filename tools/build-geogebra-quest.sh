@@ -61,7 +61,7 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0929.py" "$SRC"
 echo "[GGQ] anchoring Quest A popup and fallback hit-test to real pointer coordinates"
 python3 "$ROOT/tools/patch-geogebra-quest-v0930.py" "$SRC"
 
-echo "[GGQ] adding stereo ray continuation and native temporary Grip rotation"
+echo "[GGQ] keeping native temporary Grip rotation without synthetic white ray continuation"
 python3 "$ROOT/tools/patch-geogebra-quest-v0931.py" "$SRC"
 
 echo "[GGQ] retaining last stereo frame and real popup-state detection"
@@ -73,8 +73,11 @@ python3 "$ROOT/tools/patch-android-rightclick-exp10.py" "$ROOT"
 echo "[GGQ] keeping depth-pointer hover bridge for stereo cursor diagnostics"
 python3 "$ROOT/tools/patch-android-ray-exp11.py" "$ROOT"
 
-echo "[GGQ] routing right Grip to native temporary rotation; left Grip remains panel grab"
+echo "[GGQ] routing right Grip to native temporary rotation on safe startup path"
 python3 "$ROOT/tools/patch-android-exp13.py" "$ROOT"
+
+echo "[GGQ] keeping cloud login and account-selected materials inside the patched local app"
+python3 "$ROOT/tools/patch-android-exp15.py" "$ROOT"
 
 echo "[GGQ] compiling GeoGebra Web3D and static runtime resources"
 pushd "$SRC/source/web" >/dev/null
@@ -111,7 +114,7 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.26
+version=0.9.27
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour stereo camera math)
 renderer=QuestStereoRenderer
@@ -132,8 +135,10 @@ no_quarter_diagnostics=true
 quest_context_menu_hook=ggqOpenContextMenu,ggqCloseContextMenu
 quest_context_menu_mode=selected_geoelements_then_exact_pointer_native_3d_hit
 quest_context_pointer=transparent stereo-hole canvas remains valid input surface
-depth_pointer=Meta beam remains visible to A; stereo continuation runs from A-plane to GeoGebra picked-object cursor depth
-grip_rotate=right Grip native temporary MODE_ROTATEVIEW; release restores oldMode with EXIT_TEMPORARY_MODE; left Grip remains panel grab
+depth_pointer=Meta beam remains visible to A; GeoGebra 3D cursor remains separate; no synthetic continuation line
+grip_rotate=right Grip native temporary MODE_ROTATEVIEW; release restores oldMode with EXIT_TEMPORARY_MODE; startup-safe no GrabbableSystem lookup
+cloud_login=trusted ggtcallback token forwarded as logintoken MessageEvent to patched local main WebView; login popup closed
+cloud_materials=account-selected files remain in the same patched local AppW and ArchiveLoader
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
