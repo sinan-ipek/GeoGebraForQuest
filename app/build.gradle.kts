@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 104
-        versionName = "0.9.30-exp15-local-material-stereo"
+        versionCode = 105
+        versionName = "0.9.30-exp17-openfromggt-handoff"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp15-local-material-stereo lives only on experimental-embedded-stereo.
+// v0.9.30-exp17-openfromggt-handoff lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp15 preserves the fixed-720 ~24fps demand renderer, working Quest A/right-click, visible Meta
-// beam and temporary right-Grip rotation. It removes the synthetic white ray continuation and
-// consumes GeoGebra's cloud-login callback inside Android so account-selected files continue in
-// the same patched local AppW instead of escaping into an unpatched popup/web application.
+// Exp17 preserves exp16 stereo/renderer lifecycle fixes and exp15 login token handoff, then adds
+// the missing ggtcallback ?url= / openfromggt path: account-selected 'Open in app' files are loaded
+// by the MAIN local patched ggbApplet.openFile / ArchiveLoader and the popup is closed.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
