@@ -76,8 +76,11 @@ python3 "$ROOT/tools/patch-android-ray-exp11.py" "$ROOT"
 echo "[GGQ] routing right Grip to native temporary rotation on safe startup path"
 python3 "$ROOT/tools/patch-android-exp13.py" "$ROOT"
 
-echo "[GGQ] keeping cloud login and account-selected materials inside the patched local app"
+echo "[GGQ] keeping cloud login inside the patched local app"
 python3 "$ROOT/tools/patch-android-exp15.py" "$ROOT"
+
+echo "[GGQ] handing GeoGebra Open-in-app URLs back to the MAIN patched AppW"
+python3 "$ROOT/tools/patch-android-exp17.py" "$ROOT"
 
 echo "[GGQ] compiling GeoGebra Web3D and static runtime resources"
 pushd "$SRC/source/web" >/dev/null
@@ -114,7 +117,7 @@ cp -R "$WAR"/. "$DEST"/
 
 cat > "$DEST/GGQ_SOURCE_BUILD.txt" <<EOF
 GeoGebraForQuest source build
-version=0.9.27
+version=0.9.28
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour stereo camera math)
 renderer=QuestStereoRenderer
@@ -138,7 +141,8 @@ quest_context_pointer=transparent stereo-hole canvas remains valid input surface
 depth_pointer=Meta beam remains visible to A; GeoGebra 3D cursor remains separate; no synthetic continuation line
 grip_rotate=right Grip native temporary MODE_ROTATEVIEW; release restores oldMode with EXIT_TEMPORARY_MODE; startup-safe no GrabbableSystem lookup
 cloud_login=trusted ggtcallback token forwarded as logintoken MessageEvent to patched local main WebView; login popup closed
-cloud_materials=account-selected files remain in the same patched local AppW and ArchiveLoader
+cloud_openfromggt=trusted ggtcallback url forwarded to MAIN window.ggbApplet.openFile; popup closed after handoff
+cloud_materials=account-selected Open-in-app files load through local GgbAPIW ArchiveLoader, never remote popup Classic
 runtime_layout=source-war-root
 module_base=./
 static_runtime=copyHtml/resources-war included
