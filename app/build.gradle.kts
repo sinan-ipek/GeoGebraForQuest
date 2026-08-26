@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 102
-        versionName = "0.9.30-exp13-depth-ray-grip-rotate"
+        versionCode = 103
+        versionName = "0.9.30-exp14-runtime-hotfix"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp13-depth-ray-grip-rotate lives only on experimental-embedded-stereo.
+// v0.9.30-exp14-runtime-hotfix lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp13 preserves exp12's fixed-720 ~24fps renderer and working Quest A menu. It adds a stereo
-// continuation from Meta's flat A-plane beam to GeoGebra's picked-object cursor depth, and makes
-// right Grip a native temporary 3D rotate modifier; release restores the previously active tool.
+// Exp14 preserves exp13's fixed-720 ~24fps renderer, A/right-click, stereo depth-ray and temporary
+// right-Grip rotation bridge, but restores exp12's proven onVRReady panel-startup path by removing
+// the unsafe runtime GrabbableSystem lookup that could abort panel creation on Quest.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
