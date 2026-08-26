@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-"""Exp13/15: native temporary right-grip rotate hooks only.
-
-The exp13 experimental stereo ray continuation was removed in exp15 because the
-thin white segment between Meta's native endpoint and GeoGebra's 3D cursor was
-visually distracting. Grip temporary-mode behavior is retained unchanged.
-"""
+"""Exp13/15+: native temporary right-grip rotate hooks, no white ray, plus exp16 renderer rebind."""
 
 from pathlib import Path
+import subprocess
 import sys
 
 if len(sys.argv) != 2:
@@ -114,7 +110,6 @@ if "ggqBeginGripRotate" not in controller:
 else:
     print("[GGQ] grip rotate hooks already present")
 
-# Exp15 guard: the experimental white stereo continuation must not return.
 renderer = (root / (
     "source/shared/common/src/main/java/org/geogebra/common/geogebra3D/"
     "euclidian3D/openGL/Renderer.java"
@@ -132,3 +127,7 @@ for forbidden in (
 ):
     if forbidden in renderer or forbidden in view:
         raise RuntimeError(f"exp15 white ray continuation residue must not exist: {forbidden}")
+
+# Exp16 must be part of the source build that CI compiles.
+exp16 = Path(__file__).with_name("patch-geogebra-quest-v0932.py")
+subprocess.run([sys.executable, str(exp16), str(root)], check=True)
