@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 103
-        versionName = "0.9.30-exp14-runtime-hotfix"
+        versionCode = 104
+        versionName = "0.9.30-exp15-local-material-stereo"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp14-runtime-hotfix lives only on experimental-embedded-stereo.
+// v0.9.30-exp15-local-material-stereo lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp14 preserves exp13's fixed-720 ~24fps renderer, A/right-click, stereo depth-ray and temporary
-// right-Grip rotation bridge, but restores exp12's proven onVRReady panel-startup path by removing
-// the unsafe runtime GrabbableSystem lookup that could abort panel creation on Quest.
+// Exp15 preserves the fixed-720 ~24fps demand renderer, working Quest A/right-click, visible Meta
+// beam and temporary right-Grip rotation. It removes the synthetic white ray continuation and
+// consumes GeoGebra's cloud-login callback inside Android so account-selected files continue in
+// the same patched local AppW instead of escaping into an unpatched popup/web application.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
