@@ -43,7 +43,7 @@ if "ggqBeginGripRotate" not in controller:
     controller = controller.replace(field_anchor, field_insert, 1)
 
     ctor_old = """\tpublic EuclidianController3DW(Kernel kernel) {\n\t\tsuper(kernel.getApplication());\n\t\tsetKernel(kernel);\n\t}\n"""
-    hooks = r'''\tpublic EuclidianController3DW(Kernel kernel) {
+    hooks = '''\tpublic EuclidianController3DW(Kernel kernel) {
 \t\tsuper(kernel.getApplication());
 \t\tsetKernel(kernel);
 \t\tggqLastQuest3DController = this;
