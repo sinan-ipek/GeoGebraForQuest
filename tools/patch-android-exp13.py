@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Exp13 Android/WebView bridge for right-grip temporary 3D rotation."""
+"""Exp13 Android/WebView bridge for right-grip temporary 3D rotation.
+
+Exp14 hotfix note: do NOT touch GrabbableSystem from onVRReady(). That runtime lookup
+can abort panel creation on Quest. The Grip bridge remains, but startup must stay on
+the proven exp12 lifecycle path.
+"""
 
 from pathlib import Path
 import sys
@@ -117,27 +122,19 @@ else:
     print("[GGQ] exp13 grip rotate WebView bridge already present")
 
 # ---------------------------------------------------------------------------
-# Activity: reserve right Grip for rotation, keep left Grip for normal panel
-# grabbing, and expose press/release commands to the controller shortcut system.
+# Activity: expose press/release commands only. EXP14 deliberately leaves the
+# proven exp12 onVRReady panel-creation path untouched.
 # ---------------------------------------------------------------------------
 activity_path = root / "app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt"
 activity = activity_path.read_text(encoding="utf-8")
 
 if "EXP13_RIGHT_GRIP_ROTATE" not in activity:
-    import_anchor = "import com.meta.spatial.toolkit.Grabbable\n"
-    if import_anchor not in activity:
-        raise RuntimeError("exp13 activity Grabbable import anchor not found")
-    activity = activity.replace(
-        import_anchor,
-        import_anchor + "import com.meta.spatial.toolkit.GrabbableSystem\n",
-        1,
-    )
-
     action_anchor = '''    internal fun onQuestAButtonPressed() {
         GeoGebraWebNavigation.toggleContextMenu()
     }
 '''
     action_insert = action_anchor + '''
+    // EXP14_RUNTIME_HOTFIX: keep Grip bridge, but never look up GrabbableSystem in onVRReady.
     // EXP13_RIGHT_GRIP_ROTATE: momentary rotate modifier; release restores the old tool natively.
     internal fun onQuestGripRotatePressed(): Boolean =
         GeoGebraWebNavigation.setGripRotate(true)
@@ -150,25 +147,10 @@ if "EXP13_RIGHT_GRIP_ROTATE" not in activity:
         raise RuntimeError("exp13 activity A-button anchor not found")
     activity = activity.replace(action_anchor, action_insert, 1)
 
-    vr_anchor = '''        if (vrReady) return
-        vrReady = true
-
-        val geoPanel = Entity(R.id.geogebra_panel)
-'''
-    vr_insert = '''        if (vrReady) return
-        vrReady = true
-
-        // Right Grip belongs to temporary 3D rotation. Keep left Grip available for moving
-        // Grabbable panels so the existing spatial-panel positioning workflow is preserved.
-        systemManager.findSystem<GrabbableSystem>().grabButtons = ButtonBits.ButtonSqueezeL
-
-        val geoPanel = Entity(R.id.geogebra_panel)
-'''
-    if vr_anchor not in activity:
-        raise RuntimeError("exp13 activity onVRReady anchor not found")
-    activity = activity.replace(vr_anchor, vr_insert, 1)
-
     activity_path.write_text(activity, encoding="utf-8")
-    print("[GGQ] exp13 activity reserves right Grip for rotation and left Grip for panel grab")
+    print("[GGQ] exp14 safe Grip bridge installed without touching onVRReady startup")
 else:
-    print("[GGQ] exp13 activity grip routing already present")
+    print("[GGQ] exp13 activity Grip bridge already present")
+
+if "findSystem<GrabbableSystem>()" in activity:
+    raise RuntimeError("exp14 unsafe GrabbableSystem startup access must not exist")
