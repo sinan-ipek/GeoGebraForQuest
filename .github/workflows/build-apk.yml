@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Verify exp15 renderer, local cloud lifecycle and controls
+      - name: Verify exp17 renderer, openfromggt handoff and controls
         shell: bash
         run: |
           SRC=.geogebra-source-work/geogebra
@@ -61,7 +61,6 @@ jobs:
           SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
 
-          # Demand-driven stereo architecture and fixed-quality capture remain frozen.
           grep -q 'boolean renderStereoPair = stereoPairRequested;' "$QUEST"
           grep -q 'renderer.captureQuestEye(Renderer.EYE_LEFT)' "$QUEST"
           grep -q 'renderer.eye = Renderer.EYE_RIGHT;' "$QUEST"
@@ -88,7 +87,7 @@ jobs:
             'captureEyeWidth(' \
             '540'; do
             if grep -q "$forbidden" "$JS"; then
-              echo "Dynamic capture residue must not exist in exp15: $forbidden"
+              echo "Dynamic capture residue must not exist in exp17: $forbidden"
               exit 1
             fi
           done
@@ -97,14 +96,12 @@ jobs:
             exit 1
           fi
 
-          # Slow frame gaps keep the latest valid B frame.
           grep -q 'exp9 retains last live stereo frame' "$SINK"
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then
             echo '350ms idle clear must stay removed'
             exit 1
           fi
 
-          # Working Quest A/right-click behavior remains unchanged.
           grep -q 'v0.9.30 Quest-pointer anchored context menu' "$EUCLIDIAN"
           grep -q 'controller.setMouseLocation(false, questX, questY);' "$EUCLIDIAN"
           grep -q 'setHits(controller.mouseLoc, PointerEventType.MOUSE)' "$EUCLIDIAN"
@@ -112,7 +109,6 @@ jobs:
           grep -q 'EXP10_STEREO_HOLE_CONTEXT_TARGET' "$PANEL"
           grep -q 'var nativeAvailable = typeof window.ggqOpenContextMenu' "$PANEL"
 
-          # Exp15: remove the distracting synthetic white line completely.
           for forbidden in \
             'EXP13_QUEST_MOUSE_RAY' \
             'questMouseRayIndex' \
@@ -129,7 +125,6 @@ jobs:
             exit 1
           fi
 
-          # Native Meta beam remains visible; GeoGebra cursor remains its own depth cue.
           grep -q 'EXP12_VISIBLE_RAY' "$SHORTCUT"
           grep -q 'controller.laserEnabled = true' "$SHORTCUT"
           if grep -q 'controller.laserEnabled = false' "$SHORTCUT"; then
@@ -137,7 +132,6 @@ jobs:
             exit 1
           fi
 
-          # Temporary right-Grip rotate stays native and release restores oldMode.
           grep -q 'name = "ggqBeginGripRotate"' "$GRIP3D"
           grep -q 'name = "ggqUpdateGripRotate"' "$GRIP3D"
           grep -q 'name = "ggqEndGripRotate"' "$GRIP3D"
@@ -153,7 +147,6 @@ jobs:
           grep -q 'onQuestGripRotatePressed' "$ACTIVITY"
           grep -q 'onQuestGripRotateReleased' "$ACTIVITY"
 
-          # Startup hotfix stays frozen: no unsafe toolkit-system lookup before panel creation.
           if grep -q 'findSystem<GrabbableSystem>()' "$ACTIVITY"; then
             echo 'Unsafe GrabbableSystem startup lookup must not exist'
             exit 1
@@ -165,8 +158,7 @@ jobs:
           grep -q 'val geoPanel = Entity(R.id.geogebra_panel)' "$ACTIVITY"
           grep -q 'geoPanelEntity = geoPanel' "$ACTIVITY"
 
-          # Exp15 cloud lifecycle: consume trusted callback token in Android, deliver the exact
-          # logintoken MessageEvent to MAIN local patched WebView, then close the login popup.
+          # Exp15 token handoff remains required.
           grep -q 'EXP15_LOCAL_LOGIN_TOKEN_BRIDGE' "$PANEL"
           grep -q 'EXP15_LOCAL_LOGIN_CALLBACK' "$PANEL"
           grep -q 'fun isRegisteredPopup(webView: WebView)' "$PANEL"
@@ -174,14 +166,23 @@ jobs:
           grep -q 'put("action", "logintoken")' "$PANEL"
           grep -q 'put("msg", token)' "$PANEL"
           grep -q "new MessageEvent('message'" "$PANEL"
-          grep -q 'handleGeoGebraLoginCallback(view, request.url)' "$PANEL"
+
+          # Exp17: GeoGebra's second ggtcallback payload (?url= / openfromggt) must
+          # bypass window.opener and load through MAIN local ggbApplet / ArchiveLoader.
+          grep -q 'EXP17_OPENFROMGGT_HANDOFF' "$PANEL"
+          grep -q 'EXP17_OPENFROMGGT_CALLBACK' "$PANEL"
+          grep -q 'fun deliverOpenFromGgt(url: String)' "$PANEL"
+          grep -q 'callbackParameter(uri, "url")' "$PANEL"
+          grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(openUrl)' "$PANEL"
+          grep -q "window.ggbApplet.openFile(url" "$PANEL"
           grep -q 'GeoGebraWebNavigation.closePopup(view)' "$PANEL"
+          grep -q 'handleGeoGebraLoginCallback(view, request.url)' "$PANEL"
           for forbidden in \
             'REMOTE_LOGIN_CALLBACK_URL' \
             'redirectLocalLoginCallback(' \
             'view.loadUrl(remote.toString())'; do
             if grep -q "$forbidden" "$PANEL"; then
-              echo "Remote/unpatched login escape must not exist: $forbidden"
+              echo "Remote/unpatched callback escape must not exist: $forbidden"
               exit 1
             fi
           done
@@ -190,7 +191,7 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify frozen geometry and exp15 package
+      - name: Verify frozen geometry and exp17 package
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -206,11 +207,11 @@ jobs:
           grep -q '#FFFFFFFF' "$BACKPLATE"
           grep -q 'val leftDestination = Rect(0, 0, halfWidth, canvas.height)' "$SINK"
           grep -q 'val rightDestination = Rect(halfWidth, 0, canvas.width, canvas.height)' "$SINK"
-          grep -q 'versionName = "0.9.30-exp15-local-material-stereo"' app/build.gradle.kts
-          grep -q 'versionCode = 104' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp17-openfromggt-handoff"' app/build.gradle.kts
+          grep -q 'versionCode = 105' app/build.gradle.kts
 
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
-          echo "$META" | grep 'version=0.9.27'
+          echo "$META" | grep 'version=0.9.28'
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'fixed 720px; no dynamic resolution'
           echo "$META" | grep '42ms (~24fps) demand cadence'
@@ -218,18 +219,19 @@ jobs:
           echo "$META" | grep 'no synthetic continuation line'
           echo "$META" | grep 'right Grip native temporary MODE_ROTATEVIEW'
           echo "$META" | grep 'trusted ggtcallback token forwarded as logintoken MessageEvent'
-          echo "$META" | grep 'account-selected files remain in the same patched local AppW and ArchiveLoader'
+          echo "$META" | grep 'trusted ggtcallback url forwarded to MAIN window.ggbApplet.openFile'
+          echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp15-local-material-stereo-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp15-local-material-stereo-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp17-openfromggt-handoff-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp17-openfromggt-handoff-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp15-local-material-stereo-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp15-local-material-stereo-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp17-openfromggt-handoff-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp17-openfromggt-handoff-debug.apk
           if-no-files-found: error
