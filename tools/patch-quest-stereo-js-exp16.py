@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """Exp16: always re-arm the embedded stereo layout after a 3D lifecycle gap.
 
-When GeoGebra leaves the 3D view (for Browse/Login/material loading), Android is
-correctly told that stereo is inactive. The old code kept the previous ACTIVE
-layout payload for deduplication, though. If the newly loaded material recreated
-3D in exactly the same rectangle, its ACTIVE payload compared equal to that old
-payload and was suppressed forever, leaving the native B panel hidden.
-
-Clear the dedup/canvas state on every active->inactive transition so a recreated
-3D view is always announced again, even when its geometry is pixel-identical.
+Exp8 adds request-state resets at the start of reportStereoInactive(), so this
+patch deliberately anchors only to that function's stable guard +
+inactiveReported assignment rather than to the entire function body.
 """
 
 from pathlib import Path
+import re
 import sys
 
 if len(sys.argv) != 2:
@@ -24,32 +20,23 @@ if "EXP16_MATERIAL_REACTIVATION" in text:
     print("[GGQ] exp16 material reactivation patch already present")
     raise SystemExit(0)
 
-old = """  function reportStereoInactive() {
-    if (!hasSeenActive3D || inactiveReported) return;
-    inactiveReported = true;
-    restoreSelectiveHole();
-    bridge('stereoInactive', '');
-    bridge('updateStereoLayout', JSON.stringify({ active: false }));
-  }
-"""
-new = """  function reportStereoInactive() {
-    if (!hasSeenActive3D || inactiveReported) return;
-    inactiveReported = true;
-
-    // EXP16_MATERIAL_REACTIVATION: the next 3D canvas may occupy the exact same
-    // rectangle as the one that just disappeared. Forget the old ACTIVE payload
-    // so sendLayout() cannot deduplicate that new lifecycle into silence.
-    lastPayload = '';
-    lastCanvas = null;
-
-    restoreSelectiveHole();
-    bridge('stereoInactive', '');
-    bridge('updateStereoLayout', JSON.stringify({ active: false }));
-  }
-"""
-if old not in text:
-    raise RuntimeError("exp16 reportStereoInactive anchor not found")
-text = text.replace(old, new, 1)
+pattern = re.compile(
+    r"(  function reportStereoInactive\(\) \{\n"
+    r"(?:    [^\n]*\n)*?"
+    r"    if \(!hasSeenActive3D \|\| inactiveReported\) return;\n"
+    r"    inactiveReported = true;\n)"
+)
+insert = (
+    r"\1\n"
+    "    // EXP16_MATERIAL_REACTIVATION: the next 3D canvas may occupy the exact same\n"
+    "    // rectangle as the one that just disappeared. Forget the old ACTIVE payload\n"
+    "    // and canvas so the next lifecycle must announce itself to Android again.\n"
+    "    lastPayload = '';\n"
+    "    lastCanvas = null;\n"
+)
+text, count = pattern.subn(insert, text, count=1)
+if count != 1:
+    raise RuntimeError(f"exp16 reportStereoInactive scheduler-safe anchor count={count}")
 
 for required in (
     "EXP16_MATERIAL_REACTIVATION",
