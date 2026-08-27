@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 116
-        versionName = "0.9.30-exp28-keep-geogebra-visible"
+        versionCode = 117
+        versionName = "0.9.30-exp29-confirmed-xr-teardown"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,13 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp28-keep-geogebra-visible lives only on experimental-embedded-stereo.
+// v0.9.30-exp29-confirmed-xr-teardown lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Bug 1 remains frozen exactly at Exp25/26/27.
-// Exp28 changes only Bug 2 UX: Exp27's separate-process cold handoff remains, but the stale
-// immersive MAIN is kept alive while DocumentsUI is open. MAIN is killed only after the picker
-// returns to :localpicker, while that proxy still covers it, then a fresh Spatial/OpenXR session
-// is launched after a short bounded handoff delay.
+// Bug 1 remains frozen exactly at Exp25+.
+// Exp29 changes only Bug 2 handoff reliability: Exp28's good UX is preserved (GeoGebra remains
+// visible while DocumentsUI is open), but after result the stale MAIN process must disappear from
+// ActivityManager and the platform gets a 1200 ms XR-release settle interval before fresh VR start.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
