@@ -135,8 +135,8 @@ for required in (
     "GeoGebraWebNavigation.deliverLoginToken(token)",
     "GeoGebraWebNavigation.closePopup(view)",
     "ggq-popup-login-diagnostic",
-    "SSID YES",
-    "SSID NO",
+    "GGQ POPUP | SSID ",
+    '(if (hasSession) "YES" else "NO")',
 ):
     if required not in text:
         raise RuntimeError(f"exp18 requirement missing: {required}")
