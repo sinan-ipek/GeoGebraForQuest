@@ -31,11 +31,18 @@ class QuestControllerPresentationRecoverySystem : SystemBase() {
     @Volatile
     private var recoveryReason = ""
 
+    // A true cached AvatarSystem flag does not prove that its controller scene
+    // representation survived the immersive -> DocumentsUI -> immersive boundary.
+    // Force a real false -> true edge across two Spatial frames after each request.
+    @Volatile
+    private var forceVisibilityResetPhase = 0
+
     fun requestRecovery(
         reason: String,
         frames: Int = DEFAULT_RECOVERY_FRAMES,
     ) {
         recoveryReason = reason
+        forceVisibilityResetPhase = 1
         if (frames > recoveryFrames) {
             recoveryFrames = frames
         }
@@ -55,8 +62,30 @@ class QuestControllerPresentationRecoverySystem : SystemBase() {
         }
 
         val controllersWereVisible = avatarSystem.getShowControllers()
-        if (!controllersWereVisible) {
-            avatarSystem.setShowControllers(true)
+        when (forceVisibilityResetPhase) {
+            1 -> {
+                // First Spatial frame: explicitly drop the controller representation.
+                avatarSystem.setShowControllers(false)
+                forceVisibilityResetPhase = 2
+                Log.i(
+                    TAG,
+                    "forced AvatarSystem controller visibility FALSE; reason=$recoveryReason",
+                )
+            }
+            2 -> {
+                // Next Spatial frame: rebuild/re-show it through the owning system.
+                avatarSystem.setShowControllers(true)
+                forceVisibilityResetPhase = 0
+                Log.i(
+                    TAG,
+                    "forced AvatarSystem controller visibility TRUE; reason=$recoveryReason",
+                )
+            }
+            else -> {
+                if (!controllersWereVisible) {
+                    avatarSystem.setShowControllers(true)
+                }
+            }
         }
 
         var localControllers = 0
@@ -75,13 +104,15 @@ class QuestControllerPresentationRecoverySystem : SystemBase() {
             remaining == DEFAULT_RECOVERY_FRAMES ||
             remaining % 30 == 0 ||
             !controllersWereVisible ||
-            localControllers == 0
+            localControllers == 0 ||
+            forceVisibilityResetPhase != 0
         ) {
             Log.i(
                 TAG,
                 "reason=$recoveryReason remaining=$remaining " +
                     "avatarShowControllersBefore=$controllersWereVisible " +
                     "avatarShowControllersNow=${avatarSystem.getShowControllers()} " +
+                    "resetPhase=$forceVisibilityResetPhase " +
                     "localControllers=$localControllers active=$activeControllers " +
                     "laserEnabled=$laserEnabledControllers",
             )
