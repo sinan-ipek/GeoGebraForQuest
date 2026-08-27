@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply exp19 through exp24 lifecycle fixes
+      - name: Apply exp19 through exp25 lifecycle fixes
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -58,8 +58,9 @@ jobs:
           python3 tools/patch-android-exp22-preserve-navigation.py .
           python3 tools/patch-android-exp23.py .
           python3 tools/patch-android-exp24.py .
+          python3 tools/patch-android-exp25.py .
 
-      - name: Verify exp24 hypotheses and frozen working paths
+      - name: Verify exp25 hypotheses and frozen working paths
         shell: bash
         run: |
           set -x
@@ -101,11 +102,11 @@ jobs:
           grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
           grep -q 'EXP22_LOGIN_SUCCESS_ACK_BRIDGE' "$PANEL"
 
-          grep -q 'EXP24_PROFILE_ESCAPE_LOCK' "$PANEL"
-          grep -q 'isForbiddenGeoGebraPopupRoute' "$PANEL"
+          grep -q 'EXP25_STRICT_POPUP_WHITELIST' "$PANEL"
+          grep -q 'host == "accounts.geogebra.org"' "$PANEL"
+          grep -q 'isTrustedGeoGebraCallback(uri)' "$PANEL"
+          grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(uri.toString())' "$PANEL"
           grep -q 'closeForbiddenGeoGebraPopup(view, uri)' "$PANEL"
-          grep -q 'path.startsWith("/u/")' "$PANEL"
-          grep -q 'path == "/profile"' "$PANEL"
 
           grep -q 'EXP24_SPATIAL_PICKER_RESULT' "$PANEL"
           grep -q 'deliverSpatialPickerResult' "$PANEL"
@@ -121,9 +122,17 @@ jobs:
 
           grep -q 'class SpatialFilePickerPanelActivity : Activity()' "$PICKER"
           grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$PICKER"
-          grep -q 'SpatialActivityManager.executeOnAppSystemActivity' "$PICKER"
-          grep -q 'onSpatialFilePickerPanelResult(uri)' "$PICKER"
+          grep -q 'SpatialActivityManager.executeOnVrActivity<SpatialGeoGebraActivity>' "$PICKER"
+          grep -q 'activity.onSpatialFilePickerPanelResult(uri)' "$PICKER"
+          if grep -q 'executeOnAppSystemActivity' "$PICKER"; then
+            echo 'old ActivityPanel bridge must not remain'
+            exit 1
+          fi
+
           grep -q 'SpatialFilePickerPanelActivity' "$MANIFEST"
+          grep -q 'android:allowEmbedded="true"' "$MANIFEST"
+          grep -q 'com.oculus.vrdesktop.fbpermission.CREATE_ACTIVITY_CONTAINER' "$MANIFEST"
+          grep -q 'android:theme="@style/PanelAppThemeTransparent"' "$MANIFEST"
           grep -q 'local_file_picker_panel' "$IDS"
 
           for forbidden in \
@@ -158,29 +167,30 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify exp24 package
+      - name: Verify exp25 package
         shell: bash
         run: |
-          grep -q 'versionName = "0.9.30-exp24-spatial-picker-profile-lock"' app/build.gradle.kts
-          grep -q 'versionCode = 112' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp25-embedded-picker-popup-whitelist"' app/build.gradle.kts
+          grep -q 'versionCode = 113' app/build.gradle.kts
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
           echo "$META" | grep 'canonical_runtime=exp20'
           echo "$META" | grep 'login_handshake=exp22'
-          echo "$META" | grep 'profile_escape_lock=exp24'
           echo "$META" | grep 'local_picker=exp24'
+          echo "$META" | grep 'popup_guard=exp25'
+          echo "$META" | grep 'spatial_picker_container=exp25'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp24-spatial-picker-profile-lock-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp24-spatial-picker-profile-lock-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp25-embedded-picker-popup-whitelist-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp25-embedded-picker-popup-whitelist-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp24-spatial-picker-profile-lock-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp24-spatial-picker-profile-lock-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp25-embedded-picker-popup-whitelist-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp25-embedded-picker-popup-whitelist-debug.apk
           if-no-files-found: error
