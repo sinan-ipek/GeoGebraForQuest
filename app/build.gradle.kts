@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 109
-        versionName = "0.9.30-exp21-proven-local-file-path"
+        versionCode = 110
+        versionName = "0.9.30-exp22-login-avatar-recovery"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp21-proven-local-file-path lives only on experimental-embedded-stereo.
+// v0.9.30-exp22-login-avatar-recovery lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp21 keeps Exp20's successful cloud/login/MAIN-navigation behavior, but restores the proven
-// v0.9.29 local-file continuation model. The system document picker returns the selected Uri
-// directly to WebView/GeoGebra. No Activity recreation, staged GGB, controller recovery window,
-// laserEnabled write or Controller component rewrite is allowed on the local-file path.
+// Exp22 keeps Exp20/21's working cloud-material and direct local-file paths. Login now waits for
+// local LoginOperationW READY and closes the popup only after a verified local SUCCESS ACK. The
+// DocumentsUI return path no longer rewrites Controller components; it repairs the owning Meta
+// AvatarSystem controller-presentation state and logs controller entity/active/laser diagnostics.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
