@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply exp19 through exp26 lifecycle fixes
+      - name: Apply exp19 through exp27 lifecycle fixes
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -60,8 +60,9 @@ jobs:
           python3 tools/patch-android-exp24.py .
           python3 tools/patch-android-exp25.py .
           python3 tools/patch-android-exp26.py .
+          python3 tools/patch-android-exp27.py .
 
-      - name: Verify exp26 Bug 2 routing and frozen Bug 1
+      - name: Verify exp27 cold-process Bug 2 and frozen Bug 1
         shell: bash
         run: |
           set -x
@@ -72,11 +73,9 @@ jobs:
           JS=app/src/main/assets/web/quest-stereo-layout.js
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
-          PICKER=app/src/main/java/com/sinan/geogebraforquest/SpatialFilePickerPanelActivity.kt
+          COLD=app/src/main/java/com/sinan/geogebraforquest/ColdLocalFilePickerActivity.kt
           SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
-          EMBED=app/src/main/java/com/sinan/geogebraforquest/EmbeddedStereoTestSystem.kt
           MANIFEST=app/src/main/AndroidManifest.xml
-          IDS=app/src/main/res/values/ids.xml
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
 
           grep -q 'boolean renderStereoPair = stereoPairRequested;' "$QUEST"
@@ -90,7 +89,7 @@ jobs:
           if grep -q 'adaptiveStereoDelay' "$JS"; then exit 1; fi
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then exit 1; fi
 
-          # Bug 1 is frozen at Exp25. Exp26 must preserve these markers unchanged.
+          # Bug 1 is frozen at Exp25/26; Exp27 must preserve it.
           grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
           grep -q 'EXP20_CANONICAL_MAIN_GUARD' "$PANEL"
           grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
@@ -99,32 +98,33 @@ jobs:
           grep -q 'isTrustedGeoGebraCallback(uri)' "$PANEL"
           grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(uri.toString())' "$PANEL"
 
-          # Exp24/25 spatial container remains the Bug 2 base.
-          grep -q 'EXP24_SPATIAL_ACTIVITY_PICKER' "$PANEL"
-          grep -q 'deliverSpatialPickerResult' "$PANEL"
-          grep -q 'EXP24_SPATIAL_FILE_PICKER_PANEL' "$ACTIVITY"
-          grep -q 'ActivityPanelRegistration' "$ACTIVITY"
-          grep -q 'R.id.local_file_picker_panel' "$ACTIVITY"
-          grep -q 'processSpatialFilePickerPanelRequests' "$ACTIVITY"
-          grep -q 'class SpatialFilePickerPanelActivity : Activity()' "$PICKER"
-          grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$PICKER"
-          grep -q 'SpatialActivityManager.executeOnVrActivity<SpatialGeoGebraActivity>' "$PICKER"
-          grep -q 'android:allowEmbedded="true"' "$MANIFEST"
-          grep -q 'com.oculus.vrdesktop.fbpermission.CREATE_ACTIVITY_CONTAINER' "$MANIFEST"
-          grep -q 'local_file_picker_panel' "$IDS"
+          # Exp27: spatial file selection must leave the embedded ActivityPanel path.
+          grep -q 'EXP27_COLD_PROCESS_PICKER' "$PANEL"
+          grep -q 'ColdLocalFilePickerActivity::class.java' "$PANEL"
+          grep -q 'EXP27_OPEN_COLD_PENDING_FILE' "$PANEL"
+          grep -q 'openPendingColdLocalFileIfAny' "$PANEL"
+          grep -q 'addPathHandler("/pending-cold/", ColdLocalFilePathHandler' "$PANEL"
+          if grep -q 'requestSpatialFilePickerPanel()' "$PANEL"; then
+            echo 'Exp27 MAIN still routes local files through ActivityPanel'
+            exit 1
+          fi
 
-          # Exp26: match Meta ActivityPanel input routing and make picker top-level.
-          grep -q 'EXP26_META_PICKER_INPUT_MASK' "$ACTIVITY"
-          grep -q 'ButtonBits.ButtonA or' "$ACTIVITY"
-          grep -q 'ButtonBits.ButtonTriggerL or' "$ACTIVITY"
-          grep -q 'ButtonBits.ButtonTriggerR' "$ACTIVITY"
-          grep -q 'EXP26_STANDALONE_PICKER_PANEL' "$ACTIVITY"
-          grep -q 'Transform(Pose(Vector3(0f, 1.25f, 1.44f)))' "$ACTIVITY"
-          grep -q 'EXP26_PICKER_INPUT_EXCLUSIVE' "$ACTIVITY"
-          grep -q 'fun isSpatialFilePickerActive()' "$ACTIVITY"
-          grep -q 'activity.isSpatialFilePickerActive()' "$SHORTCUT"
+          grep -q 'EXP27_COLD_PICKER_PROXY' "$COLD"
+          grep -q 'class ColdLocalFilePickerActivity : Activity()' "$COLD"
+          grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$COLD"
+          grep -q 'Process.killProcess(process.pid)' "$COLD"
+          grep -q 'process.processName == mainProcessName' "$COLD"
+          grep -q 'ColdLocalFileBridge.stage(applicationContext, uri)' "$COLD"
+          grep -q 'Intent.FLAG_ACTIVITY_NEW_TASK' "$COLD"
+          grep -q 'Intent.FLAG_ACTIVITY_CLEAR_TASK' "$COLD"
+          grep -q 'SpatialGeoGebraActivity::class.java' "$COLD"
+          grep -q 'application/vnd.geogebra.file' "$COLD"
+          grep -q 'pending-cold/local.ggb' "$COLD"
 
-          # No old controller repair paths may return.
+          grep -q 'android:name=".ColdLocalFilePickerActivity"' "$MANIFEST"
+          grep -q 'android:process=":localpicker"' "$MANIFEST"
+
+          # Never reintroduce direct controller repair writes.
           if grep -q 'requestControllerPresentationRecovery(' "$ACTIVITY"; then
             echo 'failed Exp22 Avatar recovery must remain inactive'
             exit 1
@@ -138,7 +138,6 @@ jobs:
             exit 1
           fi
 
-          grep -q 'processSpatialFilePickerPanelRequests()' "$EMBED"
           grep -q 'ButtonBits.ButtonSqueezeR' "$SHORTCUT"
           grep -q 'ButtonBits.ButtonA' "$SHORTCUT"
           grep -q 'ButtonBits.ButtonB' "$SHORTCUT"
@@ -147,30 +146,30 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify exp26 package
+      - name: Verify exp27 package
         shell: bash
         run: |
-          grep -q 'versionName = "0.9.30-exp26-picker-input-routing"' app/build.gradle.kts
-          grep -q 'versionCode = 114' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp27-cold-process-local-file"' app/build.gradle.kts
+          grep -q 'versionCode = 115' app/build.gradle.kts
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
           echo "$META" | grep 'canonical_runtime=exp20'
           echo "$META" | grep 'login_handshake=exp22'
           echo "$META" | grep 'popup_guard=exp25'
-          echo "$META" | grep 'spatial_picker_container=exp25'
-          echo "$META" | grep 'picker_input=exp26'
+          echo "$META" | grep 'bug1=frozen-exp25'
+          echo "$META" | grep 'local_picker=exp27'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp26-picker-input-routing-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp26-picker-input-routing-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp27-cold-process-local-file-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp27-cold-process-local-file-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp26-picker-input-routing-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp26-picker-input-routing-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp27-cold-process-local-file-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp27-cold-process-local-file-debug.apk
           if-no-files-found: error
