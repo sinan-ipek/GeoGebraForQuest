@@ -59,6 +59,7 @@ jobs:
       - name: Verify exp22 hypotheses and frozen working paths
         shell: bash
         run: |
+          set -x
           SRC=.geogebra-source-work/geogebra
           QUEST="$SRC/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/openGL/QuestStereoRenderer.java"
           WEB="$SRC/source/web/web/src/main/java/org/geogebra/web/geogebra3D/web/euclidian3D/openGL/RendererWithImplW.java"
@@ -70,7 +71,6 @@ jobs:
           RECOVERY=app/src/main/java/com/sinan/geogebraforquest/QuestControllerPresentationRecoverySystem.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
 
-          # Proven stereo renderer remains untouched.
           grep -q 'boolean renderStereoPair = stereoPairRequested;' "$QUEST"
           grep -q 'renderer.captureQuestEye(Renderer.EYE_LEFT)' "$QUEST"
           grep -q 'renderer.eye = Renderer.EYE_RIGHT;' "$QUEST"
@@ -82,7 +82,6 @@ jobs:
           if grep -q 'adaptiveStereoDelay' "$JS"; then exit 1; fi
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then exit 1; fi
 
-          # Existing successful cloud/material/navigation behavior remains.
           grep -q 'EXP19_NATIVE_LAYOUT_REARM' "$ACTIVITY"
           grep -q 'EXP20_CANONICAL_MAIN_GUARD' "$PANEL"
           grep -q 'EXP20_REMOTE_ESCAPE_FALLBACK' "$PANEL"
@@ -90,7 +89,6 @@ jobs:
           grep -q 'fun deliverOpenFromGgt(url: String)' "$PANEL"
           grep -q "window.ggbApplet.openFile(url" "$PANEL"
 
-          # Exp21 direct WebView local-file continuation remains in force.
           grep -q 'EXP21_PROVEN_LOCAL_FILE_PATH' "$PANEL"
           grep -q 'callback.onReceiveValue(result)' "$PANEL"
           grep -q 'GeoGebraLocalFilePicker.handleActivityResult(requestCode, resultCode, data)' "$ACTIVITY"
@@ -107,14 +105,12 @@ jobs:
             fi
           done
 
-          # Exp22 GeoGebra-side READY + verified SUCCESS handshake.
           grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
           grep -q 'QuestLoginAckCallback' "$LOGIN"
           grep -q '__ggqLoginReady' "$LOGIN"
           grep -q '__ggqLoginSuccessToken' "$LOGIN"
           grep -q 'performTokenLogin(ggqPendingLoginToken, false)' "$LOGIN"
 
-          # Exp22 Android waits for READY and closes only after success ACK.
           grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
           grep -q 'window.__ggqLoginReady === true' "$PANEL"
           grep -q 'window.__ggqLoginSuccessToken === token' "$PANEL"
@@ -122,14 +118,15 @@ jobs:
           grep -q 'EXP22_LOGIN_SUCCESS_ACK_BRIDGE' "$PANEL"
           grep -q 'pendingLoginAckPopups' "$PANEL"
 
-          # Exp22 local-file return repairs Meta's owning AvatarSystem layer.
           grep -q 'EXP22_AVATAR_CONTROLLER_RETURN' "$ACTIVITY"
           grep -q 'requestControllerPresentationRecovery("local-file-result")' "$ACTIVITY"
           grep -q 'requestControllerPresentationRecovery("vr-ready-return")' "$ACTIVITY"
           grep -q 'class QuestControllerPresentationRecoverySystem' "$RECOVERY"
           grep -q 'findSystem<AvatarSystem>()' "$RECOVERY"
+          grep -q 'setShowControllers(false)' "$RECOVERY"
           grep -q 'setShowControllers(true)' "$RECOVERY"
           grep -q 'getShowControllers()' "$RECOVERY"
+          grep -q 'forceVisibilityResetPhase' "$RECOVERY"
           grep -q 'localControllers' "$RECOVERY"
           grep -q 'activeControllers' "$RECOVERY"
           grep -q 'laserEnabledControllers' "$RECOVERY"
@@ -142,7 +139,6 @@ jobs:
             exit 1
           fi
 
-          # Grip/A/B remain available.
           grep -q 'ButtonBits.ButtonSqueezeR' "$SHORTCUT"
           grep -q 'ButtonBits.ButtonA' "$SHORTCUT"
           grep -q 'ButtonBits.ButtonB' "$SHORTCUT"
