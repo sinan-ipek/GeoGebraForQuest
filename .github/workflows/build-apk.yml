@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply exp19 through exp23 lifecycle fixes
+      - name: Apply exp19 through exp24 lifecycle fixes
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -57,8 +57,9 @@ jobs:
           python3 tools/patch-android-exp22.py .
           python3 tools/patch-android-exp22-preserve-navigation.py .
           python3 tools/patch-android-exp23.py .
+          python3 tools/patch-android-exp24.py .
 
-      - name: Verify exp23 hypotheses and frozen working paths
+      - name: Verify exp24 hypotheses and frozen working paths
         shell: bash
         run: |
           set -x
@@ -69,8 +70,11 @@ jobs:
           JS=app/src/main/assets/web/quest-stereo-layout.js
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
+          PICKER=app/src/main/java/com/sinan/geogebraforquest/SpatialFilePickerPanelActivity.kt
           SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
           EMBED=app/src/main/java/com/sinan/geogebraforquest/EmbeddedStereoTestSystem.kt
+          MANIFEST=app/src/main/AndroidManifest.xml
+          IDS=app/src/main/res/values/ids.xml
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
 
           grep -q 'boolean renderStereoPair = stereoPairRequested;' "$QUEST"
@@ -91,62 +95,58 @@ jobs:
           grep -q 'fun deliverOpenFromGgt(url: String)' "$PANEL"
           grep -q "window.ggbApplet.openFile(url" "$PANEL"
 
-          grep -q 'EXP21_PROVEN_LOCAL_FILE_PATH' "$PANEL"
-          grep -q 'callback.onReceiveValue(result)' "$PANEL"
-          grep -q 'GeoGebraLocalFilePicker.handleActivityResult(requestCode, resultCode, data)' "$ACTIVITY"
+          grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
+          grep -q '__ggqLoginReady' "$LOGIN"
+          grep -q '__ggqLoginSuccessToken' "$LOGIN"
+          grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
+          grep -q 'EXP22_LOGIN_SUCCESS_ACK_BRIDGE' "$PANEL"
+
+          grep -q 'EXP24_PROFILE_ESCAPE_LOCK' "$PANEL"
+          grep -q 'isForbiddenGeoGebraPopupRoute' "$PANEL"
+          grep -q 'closeForbiddenGeoGebraPopup(view, uri)' "$PANEL"
+          grep -q 'path.startsWith("/u/")' "$PANEL"
+          grep -q 'path == "/profile"' "$PANEL"
+
+          grep -q 'EXP24_SPATIAL_PICKER_RESULT' "$PANEL"
+          grep -q 'deliverSpatialPickerResult' "$PANEL"
+          grep -q 'EXP24_SPATIAL_ACTIVITY_PICKER' "$PANEL"
+          grep -q 'requestSpatialFilePickerPanel()' "$PANEL"
+
+          grep -q 'EXP24_SPATIAL_FILE_PICKER_PANEL' "$ACTIVITY"
+          grep -q 'ActivityPanelRegistration' "$ACTIVITY"
+          grep -q 'R.id.local_file_picker_panel' "$ACTIVITY"
+          grep -q 'processSpatialFilePickerPanelRequests' "$ACTIVITY"
+          grep -q 'onSpatialFilePickerPanelResult' "$ACTIVITY"
+          grep -q 'processSpatialFilePickerPanelRequests()' "$EMBED"
+
+          grep -q 'class SpatialFilePickerPanelActivity : Activity()' "$PICKER"
+          grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$PICKER"
+          grep -q 'SpatialActivityManager.executeOnAppSystemActivity' "$PICKER"
+          grep -q 'onSpatialFilePickerPanelResult(uri)' "$PICKER"
+          grep -q 'SpatialFilePickerPanelActivity' "$MANIFEST"
+          grep -q 'local_file_picker_panel' "$IDS"
+
           for forbidden in \
-            'EXP20_PENDING_LOCAL_FILE' \
-            'EXP20_CANONICAL_FILE_RESTART' \
-            'activity.recreate()' \
-            'PENDING_LOCAL_GGB_URL' \
-            'PendingLocalFilePathHandler' \
-            'openPendingLocalFileIfAny'; do
-            if grep -q "$forbidden" "$PANEL" "$ACTIVITY"; then
-              echo "staged local-file residue: $forbidden"
+            'requestLocalFilePickerLaunch(' \
+            'processLocalFilePickerTopologyBoundary(' \
+            'embeddedTopologySuspendedForPicker' \
+            'requestEmbeddedTopologyRestoreAfterLocalFilePicker'; do
+            if grep -q "$forbidden" "$ACTIVITY" "$EMBED"; then
+              echo "stale Exp23 picker topology path: $forbidden"
               exit 1
             fi
           done
 
-          grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
-          grep -q 'QuestLoginAckCallback' "$LOGIN"
-          grep -q '__ggqLoginReady' "$LOGIN"
-          grep -q '__ggqLoginSuccessToken' "$LOGIN"
-          grep -q 'performTokenLogin(ggqPendingLoginToken, false)' "$LOGIN"
-          grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
-          grep -q 'window.__ggqLoginReady === true' "$PANEL"
-          grep -q 'window.__ggqLoginSuccessToken === token' "$PANEL"
-          grep -q 'EXP22_LOGIN_SUCCESS_ACK_BRIDGE' "$PANEL"
-
-          grep -q 'EXP23_POPUP_APP_SHELL_QUARANTINE' "$PANEL"
-          grep -q 'inspectPopupForRemoteAppShell(view, url)' "$PANEL"
-          grep -q 'quarantineRemoteGeoGebraAppPopup' "$PANEL"
-          grep -q 'window.ggbApplet' "$PANEL"
-          grep -q 'view.visibility = View.INVISIBLE' "$PANEL"
-
-          grep -q 'EXP23_PICKER_SAFE_TOPOLOGY_LAUNCH' "$PANEL"
-          grep -q 'requestLocalFilePickerLaunch(intent, REQUEST_CODE)' "$PANEL"
-          grep -q 'EXP23_EXTERNAL_PICKER_TOPOLOGY_BOUNDARY' "$ACTIVITY"
-          grep -q 'processLocalFilePickerTopologyBoundary' "$ACTIVITY"
-          grep -q 'requestEmbeddedTopologyRestoreAfterLocalFilePicker' "$ACTIVITY"
-          grep -q 'embeddedTopologySuspendedForPicker' "$ACTIVITY"
-          grep -q 'processLocalFilePickerTopologyBoundary()' "$EMBED"
-          grep -q 'TransformParent()' "$ACTIVITY"
-          grep -q 'Visible(false)' "$ACTIVITY"
-
           if grep -q 'requestControllerPresentationRecovery(' "$ACTIVITY"; then
-            echo 'Exp22 Avatar recovery must be inactive in Exp23'
-            exit 1
-          fi
-          if grep -q 'controllerPresentationRecoverySystem' "$ACTIVITY"; then
-            echo 'Exp22 Avatar recovery system must not be registered in Exp23'
+            echo 'failed Exp22 Avatar recovery must remain inactive'
             exit 1
           fi
           if grep -q 'controller.laserEnabled =' "$SHORTCUT"; then
-            echo 'Exp23 controller path must remain read-only'
+            echo 'controller path must remain read-only'
             exit 1
           fi
           if grep -q 'entity.setComponent(controller)' "$SHORTCUT"; then
-            echo 'Exp23 must not rewrite Controller components'
+            echo 'must not rewrite Controller components'
             exit 1
           fi
 
@@ -158,30 +158,29 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify exp23 package
+      - name: Verify exp24 package
         shell: bash
         run: |
-          grep -q 'versionName = "0.9.30-exp23-popup-quarantine-picker-topology"' app/build.gradle.kts
-          grep -q 'versionCode = 111' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp24-spatial-picker-profile-lock"' app/build.gradle.kts
+          grep -q 'versionCode = 112' app/build.gradle.kts
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
           echo "$META" | grep 'canonical_runtime=exp20'
-          echo "$META" | grep 'local_file_path=exp21'
           echo "$META" | grep 'login_handshake=exp22'
-          echo "$META" | grep 'popup_guard=exp23'
-          echo "$META" | grep 'local_picker_boundary=exp23'
+          echo "$META" | grep 'profile_escape_lock=exp24'
+          echo "$META" | grep 'local_picker=exp24'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp23-popup-quarantine-picker-topology-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp23-popup-quarantine-picker-topology-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp24-spatial-picker-profile-lock-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp24-spatial-picker-profile-lock-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp23-popup-quarantine-picker-topology-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp23-popup-quarantine-picker-topology-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp24-spatial-picker-profile-lock-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp24-spatial-picker-profile-lock-debug.apk
           if-no-files-found: error
