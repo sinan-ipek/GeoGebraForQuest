@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 106
-        versionName = "0.9.30-exp18-popup-ssid-handoff"
+        versionCode = 107
+        versionName = "0.9.30-exp19-open-lifecycle-recovery"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,13 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp18-popup-ssid-handoff lives only on experimental-embedded-stereo.
+// v0.9.30-exp19-open-lifecycle-recovery lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp18 preserves exp17's local Open-in-app handoff and adds a native CookieManager fallback:
-// when the remote GeoGebra login popup exposes an authenticated SSID cookie, the token is handed
-// back to the MAIN local patched AppW and the popup closes without waiting for a callback URL.
+// Exp19 preserves the proven renderer/UI behavior while repairing the three transitions that
+// matter for real use: login popup authentication, cloud/account file loading, and local-file
+// return from Android DocumentsUI. Stereo layout de-duplication is rearmed across archive loads,
+// stale SSID cookies cannot close the login popup, and Spatial controller/WebView input is
+// explicitly rebound after an external file-picker activity.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
