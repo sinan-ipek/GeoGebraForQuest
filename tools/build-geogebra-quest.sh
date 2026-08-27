@@ -82,6 +82,9 @@ python3 "$ROOT/tools/patch-android-exp15.py" "$ROOT"
 echo "[GGQ] handing GeoGebra Open-in-app URLs back to the MAIN patched AppW"
 python3 "$ROOT/tools/patch-android-exp17.py" "$ROOT"
 
+echo "[GGQ] handing authenticated popup SSID session back to MAIN local AppW"
+python3 "$ROOT/tools/patch-android-exp18.py" "$ROOT"
+
 echo "[GGQ] compiling GeoGebra Web3D and static runtime resources"
 pushd "$SRC/source/web" >/dev/null
 ../../gradlew \
