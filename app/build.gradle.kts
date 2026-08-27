@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 107
-        versionName = "0.9.30-exp19-open-lifecycle-recovery"
+        versionCode = 108
+        versionName = "0.9.30-exp20-canonical-runtime-guard"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,13 +61,13 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp19-open-lifecycle-recovery lives only on experimental-embedded-stereo.
+// v0.9.30-exp20-canonical-runtime-guard lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp19 preserves the proven renderer/UI behavior while repairing the three transitions that
-// matter for real use: login popup authentication, cloud/account file loading, and local-file
-// return from Android DocumentsUI. Stereo layout de-duplication is rearmed across archive loads,
-// stale SSID cookies cannot close the login popup, and Spatial controller/WebView input is
-// explicitly rebound after an external file-picker activity.
+// Exp20 tests one hypothesis: every failure follows an escape from the canonical runtime.
+// MAIN therefore remains the bundled patched Classic engine, while remote GeoGebra pages are
+// allowed only as auxiliary popup/auth/material sources. Local DocumentsUI selection is treated
+// as a hard XR boundary: the chosen GGB is staged, the Activity is recreated, and the fresh
+// Spatial/VR runtime opens the staged file back inside the bundled patched Classic.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
