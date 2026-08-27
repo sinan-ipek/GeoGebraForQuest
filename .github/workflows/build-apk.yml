@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply exp19 exp20 and exp21 local-file rollback
+      - name: Apply exp19 through exp22 lifecycle fixes
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -54,17 +54,20 @@ jobs:
           python3 tools/patch-android-exp19-querycompat.py .
           python3 tools/patch-android-exp20.py .
           python3 tools/patch-android-exp21.py .
+          python3 tools/patch-android-exp22.py .
 
-      - name: Verify exp21 hypothesis and frozen working paths
+      - name: Verify exp22 hypotheses and frozen working paths
         shell: bash
         run: |
           SRC=.geogebra-source-work/geogebra
           QUEST="$SRC/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/openGL/QuestStereoRenderer.java"
           WEB="$SRC/source/web/web/src/main/java/org/geogebra/web/geogebra3D/web/euclidian3D/openGL/RendererWithImplW.java"
+          LOGIN="$SRC/source/web/web/src/main/java/org/geogebra/web/shared/ggtapi/LoginOperationW.java"
           JS=app/src/main/assets/web/quest-stereo-layout.js
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
           SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
+          RECOVERY=app/src/main/java/com/sinan/geogebraforquest/QuestControllerPresentationRecoverySystem.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
 
           # Proven stereo renderer remains untouched.
@@ -79,43 +82,67 @@ jobs:
           if grep -q 'adaptiveStereoDelay' "$JS"; then exit 1; fi
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then exit 1; fi
 
-          # Keep successful cloud/login/navigation behavior from exp19/20.
+          # Existing successful cloud/material/navigation behavior remains.
           grep -q 'EXP19_NATIVE_LAYOUT_REARM' "$ACTIVITY"
-          grep -q 'EXP19_POPUP_SESSION_EDGE' "$PANEL"
           grep -q 'EXP20_CANONICAL_MAIN_GUARD' "$PANEL"
           grep -q 'EXP20_REMOTE_ESCAPE_FALLBACK' "$PANEL"
-          grep -q 'EXP15_LOCAL_LOGIN_TOKEN_BRIDGE' "$PANEL"
           grep -q 'EXP17_OPENFROMGGT_HANDOFF' "$PANEL"
           grep -q 'fun deliverOpenFromGgt(url: String)' "$PANEL"
           grep -q "window.ggbApplet.openFile(url" "$PANEL"
 
-          # Exp21: restore the proven v0.9.29 direct local-file continuation.
+          # Exp21 direct WebView local-file continuation remains in force.
           grep -q 'EXP21_PROVEN_LOCAL_FILE_PATH' "$PANEL"
           grep -q 'callback.onReceiveValue(result)' "$PANEL"
           grep -q 'GeoGebraLocalFilePicker.handleActivityResult(requestCode, resultCode, data)' "$ACTIVITY"
-
-          # No staged-file restart or controller recovery writes may survive.
           for forbidden in \
             'EXP20_PENDING_LOCAL_FILE' \
             'EXP20_CANONICAL_FILE_RESTART' \
             'activity.recreate()' \
             'PENDING_LOCAL_GGB_URL' \
             'PendingLocalFilePathHandler' \
-            'openPendingLocalFileIfAny' \
-            'EXP19_SPATIAL_INPUT_RECOVERY' \
-            'recoverSpatialInputAfterExternalActivity' \
-            'EXP19_INPUT_RECOVERY_WINDOW' \
-            'inputRecoveryFrames' \
-            'forceInputRecovery' \
-            'controller.laserEnabled = true' \
-            'entity.setComponent(controller)'; do
-            if grep -q "$forbidden" "$PANEL" "$ACTIVITY" "$SHORTCUT"; then
-              echo "exp21 forbidden recovery residue: $forbidden"
+            'openPendingLocalFileIfAny'; do
+            if grep -q "$forbidden" "$PANEL" "$ACTIVITY"; then
+              echo "staged local-file residue: $forbidden"
               exit 1
             fi
           done
 
-          # Grip/A/B remain available while controller state is read-only.
+          # Exp22 GeoGebra-side READY + verified SUCCESS handshake.
+          grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
+          grep -q 'QuestLoginAckCallback' "$LOGIN"
+          grep -q '__ggqLoginReady' "$LOGIN"
+          grep -q '__ggqLoginSuccessToken' "$LOGIN"
+          grep -q 'performTokenLogin(ggqPendingLoginToken, false)' "$LOGIN"
+
+          # Exp22 Android waits for READY and closes only after success ACK.
+          grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
+          grep -q 'window.__ggqLoginReady === true' "$PANEL"
+          grep -q 'window.__ggqLoginSuccessToken === token' "$PANEL"
+          grep -q 'window.QuestBridge.loginTokenAck(token)' "$PANEL"
+          grep -q 'EXP22_LOGIN_SUCCESS_ACK_BRIDGE' "$PANEL"
+          grep -q 'pendingLoginAckPopups' "$PANEL"
+
+          # Exp22 local-file return repairs Meta's owning AvatarSystem layer.
+          grep -q 'EXP22_AVATAR_CONTROLLER_RETURN' "$ACTIVITY"
+          grep -q 'requestControllerPresentationRecovery("local-file-result")' "$ACTIVITY"
+          grep -q 'requestControllerPresentationRecovery("vr-ready-return")' "$ACTIVITY"
+          grep -q 'class QuestControllerPresentationRecoverySystem' "$RECOVERY"
+          grep -q 'findSystem<AvatarSystem>()' "$RECOVERY"
+          grep -q 'setShowControllers(true)' "$RECOVERY"
+          grep -q 'getShowControllers()' "$RECOVERY"
+          grep -q 'localControllers' "$RECOVERY"
+          grep -q 'activeControllers' "$RECOVERY"
+          grep -q 'laserEnabledControllers' "$RECOVERY"
+          if grep -q 'controller.laserEnabled =' "$RECOVERY"; then
+            echo 'Exp22 recovery must not write Controller.laserEnabled'
+            exit 1
+          fi
+          if grep -q 'entity.setComponent(controller)' "$RECOVERY"; then
+            echo 'Exp22 recovery must not rewrite Controller components'
+            exit 1
+          fi
+
+          # Grip/A/B remain available.
           grep -q 'ButtonBits.ButtonSqueezeR' "$SHORTCUT"
           grep -q 'ButtonBits.ButtonA' "$SHORTCUT"
           grep -q 'ButtonBits.ButtonB' "$SHORTCUT"
@@ -124,27 +151,29 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify exp21 package
+      - name: Verify exp22 package
         shell: bash
         run: |
-          grep -q 'versionName = "0.9.30-exp21-proven-local-file-path"' app/build.gradle.kts
-          grep -q 'versionCode = 109' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp22-login-avatar-recovery"' app/build.gradle.kts
+          grep -q 'versionCode = 110' app/build.gradle.kts
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
           echo "$META" | grep 'canonical_runtime=exp20'
           echo "$META" | grep 'local_file_path=exp21'
+          echo "$META" | grep 'login_handshake=exp22'
+          echo "$META" | grep 'controller_return=exp22'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp21-proven-local-file-path-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp21-proven-local-file-path-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp22-login-avatar-recovery-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp22-login-avatar-recovery-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp21-proven-local-file-path-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp21-proven-local-file-path-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp22-login-avatar-recovery-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp22-login-avatar-recovery-debug.apk
           if-no-files-found: error
