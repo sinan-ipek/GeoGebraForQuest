@@ -55,6 +55,7 @@ jobs:
           python3 tools/patch-android-exp20.py .
           python3 tools/patch-android-exp21.py .
           python3 tools/patch-android-exp22.py .
+          python3 tools/patch-android-exp22-preserve-navigation.py .
 
       - name: Verify exp22 hypotheses and frozen working paths
         shell: bash
