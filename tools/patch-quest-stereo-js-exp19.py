@@ -7,8 +7,9 @@ lastCanvas, while exp8 resets pending stereo request/serial state. Exp19's new
 work is therefore primarily the missing Android-side layout reset.
 
 This script keeps the build explicit: if exp16 is present it verifies those
-invariants and leaves the proven JS untouched. A small fallback is retained for
-older trees that do not yet contain exp16.
+invariants and leaves behavior unchanged, adding only an exp19 verification
+marker. A small fallback is retained for older trees that do not yet contain
+exp16.
 """
 
 from pathlib import Path
@@ -33,7 +34,14 @@ if "EXP16_MATERIAL_REACTIVATION" in text:
     for required in required_common:
         if required not in text:
             raise RuntimeError(f"exp19 expected exp16 invariant missing: {required}")
-    print("[GGQ] exp19 JS check: existing exp16 lifecycle re-arm is correct; no duplicate patch applied")
+    if "EXP19_FILE_LOAD_LAYOUT_REARM" not in text:
+        text = text.replace(
+            "EXP16_MATERIAL_REACTIVATION",
+            "EXP16_MATERIAL_REACTIVATION / EXP19_FILE_LOAD_LAYOUT_REARM",
+            1,
+        )
+        path.write_text(text, encoding="utf-8")
+    print("[GGQ] exp19 JS check: proven exp16 lifecycle re-arm verified and retained")
     raise SystemExit(0)
 
 if "EXP19_FILE_LOAD_LAYOUT_REARM" not in text:
