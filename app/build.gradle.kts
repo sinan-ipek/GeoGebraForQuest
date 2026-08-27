@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 113
-        versionName = "0.9.30-exp25-embedded-picker-popup-whitelist"
+        versionCode = 114
+        versionName = "0.9.30-exp26-picker-input-routing"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp25-embedded-picker-popup-whitelist lives only on experimental-embedded-stereo.
+// v0.9.30-exp26-picker-input-routing lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp25 keeps Exp24's ActivityPanel picker architecture but matches Meta's official embedding
-// contract: allowEmbedded + CREATE_ACTIVITY_CONTAINER + executeOnVrActivity result bridge.
-// Remote popup navigation is now a strict whitelist: accounts/callback only; material routes are
-// handed to MAIN and all other GeoGebra popup routes are blocked before rendering.
+// Bug 1 is frozen exactly at Exp25 and is not modified in Exp26.
+// Exp26 changes only Bug 2 input routing: the embedded file picker ActivityPanel is standalone,
+// uses Meta's ButtonA + left/right trigger mask, and GGQ A/B/Grip shortcuts are suspended while
+// the picker is visible so all controller input belongs to DocumentsUI.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
