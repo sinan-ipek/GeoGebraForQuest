@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 111
-        versionName = "0.9.30-exp23-popup-quarantine-picker-topology"
+        versionCode = 112
+        versionName = "0.9.30-exp24-spatial-picker-profile-lock"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp23-popup-quarantine-picker-topology lives only on experimental-embedded-stereo.
+// v0.9.30-exp24-spatial-picker-profile-lock lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp23 keeps Exp22's deterministic login handshake, structurally prevents any registered popup
-// from becoming the visible remote GeoGebra application, and replaces failed post-picker
-// Controller/Avatar recovery with a pre-picker topology boundary: embedded B/C are suspended before
-// DocumentsUI and restored after the direct local-file URI callback.
+// Exp24 keeps the deterministic Exp22 login handshake and Exp20 local MAIN guard. It blocks
+// profile/account/app-shell popup routes synchronously before they can replace the visible app.
+// Local-file selection no longer launches ACTION_OPEN_DOCUMENT from the immersive AppSystemActivity;
+// a dedicated ActivityPanel proxy owns DocumentsUI and returns the selected Uri to MAIN.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
