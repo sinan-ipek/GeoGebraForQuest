@@ -51,6 +51,7 @@ jobs:
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
           python3 tools/patch-android-exp19.py .
           python3 tools/patch-android-exp19-volatile.py .
+          python3 tools/patch-android-exp19-querycompat.py .
 
       - name: Verify exp19 root fixes and frozen renderer path
         shell: bash
@@ -115,6 +116,12 @@ jobs:
           grep -q 'private var inputRecoveryFrames = 0' "$SHORTCUT"
           grep -q 'requestInputRecovery(frames: Int = 180)' "$SHORTCUT"
           grep -q 'forceInputRecovery || !controller.laserEnabled' "$SHORTCUT"
+          grep -q 'EXP19_QUERY_RESULT_COMPAT' "$SHORTCUT"
+          grep -q 'var recoveryFrameConsumed = false' "$SHORTCUT"
+          if grep -q 'controllers.isNotEmpty()' "$SHORTCUT"; then
+            echo 'Meta Spatial Query result must not use Kotlin Collection isNotEmpty()'
+            exit 1
+          fi
 
           # Own-cloud material must still use MAIN local patched AppW.
           grep -q 'EXP15_LOCAL_LOGIN_TOKEN_BRIDGE' "$PANEL"
