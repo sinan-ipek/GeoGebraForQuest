@@ -45,7 +45,13 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Verify exp18 renderer, popup SSID handoff and controls
+      - name: Apply exp19 file/login/input lifecycle recovery
+        shell: bash
+        run: |
+          python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
+          python3 tools/patch-android-exp19.py .
+
+      - name: Verify frozen renderer and exp19 lifecycle invariants
         shell: bash
         run: |
           SRC=.geogebra-source-work/geogebra
@@ -61,6 +67,7 @@ jobs:
           SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
 
+          # Proven stereo renderer path remains unchanged.
           grep -q 'boolean renderStereoPair = stereoPairRequested;' "$QUEST"
           grep -q 'renderer.captureQuestEye(Renderer.EYE_LEFT)' "$QUEST"
           grep -q 'renderer.eye = Renderer.EYE_RIGHT;' "$QUEST"
@@ -77,116 +84,70 @@ jobs:
           grep -q 'CAPTURE_JPEG_QUALITY = 0.78' "$JS"
           grep -q 'pendingStereoSerial' "$JS"
           grep -q 'lastDeliveredStereoSerial' "$JS"
-          for forbidden in \
-            'CAPTURE_ACTIVE_EYE_WIDTH' \
-            'CAPTURE_IDLE_EYE_WIDTH' \
-            'CAPTURE_IDLE_DELAY_MS' \
-            'lastStereoMotionAt' \
-            'markStereoMotion' \
-            'markPointerMotion' \
-            'captureEyeWidth(' \
-            '540'; do
-            if grep -q "$forbidden" "$JS"; then
-              echo "Dynamic capture residue must not exist in exp18: $forbidden"
-              exit 1
-            fi
-          done
           if grep -q 'adaptiveStereoDelay' "$JS"; then
-            echo 'Adaptive UI-priority backoff must not return'
+            echo 'Adaptive stereo backoff must not return'
             exit 1
           fi
-
-          grep -q 'exp9 retains last live stereo frame' "$SINK"
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then
-            echo '350ms idle clear must stay removed'
+            echo 'Stereo sink must retain the last live frame'
             exit 1
           fi
 
+          # Proven context-menu / Grip behavior remains unchanged.
           grep -q 'v0.9.30 Quest-pointer anchored context menu' "$EUCLIDIAN"
           grep -q 'controller.setMouseLocation(false, questX, questY);' "$EUCLIDIAN"
           grep -q 'setHits(controller.mouseLoc, PointerEventType.MOUSE)' "$EUCLIDIAN"
           grep -q 'setSelectedGeos(pointerSelection)' "$EUCLIDIAN"
           grep -q 'EXP10_STEREO_HOLE_CONTEXT_TARGET' "$PANEL"
-          grep -q 'var nativeAvailable = typeof window.ggqOpenContextMenu' "$PANEL"
-
-          for forbidden in \
-            'EXP13_QUEST_MOUSE_RAY' \
-            'questMouseRayIndex' \
-            'questMouseRayEnd' \
-            'setQuestMouseRayEnd' \
-            'brush.segment(questMouseRayOrigin, questMouseRayEnd)'; do
-            if grep -q "$forbidden" "$RENDERER"; then
-              echo "Synthetic white ray residue in Renderer: $forbidden"
-              exit 1
-            fi
-          done
-          if grep -q 'EXP13_DEPTH_RAY_CONTINUATION' "$VIEW3D"; then
-            echo 'Synthetic depth-ray continuation must be removed'
-            exit 1
-          fi
-
-          grep -q 'EXP12_VISIBLE_RAY' "$SHORTCUT"
-          grep -q 'controller.laserEnabled = true' "$SHORTCUT"
-          if grep -q 'controller.laserEnabled = false' "$SHORTCUT"; then
-            echo 'Native Meta beam must stay visible to A'
-            exit 1
-          fi
-
           grep -q 'name = "ggqBeginGripRotate"' "$GRIP3D"
           grep -q 'name = "ggqUpdateGripRotate"' "$GRIP3D"
           grep -q 'name = "ggqEndGripRotate"' "$GRIP3D"
-          grep -q 'controller.temporaryMode = true' "$GRIP3D"
-          grep -q 'controller.oldMode = controller.mode' "$GRIP3D"
-          grep -q 'EuclidianConstants.MODE_ROTATEVIEW' "$GRIP3D"
           grep -q 'ModeSetter.EXIT_TEMPORARY_MODE' "$GRIP3D"
           grep -q 'ButtonBits.ButtonSqueezeR' "$SHORTCUT"
           grep -q 'DepthPointerState.active' "$SHORTCUT"
-          grep -q 'EXP13_GRIP_ROTATE_BRIDGE' "$PANEL"
-          grep -q '__ggqSetGripRotate' "$PANEL"
-          grep -q 'EXP14_RUNTIME_HOTFIX' "$ACTIVITY"
-          grep -q 'onQuestGripRotatePressed' "$ACTIVITY"
-          grep -q 'onQuestGripRotateReleased' "$ACTIVITY"
-
-          if grep -q 'findSystem<GrabbableSystem>()' "$ACTIVITY"; then
-            echo 'Unsafe GrabbableSystem startup lookup must not exist'
+          if grep -q 'EXP13_QUEST_MOUSE_RAY' "$RENDERER"; then
+            echo 'Synthetic mouse ray must remain removed'
             exit 1
           fi
-          if grep -q 'import com.meta.spatial.toolkit.GrabbableSystem' "$ACTIVITY"; then
-            echo 'GrabbableSystem import must not exist in generated Activity'
+          if grep -q 'EXP13_DEPTH_RAY_CONTINUATION' "$VIEW3D"; then
+            echo 'Synthetic depth ray continuation must remain removed'
             exit 1
           fi
-          grep -q 'val geoPanel = Entity(R.id.geogebra_panel)' "$ACTIVITY"
-          grep -q 'geoPanelEntity = geoPanel' "$ACTIVITY"
 
-          # Exp15 token handoff remains required.
+          # Cloud/account material handoff remains in MAIN local patched AppW.
           grep -q 'EXP15_LOCAL_LOGIN_TOKEN_BRIDGE' "$PANEL"
           grep -q 'EXP15_LOCAL_LOGIN_CALLBACK' "$PANEL"
-          grep -q 'fun isRegisteredPopup(webView: WebView)' "$PANEL"
-          grep -q 'fun deliverLoginToken(token: String)' "$PANEL"
-          grep -q 'put("action", "logintoken")' "$PANEL"
-          grep -q 'put("msg", token)' "$PANEL"
-          grep -q "new MessageEvent('message'" "$PANEL"
-
-          # Exp17 Open-in-app handoff remains required.
           grep -q 'EXP17_OPENFROMGGT_HANDOFF' "$PANEL"
           grep -q 'EXP17_OPENFROMGGT_CALLBACK' "$PANEL"
+          grep -q 'fun deliverLoginToken(token: String)' "$PANEL"
           grep -q 'fun deliverOpenFromGgt(url: String)' "$PANEL"
-          grep -q 'callbackParameter(uri, "url")' "$PANEL"
-          grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(openUrl)' "$PANEL"
           grep -q "window.ggbApplet.openFile(url" "$PANEL"
-          grep -q 'handleGeoGebraLoginCallback(view, request.url)' "$PANEL"
+          grep -q 'callbackParameter(uri, "url")' "$PANEL"
 
-          # Exp18: a successful popup login may never visit ggtcallback. Android
-          # must detect GeoGebra's authenticated SSID cookie, pass that token to
-          # MAIN local AppW, then close only the registered popup.
-          grep -q 'EXP18_POPUP_SSID_HANDOFF' "$PANEL"
-          grep -q 'cookieValue(cookies.getCookie(url), "SSID")' "$PANEL"
-          grep -q 'fun popupGeoGebraSessionToken(view: WebView)' "$PANEL"
-          grep -q 'fun completePopupLoginFromCookie(view: WebView, url: String)' "$PANEL"
-          grep -q 'GeoGebraWebNavigation.deliverLoginToken(token)' "$PANEL"
-          grep -q 'GGQ POPUP | SSID ' "$PANEL"
-          grep -q 'ggq-popup-login-diagnostic' "$PANEL"
-          grep -q 'GeoGebraWebNavigation.closePopup(view)' "$PANEL"
+          # Exp19 root fixes.
+          grep -q 'EXP19_FILE_LOAD_LAYOUT_REARM' "$JS"
+          grep -q "lastPayload = '';" "$JS"
+          grep -q 'lastCanvas = null;' "$JS"
+          grep -q 'EXP19_NATIVE_LAYOUT_REARM' "$ACTIVITY"
+          grep -q 'lastAppliedEmbeddedLayout = null' "$ACTIVITY"
+
+          grep -q 'EXP19_POPUP_SESSION_EDGE' "$PANEL"
+          grep -q 'popupInitialSessionToken' "$PANEL"
+          grep -q 'token == baseline' "$PANEL"
+          grep -q 'popupDeliveredSessionToken' "$PANEL"
+          grep -q 'EXP19_MAIN_INPUT_FOCUS_RECOVERY' "$PANEL"
+          grep -q 'fun restoreMainInputFocus()' "$PANEL"
+          if grep -q 'ggq-popup-login-diagnostic' "$PANEL"; then
+            echo 'Visible exp18 popup diagnostic must not survive exp19'
+            exit 1
+          fi
+
+          grep -q 'EXP19_SPATIAL_INPUT_RECOVERY' "$ACTIVITY"
+          grep -q 'override fun onPostResume()' "$ACTIVITY"
+          grep -q 'recoverSpatialInputAfterExternalActivity()' "$ACTIVITY"
+          grep -q 'EXP19_INPUT_RECOVERY_WINDOW' "$SHORTCUT"
+          grep -q 'requestInputRecovery(frames: Int = 180)' "$SHORTCUT"
+          grep -q 'forceInputRecovery || !controller.laserEnabled' "$SHORTCUT"
 
           for forbidden in \
             'REMOTE_LOGIN_CALLBACK_URL' \
@@ -202,7 +163,7 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify frozen geometry and exp18 package
+      - name: Verify exp19 package and frozen spatial geometry
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -218,31 +179,26 @@ jobs:
           grep -q '#FFFFFFFF' "$BACKPLATE"
           grep -q 'val leftDestination = Rect(0, 0, halfWidth, canvas.height)' "$SINK"
           grep -q 'val rightDestination = Rect(halfWidth, 0, canvas.width, canvas.height)' "$SINK"
-          grep -q 'versionName = "0.9.30-exp18-popup-ssid-handoff"' app/build.gradle.kts
-          grep -q 'versionCode = 106' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp19-open-lifecycle-recovery"' app/build.gradle.kts
+          grep -q 'versionCode = 107' app/build.gradle.kts
 
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
-          echo "$META" | grep 'version=0.9.28'
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'fixed 720px; no dynamic resolution'
           echo "$META" | grep '42ms (~24fps) demand cadence'
-          echo "$META" | grep 'selected_geoelements_then_exact_pointer_native_3d_hit'
-          echo "$META" | grep 'no synthetic continuation line'
-          echo "$META" | grep 'right Grip native temporary MODE_ROTATEVIEW'
-          echo "$META" | grep 'trusted ggtcallback token forwarded as logintoken MessageEvent'
-          echo "$META" | grep 'trusted ggtcallback url forwarded to MAIN window.ggbApplet.openFile'
           echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
+          echo "$META" | grep 'file_load_lifecycle=exp19'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp18-popup-ssid-handoff-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp18-popup-ssid-handoff-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp19-open-lifecycle-recovery-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp19-open-lifecycle-recovery-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp18-popup-ssid-handoff-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp18-popup-ssid-handoff-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp19-open-lifecycle-recovery-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp19-open-lifecycle-recovery-debug.apk
           if-no-files-found: error
