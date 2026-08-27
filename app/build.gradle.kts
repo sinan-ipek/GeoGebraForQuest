@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 108
-        versionName = "0.9.30-exp20-canonical-runtime-guard"
+        versionCode = 109
+        versionName = "0.9.30-exp21-proven-local-file-path"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,13 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp20-canonical-runtime-guard lives only on experimental-embedded-stereo.
+// v0.9.30-exp21-proven-local-file-path lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp20 tests one hypothesis: every failure follows an escape from the canonical runtime.
-// MAIN therefore remains the bundled patched Classic engine, while remote GeoGebra pages are
-// allowed only as auxiliary popup/auth/material sources. Local DocumentsUI selection is treated
-// as a hard XR boundary: the chosen GGB is staged, the Activity is recreated, and the fresh
-// Spatial/VR runtime opens the staged file back inside the bundled patched Classic.
+// Exp21 keeps Exp20's successful cloud/login/MAIN-navigation behavior, but restores the proven
+// v0.9.29 local-file continuation model. The system document picker returns the selected Uri
+// directly to WebView/GeoGebra. No Activity recreation, staged GGB, controller recovery window,
+// laserEnabled write or Controller component rewrite is allowed on the local-file path.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
