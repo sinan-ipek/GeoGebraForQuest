@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 110
-        versionName = "0.9.30-exp22-login-avatar-recovery"
+        versionCode = 111
+        versionName = "0.9.30-exp23-popup-quarantine-picker-topology"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp22-login-avatar-recovery lives only on experimental-embedded-stereo.
+// v0.9.30-exp23-popup-quarantine-picker-topology lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp22 keeps Exp20/21's working cloud-material and direct local-file paths. Login now waits for
-// local LoginOperationW READY and closes the popup only after a verified local SUCCESS ACK. The
-// DocumentsUI return path no longer rewrites Controller components; it repairs the owning Meta
-// AvatarSystem controller-presentation state and logs controller entity/active/laser diagnostics.
+// Exp23 keeps Exp22's deterministic login handshake, structurally prevents any registered popup
+// from becoming the visible remote GeoGebra application, and replaces failed post-picker
+// Controller/Avatar recovery with a pre-picker topology boundary: embedded B/C are suspended before
+// DocumentsUI and restored after the direct local-file URI callback.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
