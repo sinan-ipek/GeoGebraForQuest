@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 105
-        versionName = "0.9.30-exp17-openfromggt-handoff"
+        versionCode = 106
+        versionName = "0.9.30-exp18-popup-ssid-handoff"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp17-openfromggt-handoff lives only on experimental-embedded-stereo.
+// v0.9.30-exp18-popup-ssid-handoff lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp17 preserves exp16 stereo/renderer lifecycle fixes and exp15 login token handoff, then adds
-// the missing ggtcallback ?url= / openfromggt path: account-selected 'Open in app' files are loaded
-// by the MAIN local patched ggbApplet.openFile / ArchiveLoader and the popup is closed.
+// Exp18 preserves exp17's local Open-in-app handoff and adds a native CookieManager fallback:
+// when the remote GeoGebra login popup exposes an authenticated SSID cookie, the token is handed
+// back to the MAIN local patched AppW and the popup closes without waiting for a callback URL.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
