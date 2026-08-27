@@ -64,6 +64,9 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0930.py" "$SRC"
 echo "[GGQ] keeping native temporary Grip rotation without synthetic white ray continuation"
 python3 "$ROOT/tools/patch-geogebra-quest-v0931.py" "$SRC"
 
+echo "[GGQ] adding exp22 deterministic login READY/SUCCESS handshake"
+python3 "$ROOT/tools/patch-geogebra-quest-v0933.py" "$SRC"
+
 echo "[GGQ] retaining last stereo frame and real popup-state detection"
 python3 "$ROOT/tools/patch-android-ui-exp9.py" "$ROOT"
 
@@ -143,7 +146,7 @@ quest_context_menu_mode=selected_geoelements_then_exact_pointer_native_3d_hit
 quest_context_pointer=transparent stereo-hole canvas remains valid input surface
 depth_pointer=Meta beam remains visible to A; GeoGebra 3D cursor remains separate; no synthetic continuation line
 grip_rotate=right Grip native temporary MODE_ROTATEVIEW; release restores oldMode with EXIT_TEMPORARY_MODE; startup-safe no GrabbableSystem lookup
-cloud_login=trusted ggtcallback token forwarded as logintoken MessageEvent to patched local main WebView; login popup closed
+cloud_login=trusted SSID token waits for local LoginOperationW READY and popup closes only after local SUCCESS ACK
 cloud_openfromggt=trusted ggtcallback url forwarded to MAIN window.ggbApplet.openFile; popup closed after handoff
 cloud_materials=account-selected Open-in-app files load through local GgbAPIW ArchiveLoader, never remote popup Classic
 runtime_layout=source-war-root
