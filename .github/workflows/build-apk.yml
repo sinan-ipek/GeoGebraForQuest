@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply exp19 through exp22 lifecycle fixes
+      - name: Apply exp19 through exp23 lifecycle fixes
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -56,8 +56,9 @@ jobs:
           python3 tools/patch-android-exp21.py .
           python3 tools/patch-android-exp22.py .
           python3 tools/patch-android-exp22-preserve-navigation.py .
+          python3 tools/patch-android-exp23.py .
 
-      - name: Verify exp22 hypotheses and frozen working paths
+      - name: Verify exp23 hypotheses and frozen working paths
         shell: bash
         run: |
           set -x
@@ -69,7 +70,7 @@ jobs:
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
           SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
-          RECOVERY=app/src/main/java/com/sinan/geogebraforquest/QuestControllerPresentationRecoverySystem.kt
+          EMBED=app/src/main/java/com/sinan/geogebraforquest/EmbeddedStereoTestSystem.kt
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
 
           grep -q 'boolean renderStereoPair = stereoPairRequested;' "$QUEST"
@@ -111,32 +112,41 @@ jobs:
           grep -q '__ggqLoginReady' "$LOGIN"
           grep -q '__ggqLoginSuccessToken' "$LOGIN"
           grep -q 'performTokenLogin(ggqPendingLoginToken, false)' "$LOGIN"
-
           grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
           grep -q 'window.__ggqLoginReady === true' "$PANEL"
           grep -q 'window.__ggqLoginSuccessToken === token' "$PANEL"
-          grep -q 'window.QuestBridge.loginTokenAck(token)' "$PANEL"
           grep -q 'EXP22_LOGIN_SUCCESS_ACK_BRIDGE' "$PANEL"
-          grep -q 'pendingLoginAckPopups' "$PANEL"
 
-          grep -q 'EXP22_AVATAR_CONTROLLER_RETURN' "$ACTIVITY"
-          grep -q 'requestControllerPresentationRecovery("local-file-result")' "$ACTIVITY"
-          grep -q 'requestControllerPresentationRecovery("vr-ready-return")' "$ACTIVITY"
-          grep -q 'class QuestControllerPresentationRecoverySystem' "$RECOVERY"
-          grep -q 'findSystem<AvatarSystem>()' "$RECOVERY"
-          grep -q 'setShowControllers(false)' "$RECOVERY"
-          grep -q 'setShowControllers(true)' "$RECOVERY"
-          grep -q 'getShowControllers()' "$RECOVERY"
-          grep -q 'forceVisibilityResetPhase' "$RECOVERY"
-          grep -q 'localControllers' "$RECOVERY"
-          grep -q 'activeControllers' "$RECOVERY"
-          grep -q 'laserEnabledControllers' "$RECOVERY"
-          if grep -q 'controller.laserEnabled =' "$RECOVERY"; then
-            echo 'Exp22 recovery must not write Controller.laserEnabled'
+          grep -q 'EXP23_POPUP_APP_SHELL_QUARANTINE' "$PANEL"
+          grep -q 'inspectPopupForRemoteAppShell(view, url)' "$PANEL"
+          grep -q 'quarantineRemoteGeoGebraAppPopup' "$PANEL"
+          grep -q 'window.ggbApplet' "$PANEL"
+          grep -q 'view.visibility = View.INVISIBLE' "$PANEL"
+
+          grep -q 'EXP23_PICKER_SAFE_TOPOLOGY_LAUNCH' "$PANEL"
+          grep -q 'requestLocalFilePickerLaunch(intent, REQUEST_CODE)' "$PANEL"
+          grep -q 'EXP23_EXTERNAL_PICKER_TOPOLOGY_BOUNDARY' "$ACTIVITY"
+          grep -q 'processLocalFilePickerTopologyBoundary' "$ACTIVITY"
+          grep -q 'requestEmbeddedTopologyRestoreAfterLocalFilePicker' "$ACTIVITY"
+          grep -q 'embeddedTopologySuspendedForPicker' "$ACTIVITY"
+          grep -q 'processLocalFilePickerTopologyBoundary()' "$EMBED"
+          grep -q 'TransformParent()' "$ACTIVITY"
+          grep -q 'Visible(false)' "$ACTIVITY"
+
+          if grep -q 'requestControllerPresentationRecovery(' "$ACTIVITY"; then
+            echo 'Exp22 Avatar recovery must be inactive in Exp23'
             exit 1
           fi
-          if grep -q 'entity.setComponent(controller)' "$RECOVERY"; then
-            echo 'Exp22 recovery must not rewrite Controller components'
+          if grep -q 'controllerPresentationRecoverySystem' "$ACTIVITY"; then
+            echo 'Exp22 Avatar recovery system must not be registered in Exp23'
+            exit 1
+          fi
+          if grep -q 'controller.laserEnabled =' "$SHORTCUT"; then
+            echo 'Exp23 controller path must remain read-only'
+            exit 1
+          fi
+          if grep -q 'entity.setComponent(controller)' "$SHORTCUT"; then
+            echo 'Exp23 must not rewrite Controller components'
             exit 1
           fi
 
@@ -148,29 +158,30 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify exp22 package
+      - name: Verify exp23 package
         shell: bash
         run: |
-          grep -q 'versionName = "0.9.30-exp22-login-avatar-recovery"' app/build.gradle.kts
-          grep -q 'versionCode = 110' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp23-popup-quarantine-picker-topology"' app/build.gradle.kts
+          grep -q 'versionCode = 111' app/build.gradle.kts
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
           echo "$META" | grep 'canonical_runtime=exp20'
           echo "$META" | grep 'local_file_path=exp21'
           echo "$META" | grep 'login_handshake=exp22'
-          echo "$META" | grep 'controller_return=exp22'
+          echo "$META" | grep 'popup_guard=exp23'
+          echo "$META" | grep 'local_picker_boundary=exp23'
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp22-login-avatar-recovery-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp22-login-avatar-recovery-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp23-popup-quarantine-picker-topology-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp23-popup-quarantine-picker-topology-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp22-login-avatar-recovery-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp22-login-avatar-recovery-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp23-popup-quarantine-picker-topology-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp23-popup-quarantine-picker-topology-debug.apk
           if-no-files-found: error
