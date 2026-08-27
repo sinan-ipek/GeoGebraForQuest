@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 112
-        versionName = "0.9.30-exp24-spatial-picker-profile-lock"
+        versionCode = 113
+        versionName = "0.9.30-exp25-embedded-picker-popup-whitelist"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp24-spatial-picker-profile-lock lives only on experimental-embedded-stereo.
+// v0.9.30-exp25-embedded-picker-popup-whitelist lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp24 keeps the deterministic Exp22 login handshake and Exp20 local MAIN guard. It blocks
-// profile/account/app-shell popup routes synchronously before they can replace the visible app.
-// Local-file selection no longer launches ACTION_OPEN_DOCUMENT from the immersive AppSystemActivity;
-// a dedicated ActivityPanel proxy owns DocumentsUI and returns the selected Uri to MAIN.
+// Exp25 keeps Exp24's ActivityPanel picker architecture but matches Meta's official embedding
+// contract: allowEmbedded + CREATE_ACTIVITY_CONTAINER + executeOnVrActivity result bridge.
+// Remote popup navigation is now a strict whitelist: accounts/callback only; material routes are
+// handed to MAIN and all other GeoGebra popup routes are blocked before rendering.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
