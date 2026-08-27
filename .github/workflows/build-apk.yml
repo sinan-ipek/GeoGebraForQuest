@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Verify exp17 renderer, openfromggt handoff and controls
+      - name: Verify exp18 renderer, popup SSID handoff and controls
         shell: bash
         run: |
           SRC=.geogebra-source-work/geogebra
@@ -87,7 +87,7 @@ jobs:
             'captureEyeWidth(' \
             '540'; do
             if grep -q "$forbidden" "$JS"; then
-              echo "Dynamic capture residue must not exist in exp17: $forbidden"
+              echo "Dynamic capture residue must not exist in exp18: $forbidden"
               exit 1
             fi
           done
@@ -167,16 +167,27 @@ jobs:
           grep -q 'put("msg", token)' "$PANEL"
           grep -q "new MessageEvent('message'" "$PANEL"
 
-          # Exp17: GeoGebra's second ggtcallback payload (?url= / openfromggt) must
-          # bypass window.opener and load through MAIN local ggbApplet / ArchiveLoader.
+          # Exp17 Open-in-app handoff remains required.
           grep -q 'EXP17_OPENFROMGGT_HANDOFF' "$PANEL"
           grep -q 'EXP17_OPENFROMGGT_CALLBACK' "$PANEL"
           grep -q 'fun deliverOpenFromGgt(url: String)' "$PANEL"
           grep -q 'callbackParameter(uri, "url")' "$PANEL"
           grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(openUrl)' "$PANEL"
           grep -q "window.ggbApplet.openFile(url" "$PANEL"
-          grep -q 'GeoGebraWebNavigation.closePopup(view)' "$PANEL"
           grep -q 'handleGeoGebraLoginCallback(view, request.url)' "$PANEL"
+
+          # Exp18: a successful popup login may never visit ggtcallback. Android
+          # must detect GeoGebra's authenticated SSID cookie, pass that token to
+          # MAIN local AppW, then close only the registered popup.
+          grep -q 'EXP18_POPUP_SSID_HANDOFF' "$PANEL"
+          grep -q 'cookieValue(cookies.getCookie(url), "SSID")' "$PANEL"
+          grep -q 'fun popupGeoGebraSessionToken(view: WebView)' "$PANEL"
+          grep -q 'fun completePopupLoginFromCookie(view: WebView, url: String)' "$PANEL"
+          grep -q 'GeoGebraWebNavigation.deliverLoginToken(token)' "$PANEL"
+          grep -q 'GGQ POPUP | SSID ' "$PANEL"
+          grep -q 'ggq-popup-login-diagnostic' "$PANEL"
+          grep -q 'GeoGebraWebNavigation.closePopup(view)' "$PANEL"
+
           for forbidden in \
             'REMOTE_LOGIN_CALLBACK_URL' \
             'redirectLocalLoginCallback(' \
@@ -191,7 +202,7 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify frozen geometry and exp17 package
+      - name: Verify frozen geometry and exp18 package
         shell: bash
         run: |
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
@@ -207,8 +218,8 @@ jobs:
           grep -q '#FFFFFFFF' "$BACKPLATE"
           grep -q 'val leftDestination = Rect(0, 0, halfWidth, canvas.height)' "$SINK"
           grep -q 'val rightDestination = Rect(halfWidth, 0, canvas.width, canvas.height)' "$SINK"
-          grep -q 'versionName = "0.9.30-exp17-openfromggt-handoff"' app/build.gradle.kts
-          grep -q 'versionCode = 105' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp18-popup-ssid-handoff"' app/build.gradle.kts
+          grep -q 'versionCode = 106' app/build.gradle.kts
 
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'version=0.9.28'
@@ -226,12 +237,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp17-openfromggt-handoff-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp17-openfromggt-handoff-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp18-popup-ssid-handoff-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp18-popup-ssid-handoff-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp17-openfromggt-handoff-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp17-openfromggt-handoff-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp18-popup-ssid-handoff-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp18-popup-ssid-handoff-debug.apk
           if-no-files-found: error
