@@ -18,6 +18,7 @@ premature closure.
 """
 
 from pathlib import Path
+import re
 import sys
 
 if len(sys.argv) != 2:
@@ -57,16 +58,26 @@ if constructor_anchor not in text:
 text = text.replace(constructor_anchor, constructor_replacement, 1)
 
 ready_anchor = '''\t\tiniNativeEvents(app);\n\t\tapiFactory = new BackendAPIFactory(app);\n'''
-ready_replacement = '''\t\tiniNativeEvents(app);\n\t\tJs.asPropertyMap(DomGlobal.window).set("__ggqLoginSuccessToken", null);\n\t\tJs.asPropertyMap(DomGlobal.window).set("__ggqLoginReady", true);\n\t\tapiFactory = new BackendAPIFactory(app);\n'''
+ready_replacement = '''\t\tiniNativeEvents(app);\n\t\tJs.asPropertyMap(DomGlobal.window).set("__ggqLoginSuccessToken", "");\n\t\tJs.asPropertyMap(DomGlobal.window).set("__ggqLoginReady", true);\n\t\tapiFactory = new BackendAPIFactory(app);\n'''
 if ready_anchor not in text:
     raise RuntimeError("exp22 LoginOperationW ready anchor not found")
 text = text.replace(ready_anchor, ready_replacement, 1)
 
-message_anchor = '''\t\t\t\t\tif ("logintoken".equals(action)) {\n\t\t\t\t\t\tLog.debug("Login token sent via message");\n\t\t\t\t\t\tperformTokenLogin((String) dataObject.get("msg"), false);\n\t\t\t\t\t}\n'''
-message_replacement = '''\t\t\t\t\tif ("logintoken".equals(action)) {\n\t\t\t\t\t\tLog.debug("Login token sent via message");\n\t\t\t\t\t\tggqPendingLoginToken = (String) dataObject.get("msg");\n\t\t\t\t\t\tperformTokenLogin(ggqPendingLoginToken, false);\n\t\t\t\t\t}\n'''
-if message_anchor not in text:
-    raise RuntimeError("exp22 LoginOperationW logintoken anchor not found")
-text = text.replace(message_anchor, message_replacement, 1)
+# Earlier Quest source patches can change indentation around this block. Patch
+# only the actual performTokenLogin call and preserve whatever indentation the
+# current pinned source has instead of depending on an exact multi-line shape.
+pattern = re.compile(
+    r'(?P<indent>[ \t]*)performTokenLogin\(\(String\) dataObject\.get\("msg"\), false\);'
+)
+match = pattern.search(text)
+if match is None:
+    raise RuntimeError("exp22 LoginOperationW logintoken call not found")
+indent = match.group("indent")
+replacement = (
+    indent + 'ggqPendingLoginToken = (String) dataObject.get("msg");\n' +
+    indent + 'performTokenLogin(ggqPendingLoginToken, false);'
+)
+text = text[:match.start()] + replacement + text[match.end():]
 
 for required in (
     marker,
