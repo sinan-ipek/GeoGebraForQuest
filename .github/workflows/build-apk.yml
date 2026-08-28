@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply Exp27 base plus Exp31 session continuity
+      - name: Apply exact Exp27 runtime
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -61,10 +61,9 @@ jobs:
           python3 tools/patch-android-exp25.py .
           python3 tools/patch-android-exp26.py .
           python3 tools/patch-android-exp27.py .
-          # Intentionally DO NOT apply exp28, exp29 or exp30.
-          python3 tools/patch-android-exp31.py .
+          # Deliberately stop here. Do not apply exp28, exp29, exp30 or exp31.
 
-      - name: Verify Exp31 exact Exp27 XR path plus isolated session restore
+      - name: Verify Exp32 exact Exp27 baseline and frozen Bug 1
         shell: bash
         run: |
           set -x
@@ -91,7 +90,7 @@ jobs:
           if grep -q 'adaptiveStereoDelay' "$JS"; then exit 1; fi
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then exit 1; fi
 
-          # Bug 1 is frozen at the proven Exp25 path.
+          # Bug 1 stays frozen on the proven Exp25 path.
           grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
           grep -q 'EXP20_CANONICAL_MAIN_GUARD' "$PANEL"
           grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
@@ -100,7 +99,7 @@ jobs:
           grep -q 'isTrustedGeoGebraCallback(uri)' "$PANEL"
           grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(uri.toString())' "$PANEL"
 
-          # Exp27 local-file/XR architecture must be restored exactly.
+          # Exact Exp27 local-file/XR architecture.
           grep -q 'EXP27_COLD_PROCESS_PICKER' "$PANEL"
           grep -q 'ColdLocalFilePickerActivity::class.java' "$PANEL"
           grep -q 'EXP27_OPEN_COLD_PENDING_FILE' "$PANEL"
@@ -116,68 +115,47 @@ jobs:
           grep -q 'android:name=".ColdLocalFilePickerActivity"' "$MANIFEST"
           grep -q 'android:process=":localpicker"' "$MANIFEST"
           if grep -q 'requestSpatialFilePickerPanel()' "$PANEL"; then
-            echo 'Exp31 MAIN still routes local files through ActivityPanel'
+            echo 'Exp32 MAIN still routes local files through ActivityPanel'
             exit 1
           fi
 
-          # Exp28/29/30 runtime experiments must be completely absent.
+          # No post-Exp27 runtime experiment or session-restore code may exist.
           for BAD in \
             EXP28_KEEP_MAIN_VISIBLE_WHILE_PICKING \
             EXP28_POST_RESULT_COLD_HANDOFF \
             EXP29_CONFIRMED_PROCESS_EXIT \
             EXP30_GRACEFUL_XR_SHUTDOWN \
+            EXP30_COLD_SESSION_RESTORE \
+            EXP31_CURRENT_REMOTE_SESSION \
+            EXP31_SNAPSHOT_SESSION_BEFORE_COLD_PICKER \
+            EXP31_RESTORE_COLD_SESSION_ONCE \
             XR_RELEASE_SETTLE_MS \
-            requestGracefulSpatialShutdown; do
+            requestGracefulSpatialShutdown \
+            prepareSessionRestore \
+            restoreColdSessionIfAny; do
             if grep -q "$BAD" "$PANEL" "$COLD" "$ACTIVITY"; then
               echo "Unexpected post-Exp27 runtime marker: $BAD"
               exit 1
             fi
           done
 
-          # Exp31 is session continuity only.
-          grep -q 'EXP31_CURRENT_REMOTE_SESSION' "$PANEL"
-          grep -q 'currentGeoGebraSessionToken()' "$PANEL"
-          grep -q 'EXP31_SNAPSHOT_SESSION_BEFORE_COLD_PICKER' "$PANEL"
-          grep -q 'ColdLocalFileBridge.prepareSessionRestore' "$PANEL"
-          grep -q 'EXP31_RESTORE_COLD_SESSION_ONCE' "$PANEL"
-          grep -q 'restoreColdSessionIfAny()' "$PANEL"
-          grep -q 'deliverLoginToken(token)' "$PANEL"
-          grep -q 'EXP31_SESSION_HANDOFF_FILE' "$COLD"
-          grep -q 'prepareSessionRestore(context: Context, token: String?)' "$COLD"
-          grep -q 'pendingSessionToken(context: Context)' "$COLD"
-          grep -q 'consumeSessionToken(context: Context)' "$COLD"
-          if grep -q 'coldLoginTokenAck' "$PANEL"; then
-            echo 'Exp31 must not create a second login ACK protocol'
-            exit 1
-          fi
-
           python3 - <<'PY'
           from pathlib import Path
           panel = Path('app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt').read_text()
           cold = Path('app/src/main/java/com/sinan/geogebraforquest/ColdLocalFilePickerActivity.kt').read_text()
 
-          # Session snapshot exists only inside the Exp27 spatial local-file launch.
           launch = panel.split('EXP27_COLD_PROCESS_PICKER', 1)[1].split('// Non-spatial development fallback only.', 1)[0]
-          assert 'EXP31_SNAPSHOT_SESSION_BEFORE_COLD_PICKER' in launch
-          assert 'ColdLocalFileBridge.prepareSessionRestore' in launch
+          assert 'ColdLocalFilePickerActivity::class.java' in launch
+          assert 'prepareSessionRestore' not in launch
 
-          # Fresh local page starts one-shot restore before opening the staged GGB.
-          page = panel.split('injectControllerContextMenuSupport(view)', 1)[1][:500]
-          assert page.find('restoreColdSessionIfAny()') < page.find('openPendingColdLocalFileIfAny()')
-
-          # Exp27 early-kill timing must remain unchanged.
           picker = cold.split('    private fun launchPicker() {', 1)[1].split('    private fun killOldMainProcessIfAlive()', 1)[0]
           assert 'postDelayed(' in picker
           assert 'killOldMainProcessIfAlive()' in picker
           assert 'KILL_MAIN_DELAY_MS' in picker
-
-          # One-shot persistence is consumed as soon as Exp22 delivery is armed.
-          restore = panel.split('    fun restoreColdSessionIfAny() {', 1)[1].split('    // EXP27_OPEN_COLD_PENDING_FILE', 1)[0]
-          assert 'deliverLoginToken(token)' in restore
-          assert 'consumeSessionToken(context)' in restore
+          assert '300L' in cold
           PY
 
-          # Failed controller-repair hypotheses must remain inactive/read-only.
+          # Failed controller-repair hypotheses remain inactive/read-only.
           if grep -q 'requestControllerPresentationRecovery(' "$ACTIVITY"; then
             echo 'failed Exp22 Avatar recovery must remain inactive'
             exit 1
@@ -199,11 +177,11 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify Exp31 package
+      - name: Verify Exp32 package
         shell: bash
         run: |
-          grep -q 'versionName = "0.9.30-exp31-exp27-session-continuity"' app/build.gradle.kts
-          grep -q 'versionCode = 119' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp32-exact-exp27-baseline"' app/build.gradle.kts
+          grep -q 'versionCode = 120' app/build.gradle.kts
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
@@ -212,21 +190,21 @@ jobs:
           echo "$META" | grep 'popup_guard=exp25'
           echo "$META" | grep 'bug1=frozen-exp25'
           echo "$META" | grep 'local_picker=exp27'
-          echo "$META" | grep 'session_continuity=exp31'
           if echo "$META" | grep -q 'local_picker_ux=exp28'; then exit 1; fi
           if echo "$META" | grep -q 'local_picker_handoff=exp29'; then exit 1; fi
           if echo "$META" | grep -q 'local_picker_handoff=exp30'; then exit 1; fi
+          if echo "$META" | grep -q 'session_continuity=exp31'; then exit 1; fi
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp31-exp27-session-continuity-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp31-exp27-session-continuity-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp32-exact-exp27-baseline-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp32-exact-exp27-baseline-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp31-exp27-session-continuity-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp31-exp27-session-continuity-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp32-exact-exp27-baseline-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp32-exact-exp27-baseline-debug.apk
           if-no-files-found: error
