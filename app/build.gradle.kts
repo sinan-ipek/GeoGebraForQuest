@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 118
-        versionName = "0.9.30-exp30-graceful-session-continuity"
+        versionCode = 119
+        versionName = "0.9.30-exp31-exp27-session-continuity"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp30-graceful-session-continuity lives only on experimental-embedded-stereo.
+// v0.9.30-exp31-exp27-session-continuity lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
 // Bug 1 remains frozen exactly at Exp25+.
-// Exp30 changes only the local-file cold handoff: graceful AppSystemActivity teardown is tried
-// before the Exp29 process-kill fallback, and the authenticated GeoGebra SSID is captured/replayed
-// through the proven Exp22 handshake so local-file cold restart preserves account login state.
+// Exp31 deliberately returns the local-file/XR path to Exp27: Exp28/29/30 are NOT applied.
+// The only addition is a one-shot SSID snapshot at local-picker launch and restore through
+// Exp22's existing READY/SUCCESS login bridge after the Exp27 cold restart.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
