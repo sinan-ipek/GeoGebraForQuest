@@ -1,0 +1,53 @@
+name: GeoGebraForQuest PC v0.1
+
+on:
+  push:
+    branches:
+      - pc-v0.1.0-shell
+    paths:
+      - "pc/**"
+      - "tools/build-geogebra-pc.ps1"
+      - "tools/patch-geogebra-quest*.py"
+      - "app/src/main/assets/web/**"
+      - ".github/workflows/pc-v0.1-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build patched GeoGebra Web3D
+        shell: powershell
+        run: .\tools\build-geogebra-pc.ps1
+
+      - name: Publish GeoGebraForQuest PC
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.1.0-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.1.0-win-x64.zip
+          if-no-files-found: error
