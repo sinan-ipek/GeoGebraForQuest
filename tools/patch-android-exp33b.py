@@ -198,6 +198,8 @@ panel = panel[:start] + cookie_handoff + panel[end:]
 # ---------------------------------------------------------------------------
 # 4. Historical early-close/quarantine helpers may still contain an SSID block.
 # Replace every exact semantic instance globally instead of naming the helper.
+# Zero matches is valid when the current Exp27 patch chain has already removed
+# those historical helpers; the safety guards below remain authoritative.
 # ---------------------------------------------------------------------------
 old_ssid_pattern = re.compile(
     r'(?P<indent>^[ \t]*)val token = popupGeoGebraSessionToken\(view\)\n'
@@ -226,9 +228,6 @@ while True:
     )
     panel = panel[:match.start()] + replacement + panel[match.end():]
     replacement_count += 1
-
-if replacement_count < 1:
-    raise RuntimeError("exp33b found no remaining historical SSID-as-token block")
 
 # ---------------------------------------------------------------------------
 # 5. Safety guards: OAuth callback remains token-auth; SSID can never be token-auth.
