@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 119
-        versionName = "0.9.30-exp31-exp27-session-continuity"
+        versionCode = 120
+        versionName = "0.9.30-exp32-exact-exp27-baseline"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp31-exp27-session-continuity lives only on experimental-embedded-stereo.
+// v0.9.30-exp32-exact-exp27-baseline lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
 // Bug 1 remains frozen exactly at Exp25+.
-// Exp31 deliberately returns the local-file/XR path to Exp27: Exp28/29/30 are NOT applied.
-// The only addition is a one-shot SSID snapshot at local-picker launch and restore through
-// Exp22's existing READY/SUCCESS login bridge after the Exp27 cold restart.
+// Exp32 intentionally applies only through Exp27. Exp28/29/30/31 are NOT applied.
+// This is the known best local-file baseline: separate :localpicker process,
+// 300 ms stale-MAIN kill, true cold Spatial/OpenXR restart, and no session-restore logic.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
