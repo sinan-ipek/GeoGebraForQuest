@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply Exp27 runtime plus Exp33 login semantics
+      - name: Apply Exp27 runtime plus Exp34 token-first login
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -61,10 +61,10 @@ jobs:
           python3 tools/patch-android-exp25.py .
           python3 tools/patch-android-exp26.py .
           python3 tools/patch-android-exp27.py .
-          # Deliberately do not apply exp28, exp29, exp30 or exp31.
-          python3 tools/patch-android-exp33c.py .
+          # Deliberately do not apply Exp28-31 or any Exp33 Android cookie-auth patch.
+          python3 tools/patch-android-exp34.py .
 
-      - name: Verify Exp33 cookie auth and exact Exp27 XR runtime
+      - name: Verify Exp34 token-first login and exact Exp27 XR runtime
         shell: bash
         run: |
           set -x
@@ -92,8 +92,14 @@ jobs:
           if grep -q 'adaptiveStereoDelay' "$JS"; then exit 1; fi
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then exit 1; fi
 
-          # Bug1 navigation/popup protection must remain intact after Exp33.
+          # GeoGebra source has exactly the proven Exp22 OAuth-token handshake.
           grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
+          grep -q '"logintoken".equals(action)' "$LOGIN"
+          grep -q 'performTokenLogin(ggqPendingLoginToken, false)' "$LOGIN"
+          if grep -q '"logincookie".equals(action)' "$LOGIN"; then exit 1; fi
+          if grep -q 'GGQ_EXP33_COOKIE_AUTH_SEMANTICS' "$LOGIN"; then exit 1; fi
+
+          # Bug1 MAIN/popup protection remains present.
           grep -q 'EXP20_CANONICAL_MAIN_GUARD' "$PANEL"
           grep -q 'EXP20_REMOTE_ESCAPE_FALLBACK' "$PANEL"
           grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
@@ -102,20 +108,19 @@ jobs:
           grep -q 'isTrustedGeoGebraCallback(uri)' "$PANEL"
           grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(uri.toString())' "$PANEL"
 
-          # Source semantics: OAuth token and SSID cookie are distinct credentials.
-          grep -q 'GGQ_EXP33_COOKIE_AUTH_SEMANTICS' "$LOGIN"
-          grep -q '"logincookie".equals(action)' "$LOGIN"
-          grep -q 'new GeoGebraTubeUser(null, ggqPendingLoginToken)' "$LOGIN"
-          grep -q 'performTokenLogin(ggqPendingLoginToken, false)' "$LOGIN"
-
-          # Android semantics: SSID uses cookie path only on a changed edge.
-          grep -q 'EXP33_COOKIE_LOGIN_DELIVERY' "$PANEL"
-          grep -q 'put("action", "logincookie")' "$PANEL"
-          grep -q 'EXP33_POPUP_COOKIE_BASELINE' "$PANEL"
-          grep -q 'snapshotPopupSessionBaseline(popup)' "$PANEL"
-          grep -q 'EXP33_COOKIE_EDGE_ONLY' "$PANEL"
-          grep -q 'changedPopupSessionCookie(view)' "$PANEL"
-          grep -q 'GeoGebraWebNavigation.deliverLoginCookie(cookie)' "$PANEL"
+          # Exp34 token-first semantics.
+          grep -q 'EXP34_TOKEN_FIRST_SESSION_OWNER' "$PANEL"
+          grep -q 'EXP34_REMOTE_OAUTH_STORAGE_PROBE' "$PANEL"
+          grep -q "window.localStorage.getItem('token')" "$PANEL"
+          grep -q "window.sessionStorage.getItem('token')" "$PANEL"
+          grep -q 'EXP34_VERIFIED_TOKEN_STORE' "$PANEL"
+          grep -q 'EXP34_VERIFIED_TOKEN_RESTORE' "$PANEL"
+          grep -q 'EXP34_NO_SSID_AUTH' "$PANEL"
+          grep -q 'EXP34_HIDDEN_LOGIN_TRANSPORT' "$PANEL"
+          grep -q 'EXP34_HIDDEN_FORBIDDEN_REDIRECT' "$PANEL"
+          if grep -q 'deliverLoginCookie(' "$PANEL"; then exit 1; fi
+          if grep -q 'put("action", "logincookie")' "$PANEL"; then exit 1; fi
+          if grep -q 'EXP33_COOKIE_' "$PANEL"; then exit 1; fi
 
           python3 - <<'PY'
           from pathlib import Path
@@ -123,44 +128,67 @@ jobs:
 
           panel = Path('app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt').read_text()
 
-          def one_function(signature):
+          def function(signature):
               start = panel.index(signature)
-              end = panel.find('\nprivate fun ', start + len(signature))
-              assert end > start
-              return panel[start:end]
+              brace = panel.index('{', start)
+              depth = 0
+              for i in range(brace, len(panel)):
+                  if panel[i] == '{':
+                      depth += 1
+                  elif panel[i] == '}':
+                      depth -= 1
+                      if depth == 0:
+                          return panel[start:i + 1]
+              raise AssertionError(signature)
 
-          # Trusted callback is a real OAuth token and must stay on token auth.
-          callback = one_function(
+          # Trusted callback remains primary and uses only the real token parameter.
+          callback = function(
               'private fun handleGeoGebraLoginCallback(view: WebView, uri: Uri): Boolean {'
           )
           assert 'GeoGebraWebNavigation.deliverLoginToken(token)' in callback
-          assert 'deliverLoginCookie' not in callback
+          assert 'popupGeoGebraSessionToken' not in callback
 
-          # The central SSID path must be edge-only cookie auth.
-          cookie = one_function(
+          # Historical SSID onPageFinished path cannot authenticate anymore.
+          cookie = function(
               'private fun completePopupLoginFromCookie(view: WebView, url: String): Boolean {'
           )
-          assert 'changedPopupSessionCookie(view)' in cookie
-          assert 'deliverLoginCookie(cookie)' in cookie
+          assert 'EXP34_NO_SSID_AUTH' in cookie
+          assert 'probePopupOAuthToken(view)' in cookie
+          assert 'popupGeoGebraSessionToken' not in cookie
           assert 'deliverLoginToken(' not in cookie
-          assert 'popupInitialSessionToken[view] = cookie' in cookie
 
-          # Bug1's canonical MAIN guard must still have its real behavior, not just a marker.
-          nav = one_function('private fun handleGeoGebraNavigation(')
+          # Hidden transport is allowed only for popup; MAIN remains canonical local AppW.
+          nav = function('private fun handleGeoGebraNavigation(')
           assert 'if (!registerAsMain)' in nav
+          assert 'closeForbiddenGeoGebraPopup(view, uri)' in nav
           assert 'if (!isRemoteGeoGebraUri(uri)) return false' in nav
           assert 'GeoGebraWebNavigation.deliverOpenFromGgt(uri.toString())' in nav
-          assert nav.rstrip().endswith('}')
-          assert 'return true' in nav
 
-          # No historical SSID-as-token block may survive, regardless of helper name.
-          old = re.compile(
-              r'val token = popupGeoGebraSessionToken\(view\).*?'
-              r'deliverLoginToken\(token\)',
-              re.S,
+          quarantine = function(
+              'private fun quarantineRemoteGeoGebraAppPopup(view: WebView, url: String) {'
           )
-          assert not old.search(panel), 'SSID cookie is still being forwarded as OAuth token'
-          assert panel.count('GeoGebraWebNavigation.deliverLoginCookie(cookie)') >= 1
+          assert 'view.visibility = View.INVISIBLE' in quarantine
+          assert 'startPopupOAuthTokenProbe(view)' in quarantine
+          assert 'popupGeoGebraSessionToken' not in quarantine
+          assert '350L' not in quarantine
+
+          forbidden = function(
+              'private fun closeForbiddenGeoGebraPopup(view: WebView, uri: Uri): Boolean {'
+          )
+          assert 'EXP34_HIDDEN_FORBIDDEN_REDIRECT' in forbidden
+          assert 'view.visibility = View.INVISIBLE' in forbidden
+          assert 'startPopupOAuthTokenProbe(view)' in forbidden
+          assert 'popupGeoGebraSessionToken' not in forbidden
+
+          # No SSID-derived value may be sent as OAuth token anywhere.
+          for match in re.finditer(r'popupGeoGebraSessionToken\(view\)', panel):
+              probe = panel[match.start():match.start() + 900]
+              assert 'deliverLoginToken(' not in probe
+
+          # Native persistence is written only from SUCCESS ACK.
+          ack = function('    fun onLoginTokenAck(token: String) {')
+          assert 'saveVerifiedOAuthToken(token)' in ack
+          assert 'pendingLoginAckPopups' in ack
           PY
 
           # Exact Exp27 local-file/XR architecture remains unchanged.
@@ -179,11 +207,11 @@ jobs:
           grep -q 'android:name=".ColdLocalFilePickerActivity"' "$MANIFEST"
           grep -q 'android:process=":localpicker"' "$MANIFEST"
           if grep -q 'requestSpatialFilePickerPanel()' "$PANEL"; then
-            echo 'Exp33 MAIN still routes local files through ActivityPanel'
+            echo 'Exp34 MAIN still routes local files through ActivityPanel'
             exit 1
           fi
 
-          # Post-Exp27 XR/session-restart experiments remain absent.
+          # Post-Exp27 XR experiments remain absent.
           for BAD in \
             EXP28_KEEP_MAIN_VISIBLE_WHILE_PICKING \
             EXP28_POST_RESULT_COLD_HANDOFF \
@@ -198,25 +226,15 @@ jobs:
             prepareSessionRestore \
             restoreColdSessionIfAny; do
             if grep -q "$BAD" "$PANEL" "$COLD" "$ACTIVITY"; then
-              echo "Unexpected post-Exp27 runtime marker: $BAD"
+              echo "Unexpected post-Exp27 XR marker: $BAD"
               exit 1
             fi
           done
 
-          # Failed controller-repair hypotheses remain inactive/read-only.
-          if grep -q 'requestControllerPresentationRecovery(' "$ACTIVITY"; then
-            echo 'failed Exp22 Avatar recovery must remain inactive'
-            exit 1
-          fi
-          if grep -q 'controller.laserEnabled =' "$SHORTCUT"; then
-            echo 'controller path must remain read-only'
-            exit 1
-          fi
-          if grep -q 'entity.setComponent(controller)' "$SHORTCUT"; then
-            echo 'must not rewrite Controller components'
-            exit 1
-          fi
-
+          # Controller path remains read-only.
+          if grep -q 'requestControllerPresentationRecovery(' "$ACTIVITY"; then exit 1; fi
+          if grep -q 'controller.laserEnabled =' "$SHORTCUT"; then exit 1; fi
+          if grep -q 'entity.setComponent(controller)' "$SHORTCUT"; then exit 1; fi
           grep -q 'ButtonBits.ButtonSqueezeR' "$SHORTCUT"
           grep -q 'ButtonBits.ButtonA' "$SHORTCUT"
           grep -q 'ButtonBits.ButtonB' "$SHORTCUT"
@@ -225,11 +243,11 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify Exp33 package
+      - name: Verify Exp34 package
         shell: bash
         run: |
-          grep -q 'versionName = "0.9.30-exp33-cookie-auth-semantics"' app/build.gradle.kts
-          grep -q 'versionCode = 121' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp34-token-first-session"' app/build.gradle.kts
+          grep -q 'versionCode = 122' app/build.gradle.kts
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
@@ -237,22 +255,21 @@ jobs:
           echo "$META" | grep 'login_handshake=exp22'
           echo "$META" | grep 'popup_guard=exp25'
           echo "$META" | grep 'local_picker=exp27'
-          echo "$META" | grep 'login_cookie_semantics=exp33'
-          if echo "$META" | grep -q 'local_picker_ux=exp28'; then exit 1; fi
-          if echo "$META" | grep -q 'local_picker_handoff=exp29'; then exit 1; fi
-          if echo "$META" | grep -q 'local_picker_handoff=exp30'; then exit 1; fi
+          echo "$META" | grep 'login_session=exp34 token-first single session owner'
+          echo "$META" | grep 'login_persistence=exp34 OAuth token saved natively only after local SUCCESS ACK'
+          if echo "$META" | grep -q 'login_cookie_semantics=exp33'; then exit 1; fi
           if echo "$META" | grep -q 'session_continuity=exp31'; then exit 1; fi
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp33-cookie-auth-semantics-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp33-cookie-auth-semantics-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp34-token-first-session-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp34-token-first-session-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp33-cookie-auth-semantics-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp33-cookie-auth-semantics-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp34-token-first-session-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp34-token-first-session-debug.apk
           if-no-files-found: error
