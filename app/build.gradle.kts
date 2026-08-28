@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 120
-        versionName = "0.9.30-exp32-exact-exp27-baseline"
+        versionCode = 121
+        versionName = "0.9.30-exp33-cookie-auth-semantics"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp32-exact-exp27-baseline lives only on experimental-embedded-stereo.
+// v0.9.30-exp33-cookie-auth-semantics lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Bug 1 remains frozen exactly at Exp25+.
-// Exp32 intentionally applies only through Exp27. Exp28/29/30/31 are NOT applied.
-// This is the known best local-file baseline: separate :localpicker process,
-// 300 ms stale-MAIN kill, true cold Spatial/OpenXR restart, and no session-restore logic.
+// Exp33 keeps the exact Exp27 local-file/XR runtime (Exp28-31 remain unapplied).
+// Login change only: trusted OAuth callback tokens remain token-auth; remote SSID
+// evidence uses GeoGebra's native cookie-auth semantics and only on a changed cookie edge.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
