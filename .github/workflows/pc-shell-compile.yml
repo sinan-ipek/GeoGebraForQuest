@@ -1,0 +1,28 @@
+name: GeoGebraForQuest PC shell compile
+
+on:
+  push:
+    branches:
+      - pc-v0.1.0-shell
+    paths:
+      - "pc/**"
+      - ".github/workflows/pc-shell-compile.yml"
+  workflow_dispatch:
+
+jobs:
+  compile-shell:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Compile PC shell
+        shell: powershell
+        run: dotnet build .\pc\GeoGebraForQuest.PC.csproj -c Release
