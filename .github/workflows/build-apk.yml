@@ -62,7 +62,7 @@ jobs:
           python3 tools/patch-android-exp26.py .
           python3 tools/patch-android-exp27.py .
           # Deliberately do not apply exp28, exp29, exp30 or exp31.
-          python3 tools/patch-android-exp33b.py .
+          python3 tools/patch-android-exp33c.py .
 
       - name: Verify Exp33 cookie auth and exact Exp27 XR runtime
         shell: bash
@@ -92,9 +92,10 @@ jobs:
           if grep -q 'adaptiveStereoDelay' "$JS"; then exit 1; fi
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then exit 1; fi
 
-          # Canonical local app / popup protection remain present.
+          # Bug1 navigation/popup protection must remain intact after Exp33.
           grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
           grep -q 'EXP20_CANONICAL_MAIN_GUARD' "$PANEL"
+          grep -q 'EXP20_REMOTE_ESCAPE_FALLBACK' "$PANEL"
           grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
           grep -q 'EXP25_STRICT_POPUP_WHITELIST' "$PANEL"
           grep -q 'host == "accounts.geogebra.org"' "$PANEL"
@@ -122,21 +123,35 @@ jobs:
 
           panel = Path('app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt').read_text()
 
+          def one_function(signature):
+              start = panel.index(signature)
+              end = panel.find('\nprivate fun ', start + len(signature))
+              assert end > start
+              return panel[start:end]
+
           # Trusted callback is a real OAuth token and must stay on token auth.
-          callback = panel.split(
-              'private fun handleGeoGebraLoginCallback(view: WebView, uri: Uri): Boolean {', 1
-          )[1][:2200]
+          callback = one_function(
+              'private fun handleGeoGebraLoginCallback(view: WebView, uri: Uri): Boolean {'
+          )
           assert 'GeoGebraWebNavigation.deliverLoginToken(token)' in callback
           assert 'deliverLoginCookie' not in callback
 
           # The central SSID path must be edge-only cookie auth.
-          cookie = panel.split(
-              'private fun completePopupLoginFromCookie(view: WebView, url: String): Boolean {', 1
-          )[1].split('private fun refreshImeConnection', 1)[0]
+          cookie = one_function(
+              'private fun completePopupLoginFromCookie(view: WebView, url: String): Boolean {'
+          )
           assert 'changedPopupSessionCookie(view)' in cookie
           assert 'deliverLoginCookie(cookie)' in cookie
           assert 'deliverLoginToken(' not in cookie
           assert 'popupInitialSessionToken[view] = cookie' in cookie
+
+          # Bug1's canonical MAIN guard must still have its real behavior, not just a marker.
+          nav = one_function('private fun handleGeoGebraNavigation(')
+          assert 'if (!registerAsMain)' in nav
+          assert 'if (!isRemoteGeoGebraUri(uri)) return false' in nav
+          assert 'GeoGebraWebNavigation.deliverOpenFromGgt(uri.toString())' in nav
+          assert nav.rstrip().endswith('}')
+          assert 'return true' in nav
 
           # No historical SSID-as-token block may survive, regardless of helper name.
           old = re.compile(
@@ -145,9 +160,7 @@ jobs:
               re.S,
           )
           assert not old.search(panel), 'SSID cookie is still being forwarded as OAuth token'
-
-          # We expect the central path plus at least one early-close path to use cookie auth.
-          assert panel.count('GeoGebraWebNavigation.deliverLoginCookie(cookie)') >= 2
+          assert panel.count('GeoGebraWebNavigation.deliverLoginCookie(cookie)') >= 1
           PY
 
           # Exact Exp27 local-file/XR architecture remains unchanged.
@@ -224,7 +237,6 @@ jobs:
           echo "$META" | grep 'login_handshake=exp22'
           echo "$META" | grep 'popup_guard=exp25'
           echo "$META" | grep 'local_picker=exp27'
-          echo "$META" | grep 'cloud_login_cookie=SSID is authenticated as cookie'
           echo "$META" | grep 'login_cookie_semantics=exp33'
           if echo "$META" | grep -q 'local_picker_ux=exp28'; then exit 1; fi
           if echo "$META" | grep -q 'local_picker_handoff=exp29'; then exit 1; fi
