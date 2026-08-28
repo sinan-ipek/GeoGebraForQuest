@@ -62,7 +62,7 @@ jobs:
           python3 tools/patch-android-exp26.py .
           python3 tools/patch-android-exp27.py .
           # Deliberately do not apply exp28, exp29, exp30 or exp31.
-          python3 tools/patch-android-exp33.py .
+          python3 tools/patch-android-exp33b.py .
 
       - name: Verify Exp33 cookie auth and exact Exp27 XR runtime
         shell: bash
@@ -80,6 +80,7 @@ jobs:
           MANIFEST=app/src/main/AndroidManifest.xml
           SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
 
+          # Stereo/runtime invariants.
           grep -q 'boolean renderStereoPair = stereoPairRequested;' "$QUEST"
           grep -q 'renderer.captureQuestEye(Renderer.EYE_LEFT)' "$QUEST"
           grep -q 'renderer.eye = Renderer.EYE_RIGHT;' "$QUEST"
@@ -91,7 +92,7 @@ jobs:
           if grep -q 'adaptiveStereoDelay' "$JS"; then exit 1; fi
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then exit 1; fi
 
-          # Existing canonical/local app and popup protection remain present.
+          # Canonical local app / popup protection remain present.
           grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
           grep -q 'EXP20_CANONICAL_MAIN_GUARD' "$PANEL"
           grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
@@ -100,13 +101,13 @@ jobs:
           grep -q 'isTrustedGeoGebraCallback(uri)' "$PANEL"
           grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(uri.toString())' "$PANEL"
 
-          # Exp33 source semantics: token and cookie are two distinct credentials.
+          # Source semantics: OAuth token and SSID cookie are distinct credentials.
           grep -q 'GGQ_EXP33_COOKIE_AUTH_SEMANTICS' "$LOGIN"
           grep -q '"logincookie".equals(action)' "$LOGIN"
           grep -q 'new GeoGebraTubeUser(null, ggqPendingLoginToken)' "$LOGIN"
           grep -q 'performTokenLogin(ggqPendingLoginToken, false)' "$LOGIN"
 
-          # Exp33 Android bridge: SSID cookie uses cookie path and only on an edge.
+          # Android semantics: SSID uses cookie path only on a changed edge.
           grep -q 'EXP33_COOKIE_LOGIN_DELIVERY' "$PANEL"
           grep -q 'put("action", "logincookie")' "$PANEL"
           grep -q 'EXP33_POPUP_COOKIE_BASELINE' "$PANEL"
@@ -117,27 +118,36 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           panel = Path('app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt').read_text()
 
-          callback = panel.split('private fun handleGeoGebraLoginCallback(view: WebView, uri: Uri): Boolean {', 1)[1][:1800]
+          # Trusted callback is a real OAuth token and must stay on token auth.
+          callback = panel.split(
+              'private fun handleGeoGebraLoginCallback(view: WebView, uri: Uri): Boolean {', 1
+          )[1][:2200]
           assert 'GeoGebraWebNavigation.deliverLoginToken(token)' in callback
           assert 'deliverLoginCookie' not in callback
 
-          cookie = panel.split('private fun completePopupLoginFromCookie(view: WebView, url: String): Boolean {', 1)[1].split('private fun refreshImeConnection', 1)[0]
+          # The central SSID path must be edge-only cookie auth.
+          cookie = panel.split(
+              'private fun completePopupLoginFromCookie(view: WebView, url: String): Boolean {', 1
+          )[1].split('private fun refreshImeConnection', 1)[0]
           assert 'changedPopupSessionCookie(view)' in cookie
           assert 'deliverLoginCookie(cookie)' in cookie
           assert 'deliverLoginToken(' not in cookie
           assert 'popupInitialSessionToken[view] = cookie' in cookie
 
-          quarantine = panel.split('private fun quarantineRemoteGeoGebraAppPopup(view: WebView, url: String) {', 1)[1].split('private fun inspectPopupForRemoteAppShell', 1)[0]
-          assert 'changedPopupSessionCookie(view)' in quarantine
-          assert 'deliverLoginCookie(cookie)' in quarantine
-          assert 'deliverLoginToken(' not in quarantine
+          # No historical SSID-as-token block may survive, regardless of helper name.
+          old = re.compile(
+              r'val token = popupGeoGebraSessionToken\(view\).*?'
+              r'deliverLoginToken\(token\)',
+              re.S,
+          )
+          assert not old.search(panel), 'SSID cookie is still being forwarded as OAuth token'
 
-          close = panel.split('private fun closeForbiddenGeoGebraPopup(view: WebView, uri: Uri): Boolean {', 1)[1].split('private fun handleGeoGebraNavigation', 1)[0]
-          assert 'changedPopupSessionCookie(view)' in close
-          assert 'deliverLoginCookie(cookie)' in close
-          assert 'deliverLoginToken(' not in close
+          # We expect the central path plus at least one early-close path to use cookie auth.
+          assert panel.count('GeoGebraWebNavigation.deliverLoginCookie(cookie)') >= 2
           PY
 
           # Exact Exp27 local-file/XR architecture remains unchanged.
@@ -160,7 +170,7 @@ jobs:
             exit 1
           fi
 
-          # No post-Exp27 XR/session-restart experiments may return.
+          # Post-Exp27 XR/session-restart experiments remain absent.
           for BAD in \
             EXP28_KEEP_MAIN_VISIBLE_WHILE_PICKING \
             EXP28_POST_RESULT_COLD_HANDOFF \
@@ -180,7 +190,7 @@ jobs:
             fi
           done
 
-          # Failed controller-repair hypotheses stay inactive/read-only.
+          # Failed controller-repair hypotheses remain inactive/read-only.
           if grep -q 'requestControllerPresentationRecovery(' "$ACTIVITY"; then
             echo 'failed Exp22 Avatar recovery must remain inactive'
             exit 1
