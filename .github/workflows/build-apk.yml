@@ -45,7 +45,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply exact Exp27 runtime
+      - name: Apply Exp27 runtime plus Exp33 login semantics
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -61,9 +61,10 @@ jobs:
           python3 tools/patch-android-exp25.py .
           python3 tools/patch-android-exp26.py .
           python3 tools/patch-android-exp27.py .
-          # Deliberately stop here. Do not apply exp28, exp29, exp30 or exp31.
+          # Deliberately do not apply exp28, exp29, exp30 or exp31.
+          python3 tools/patch-android-exp33.py .
 
-      - name: Verify Exp32 exact Exp27 baseline and frozen Bug 1
+      - name: Verify Exp33 cookie auth and exact Exp27 XR runtime
         shell: bash
         run: |
           set -x
@@ -90,7 +91,7 @@ jobs:
           if grep -q 'adaptiveStereoDelay' "$JS"; then exit 1; fi
           if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then exit 1; fi
 
-          # Bug 1 stays frozen on the proven Exp25 path.
+          # Existing canonical/local app and popup protection remain present.
           grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
           grep -q 'EXP20_CANONICAL_MAIN_GUARD' "$PANEL"
           grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
@@ -99,7 +100,47 @@ jobs:
           grep -q 'isTrustedGeoGebraCallback(uri)' "$PANEL"
           grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(uri.toString())' "$PANEL"
 
-          # Exact Exp27 local-file/XR architecture.
+          # Exp33 source semantics: token and cookie are two distinct credentials.
+          grep -q 'GGQ_EXP33_COOKIE_AUTH_SEMANTICS' "$LOGIN"
+          grep -q '"logincookie".equals(action)' "$LOGIN"
+          grep -q 'new GeoGebraTubeUser(null, ggqPendingLoginToken)' "$LOGIN"
+          grep -q 'performTokenLogin(ggqPendingLoginToken, false)' "$LOGIN"
+
+          # Exp33 Android bridge: SSID cookie uses cookie path and only on an edge.
+          grep -q 'EXP33_COOKIE_LOGIN_DELIVERY' "$PANEL"
+          grep -q 'put("action", "logincookie")' "$PANEL"
+          grep -q 'EXP33_POPUP_COOKIE_BASELINE' "$PANEL"
+          grep -q 'snapshotPopupSessionBaseline(popup)' "$PANEL"
+          grep -q 'EXP33_COOKIE_EDGE_ONLY' "$PANEL"
+          grep -q 'changedPopupSessionCookie(view)' "$PANEL"
+          grep -q 'GeoGebraWebNavigation.deliverLoginCookie(cookie)' "$PANEL"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          panel = Path('app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt').read_text()
+
+          callback = panel.split('private fun handleGeoGebraLoginCallback(view: WebView, uri: Uri): Boolean {', 1)[1][:1800]
+          assert 'GeoGebraWebNavigation.deliverLoginToken(token)' in callback
+          assert 'deliverLoginCookie' not in callback
+
+          cookie = panel.split('private fun completePopupLoginFromCookie(view: WebView, url: String): Boolean {', 1)[1].split('private fun refreshImeConnection', 1)[0]
+          assert 'changedPopupSessionCookie(view)' in cookie
+          assert 'deliverLoginCookie(cookie)' in cookie
+          assert 'deliverLoginToken(' not in cookie
+          assert 'popupInitialSessionToken[view] = cookie' in cookie
+
+          quarantine = panel.split('private fun quarantineRemoteGeoGebraAppPopup(view: WebView, url: String) {', 1)[1].split('private fun inspectPopupForRemoteAppShell', 1)[0]
+          assert 'changedPopupSessionCookie(view)' in quarantine
+          assert 'deliverLoginCookie(cookie)' in quarantine
+          assert 'deliverLoginToken(' not in quarantine
+
+          close = panel.split('private fun closeForbiddenGeoGebraPopup(view: WebView, uri: Uri): Boolean {', 1)[1].split('private fun handleGeoGebraNavigation', 1)[0]
+          assert 'changedPopupSessionCookie(view)' in close
+          assert 'deliverLoginCookie(cookie)' in close
+          assert 'deliverLoginToken(' not in close
+          PY
+
+          # Exact Exp27 local-file/XR architecture remains unchanged.
           grep -q 'EXP27_COLD_PROCESS_PICKER' "$PANEL"
           grep -q 'ColdLocalFilePickerActivity::class.java' "$PANEL"
           grep -q 'EXP27_OPEN_COLD_PENDING_FILE' "$PANEL"
@@ -115,11 +156,11 @@ jobs:
           grep -q 'android:name=".ColdLocalFilePickerActivity"' "$MANIFEST"
           grep -q 'android:process=":localpicker"' "$MANIFEST"
           if grep -q 'requestSpatialFilePickerPanel()' "$PANEL"; then
-            echo 'Exp32 MAIN still routes local files through ActivityPanel'
+            echo 'Exp33 MAIN still routes local files through ActivityPanel'
             exit 1
           fi
 
-          # No post-Exp27 runtime experiment or session-restore code may exist.
+          # No post-Exp27 XR/session-restart experiments may return.
           for BAD in \
             EXP28_KEEP_MAIN_VISIBLE_WHILE_PICKING \
             EXP28_POST_RESULT_COLD_HANDOFF \
@@ -139,23 +180,7 @@ jobs:
             fi
           done
 
-          python3 - <<'PY'
-          from pathlib import Path
-          panel = Path('app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt').read_text()
-          cold = Path('app/src/main/java/com/sinan/geogebraforquest/ColdLocalFilePickerActivity.kt').read_text()
-
-          launch = panel.split('EXP27_COLD_PROCESS_PICKER', 1)[1].split('// Non-spatial development fallback only.', 1)[0]
-          assert 'ColdLocalFilePickerActivity::class.java' in launch
-          assert 'prepareSessionRestore' not in launch
-
-          picker = cold.split('    private fun launchPicker() {', 1)[1].split('    private fun killOldMainProcessIfAlive()', 1)[0]
-          assert 'postDelayed(' in picker
-          assert 'killOldMainProcessIfAlive()' in picker
-          assert 'KILL_MAIN_DELAY_MS' in picker
-          assert '300L' in cold
-          PY
-
-          # Failed controller-repair hypotheses remain inactive/read-only.
+          # Failed controller-repair hypotheses stay inactive/read-only.
           if grep -q 'requestControllerPresentationRecovery(' "$ACTIVITY"; then
             echo 'failed Exp22 Avatar recovery must remain inactive'
             exit 1
@@ -177,19 +202,20 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify Exp32 package
+      - name: Verify Exp33 package
         shell: bash
         run: |
-          grep -q 'versionName = "0.9.30-exp32-exact-exp27-baseline"' app/build.gradle.kts
-          grep -q 'versionCode = 120' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp33-cookie-auth-semantics"' app/build.gradle.kts
+          grep -q 'versionCode = 121' app/build.gradle.kts
           META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
           echo "$META" | grep 'Open-in-app files load through local GgbAPIW ArchiveLoader'
           echo "$META" | grep 'canonical_runtime=exp20'
           echo "$META" | grep 'login_handshake=exp22'
           echo "$META" | grep 'popup_guard=exp25'
-          echo "$META" | grep 'bug1=frozen-exp25'
           echo "$META" | grep 'local_picker=exp27'
+          echo "$META" | grep 'cloud_login_cookie=SSID is authenticated as cookie'
+          echo "$META" | grep 'login_cookie_semantics=exp33'
           if echo "$META" | grep -q 'local_picker_ux=exp28'; then exit 1; fi
           if echo "$META" | grep -q 'local_picker_handoff=exp29'; then exit 1; fi
           if echo "$META" | grep -q 'local_picker_handoff=exp30'; then exit 1; fi
@@ -199,12 +225,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp32-exact-exp27-baseline-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp32-exact-exp27-baseline-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp33-cookie-auth-semantics-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp33-cookie-auth-semantics-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp32-exact-exp27-baseline-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp32-exact-exp27-baseline-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp33-cookie-auth-semantics-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp33-cookie-auth-semantics-debug.apk
           if-no-files-found: error
