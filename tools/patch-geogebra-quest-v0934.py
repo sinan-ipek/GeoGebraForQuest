@@ -22,6 +22,7 @@ string is only used as the request correlation marker for the native popup bridg
 """
 
 from pathlib import Path
+import re
 import sys
 
 if len(sys.argv) != 2:
@@ -42,12 +43,40 @@ if marker in text:
 if "GGQ_EXP22_LOGIN_READY_ACK" not in text:
     raise RuntimeError("exp33 requires exp22 login READY/SUCCESS patch first")
 
-old = '''\t\t\t\t\tif ("logintoken".equals(action)) {\n\t\t\t\t\t\tLog.debug("Login token sent via message");\n\t\t\t\t\t\tggqPendingLoginToken = (String) dataObject.get("msg");\n\t\t\t\t\t\tperformTokenLogin(ggqPendingLoginToken, false);\n\t\t\t\t\t}\n'''
-new = '''\t\t\t\t\tif ("logintoken".equals(action)) {\n\t\t\t\t\t\tLog.debug("Login token sent via message");\n\t\t\t\t\t\tggqPendingLoginToken = (String) dataObject.get("msg");\n\t\t\t\t\t\tperformTokenLogin(ggqPendingLoginToken, false);\n\t\t\t\t\t} else if ("logincookie".equals(action)) {\n\t\t\t\t\t\t// GGQ_EXP33_COOKIE_AUTH_SEMANTICS: SSID is a cookie, not an\n\t\t\t\t\t\t// OAuth token. Follow LoginOperationW.passiveLogin() semantics\n\t\t\t\t\t\t// so GeoGebraTubeAPI emits {cookie: ...}; successful userinfo\n\t\t\t\t\t\t// returns the real token which AuthenticationModelW persists.\n\t\t\t\t\t\tLog.debug("Login cookie sent via Quest bridge");\n\t\t\t\t\t\tggqPendingLoginToken = (String) dataObject.get("msg");\n\t\t\t\t\t\tdoPerformTokenLogin(\n\t\t\t\t\t\t\t\tnew GeoGebraTubeUser(null, ggqPendingLoginToken), false);\n\t\t\t\t\t}\n'''
+# Exp22 preserves the upstream indentation around this block, and that indentation
+# has changed across pinned GeoGebra revisions / prior Quest patches. Match the
+# semantic block instead of assuming a fixed number of tabs.
+pattern = re.compile(
+    r'(?P<indent>^[ \t]*)if \("logintoken"\.equals\(action\)\) \{\n'
+    r'(?P<body>.*?performTokenLogin\(ggqPendingLoginToken, false\);\n)'
+    r'(?P=indent)\}',
+    re.MULTILINE | re.DOTALL,
+)
+match = pattern.search(text)
+if match is None:
+    # Keep CI failure diagnostic useful without leaking unrelated source.
+    token_pos = text.find("performTokenLogin(ggqPendingLoginToken, false);")
+    if token_pos < 0:
+        raise RuntimeError("exp33 could not find exp22 token-login call")
+    snippet = text[max(0, token_pos - 500): token_pos + 300]
+    raise RuntimeError("exp33 could not locate enclosing logintoken block:\n" + snippet)
 
-if old not in text:
-    raise RuntimeError("exp33 could not locate exp22 logintoken message handler")
-text = text.replace(old, new, 1)
+indent = match.group("indent")
+body_indent = indent + "\t"
+original = match.group(0)
+cookie_branch = (
+    ' else if ("logincookie".equals(action)) {\n'
+    + body_indent + '// GGQ_EXP33_COOKIE_AUTH_SEMANTICS: SSID is a cookie, not an\n'
+    + body_indent + '// OAuth token. Follow LoginOperationW.passiveLogin() semantics\n'
+    + body_indent + '// so GeoGebraTubeAPI emits {cookie: ...}; successful userinfo\n'
+    + body_indent + '// returns the real token which AuthenticationModelW persists.\n'
+    + body_indent + 'Log.debug("Login cookie sent via Quest bridge");\n'
+    + body_indent + 'ggqPendingLoginToken = (String) dataObject.get("msg");\n'
+    + body_indent + 'doPerformTokenLogin(\n'
+    + body_indent + '\tnew GeoGebraTubeUser(null, ggqPendingLoginToken), false);\n'
+    + indent + '}'
+)
+text = text[:match.start()] + original + cookie_branch + text[match.end():]
 
 for required in (
     marker,
