@@ -6,23 +6,23 @@ on:
       - pc-v0.1.0-shell
     paths:
       - "pc/**"
-      - "tools/build-geogebra-pc.ps1"
+      - "tools/build-geogebra-quest.sh"
       - "tools/patch-geogebra-quest*.py"
       - "app/src/main/assets/web/**"
       - ".github/workflows/pc-v0.1-build.yml"
   workflow_dispatch:
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    timeout-minutes: 90
+  build-web3d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -32,14 +32,46 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Build proven patched GeoGebra Web3D
+        shell: bash
+        run: |
+          chmod +x ./tools/build-geogebra-quest.sh
+          ./tools/build-geogebra-quest.sh
+
+      - name: Upload patched Web3D
+        uses: actions/upload-artifact@v4
+        with:
+          name: ggq-patched-web3d
+          path: app/src/main/assets/web/GeoGebra
+          if-no-files-found: error
+          retention-days: 1
+
+  build-windows:
+    needs: build-web3d
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
 
-      - name: Build patched GeoGebra Web3D
+      - name: Download patched Web3D
+        uses: actions/download-artifact@v4
+        with:
+          name: ggq-patched-web3d
+          path: app/src/main/assets/web/GeoGebra
+
+      - name: Verify patched Web3D
         shell: powershell
-        run: .\tools\build-geogebra-pc.ps1
+        run: |
+          if (-not (Test-Path ".\app\src\main\assets\web\GeoGebra\deployggb.js")) { throw "deployggb.js missing" }
+          if (-not (Test-Path ".\app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js")) { throw "web3d.nocache.js missing" }
+          Get-Content ".\app\src\main\assets\web\GeoGebra\GGQ_SOURCE_BUILD.txt"
 
       - name: Publish GeoGebraForQuest PC
         shell: powershell
