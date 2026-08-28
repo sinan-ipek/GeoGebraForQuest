@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 121
-        versionName = "0.9.30-exp33-cookie-auth-semantics"
+        versionCode = 122
+        versionName = "0.9.30-exp34-token-first-session"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,11 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp33-cookie-auth-semantics lives only on experimental-embedded-stereo.
+// v0.9.30-exp34-token-first-session lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp33 keeps the exact Exp27 local-file/XR runtime (Exp28-31 remain unapplied).
-// Login change only: trusted OAuth callback tokens remain token-auth; remote SSID
-// evidence uses GeoGebra's native cookie-auth semantics and only on a changed cookie edge.
+// Exp34 keeps the exact Exp27 local-file/XR runtime (Exp28-31 remain unapplied).
+// Login has one session authority only: a real GeoGebra OAuth token obtained from
+// the trusted callback or authenticated GeoGebra WebStorage. SSID never authenticates.
+// A token is backed up natively only after local GeoGebra reports SUCCESS.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
