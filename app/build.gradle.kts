@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 117
-        versionName = "0.9.30-exp29-confirmed-xr-teardown"
+        versionCode = 118
+        versionName = "0.9.30-exp30-graceful-session-continuity"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp29-confirmed-xr-teardown lives only on experimental-embedded-stereo.
+// v0.9.30-exp30-graceful-session-continuity lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
 // Bug 1 remains frozen exactly at Exp25+.
-// Exp29 changes only Bug 2 handoff reliability: Exp28's good UX is preserved (GeoGebra remains
-// visible while DocumentsUI is open), but after result the stale MAIN process must disappear from
-// ActivityManager and the platform gets a 1200 ms XR-release settle interval before fresh VR start.
+// Exp30 changes only the local-file cold handoff: graceful AppSystemActivity teardown is tried
+// before the Exp29 process-kill fallback, and the authenticated GeoGebra SSID is captured/replayed
+// through the proven Exp22 handshake so local-file cold restart preserves account login state.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
