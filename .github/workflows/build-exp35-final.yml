@@ -1,0 +1,128 @@
+name: Build Exp35 Final APK
+
+on:
+  push:
+    branches: [ experimental-embedded-stereo ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-exp35-final:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 34 and NDK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+
+      - name: Build patched GeoGebra web3d
+        shell: bash
+        run: |
+          chmod +x tools/build-geogebra-quest.sh
+          ./tools/build-geogebra-quest.sh
+
+      - name: Apply frozen runtime plus Exp34 and Exp35 final
+        shell: bash
+        run: |
+          python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
+          python3 tools/patch-android-exp19.py .
+          python3 tools/patch-android-exp19-volatile.py .
+          python3 tools/patch-android-exp19-querycompat.py .
+          python3 tools/patch-android-exp20.py .
+          python3 tools/patch-android-exp21.py .
+          python3 tools/patch-android-exp22.py .
+          python3 tools/patch-android-exp22-preserve-navigation.py .
+          python3 tools/patch-android-exp23.py .
+          python3 tools/patch-android-exp24.py .
+          python3 tools/patch-android-exp25.py .
+          python3 tools/patch-android-exp26.py .
+          python3 tools/patch-android-exp27.py .
+          python3 tools/patch-android-exp34.py .
+          python3 tools/patch-android-exp35.py .
+          python3 tools/patch-android-exp35b.py .
+
+      - name: Verify Exp35 final invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
+          ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
+          SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
+          THUMB=app/src/main/java/com/sinan/geogebraforquest/QuestThumbZoomState.kt
+          COLD=app/src/main/java/com/sinan/geogebraforquest/ColdLocalFilePickerActivity.kt
+          LOGIN=.geogebra-source-work/geogebra/source/web/web/src/main/java/org/geogebra/web/shared/ggtapi/LoginOperationW.java
+
+          grep -q 'EXP34_TOKEN_FIRST_SESSION_OWNER' "$PANEL"
+          grep -q 'EXP34_NO_SSID_AUTH' "$PANEL"
+          grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
+          if grep -q 'logincookie' "$LOGIN"; then exit 1; fi
+          if grep -q 'deliverLoginCookie(' "$PANEL"; then exit 1; fi
+
+          grep -q 'EXP35_LOGIN_IME_NEXT_GUARD' "$PANEL"
+          grep -q "setAttribute('enterkeyhint', 'next')" "$PANEL"
+          grep -q "document.addEventListener('submit'" "$PANEL"
+
+          grep -q 'EXP35_RIGHT_THUMB_ZOOM_BRIDGE' "$PANEL"
+          grep -q 'EXP35_SUPPRESS_DUPLICATE_META_THUMB_SCROLL' "$PANEL"
+          grep -q 'ButtonBits.ButtonThumbRU' "$SHORTCUT"
+          grep -q 'ButtonBits.ButtonThumbRD' "$SHORTCUT"
+          grep -q 'now - lastThumbZoomAtMs >= thumbZoomRepeatMs' "$SHORTCUT"
+          if grep -q 'lastThumbZoomDirection' "$SHORTCUT"; then exit 1; fi
+          grep -q 'QuestThumbZoomState.shouldConsumePanelScroll()' "$PANEL"
+          grep -q 'DUPLICATE_SCROLL_WINDOW_MS = 220L' "$THUMB"
+
+          grep -q 'EXP27_COLD_PROCESS_PICKER' "$PANEL"
+          grep -q 'KILL_MAIN_DELAY_MS = 300L' "$COLD"
+          if grep -q 'controller.laserEnabled =' "$SHORTCUT"; then exit 1; fi
+          if grep -q 'entity.setComponent(controller)' "$SHORTCUT"; then exit 1; fi
+
+      - name: Build debug APK
+        shell: bash
+        run: gradle :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Verify package
+        shell: bash
+        run: |
+          grep -q 'versionName = "0.9.30-exp35-ime-thumb-zoom"' app/build.gradle.kts
+          grep -q 'versionCode = 123' app/build.gradle.kts
+          META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
+          echo "$META" | grep 'login_session=exp34 token-first single session owner'
+          echo "$META" | grep 'login_ime=exp35'
+          echo "$META" | grep 'right_thumb_zoom=exp35'
+          echo "$META" | grep 'local_picker=exp27'
+
+      - name: Prepare APK
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug.apk
+          if-no-files-found: error
