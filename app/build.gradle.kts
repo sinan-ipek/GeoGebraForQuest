@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 122
-        versionName = "0.9.30-exp34-token-first-session"
+        versionCode = 123
+        versionName = "0.9.30-exp35-ime-thumb-zoom"
 
         ndkVersion = "27.0.12077973"
     }
@@ -61,12 +61,12 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp34-token-first-session lives only on experimental-embedded-stereo.
+// v0.9.30-exp35-ime-thumb-zoom lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp34 keeps the exact Exp27 local-file/XR runtime (Exp28-31 remain unapplied).
-// Login has one session authority only: a real GeoGebra OAuth token obtained from
-// the trusted callback or authenticated GeoGebra WebStorage. SSID never authenticates.
-// A token is backed up natively only after local GeoGebra reports SUCCESS.
+// Exp35 keeps Exp34 token-first OAuth/session ownership and the exact Exp27
+// local-file/XR runtime. Login change is limited to IME email->password focus.
+// Right thumbstick UP/DOWN is deterministic 3D zoom while the depth pointer is
+// inside the live 3D hole; duplicate ISDK panel scroll is suppressed briefly.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {
