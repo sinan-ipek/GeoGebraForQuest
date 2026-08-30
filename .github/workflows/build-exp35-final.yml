@@ -1,4 +1,4 @@
-name: Build Exp35 Final APK
+name: Build Exp38 Login ACK Retry APK
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build-exp35-final:
+  build-exp38-login-ack-retry:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -62,6 +62,7 @@ jobs:
           python3 tools/patch-android-exp34.py .
           python3 tools/patch-android-exp35.py .
           python3 tools/patch-android-exp35b.py .
+          python3 tools/patch-android-exp38.py .
 
       - name: Verify Exp35 final invariants
         shell: bash
@@ -93,6 +94,14 @@ jobs:
           grep -q 'QuestThumbZoomState.shouldConsumePanelScroll()' "$PANEL"
           grep -q 'DUPLICATE_SCROLL_WINDOW_MS = 220L' "$THUMB"
 
+          grep -q 'EXP38_ACK_DRIVEN_TOKEN_DELIVERY' "$PANEL"
+          grep -q 'EXP38_POPUP_TOKEN_RETRY_UNTIL_ACK' "$PANEL"
+          grep -q 'EXP38_LIFETIME_OAUTH_PROBE' "$PANEL"
+          grep -q 'EXP38_TRUSTED_CALLBACK_RETRY' "$PANEL"
+          grep -q 'state.nextDispatchAt = now + 8000' "$PANEL"
+          grep -q 'webView.postDelayed({ deliverUntilAck() }, 1500L)' "$PANEL"
+          if grep -q 'if (attempts < 240)' "$PANEL"; then exit 1; fi
+
           grep -q 'EXP27_COLD_PROCESS_PICKER' "$PANEL"
           grep -q 'KILL_MAIN_DELAY_MS = 300L' "$COLD"
           if grep -q 'controller.laserEnabled =' "$SHORTCUT"; then exit 1; fi
@@ -102,14 +111,37 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify package
+      - name: Verify Exp38 login ACK retry package
         shell: bash
         run: |
-          grep -q 'versionName = "0.9.30-exp35-ime-thumb-zoom"' app/build.gradle.kts
-          grep -q 'versionCode = 123' app/build.gradle.kts
-          META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          grep -q 'versionName = "0.9.30-exp38-login-ack-retry"' app/build.gradle.kts
+          grep -q 'versionCode = 126' app/build.gradle.kts
+          grep -q 'jniLibs.useLegacyPackaging = true' app/build.gradle.kts
+          "$ANDROID_HOME/build-tools/34.0.0/zipalign" -c -v 4 "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_STORED
+
+          apk = Path("app/build/outputs/apk/debug/app-debug.apk")
+          with ZipFile(apk) as archive:
+              arm64 = [entry for entry in archive.infolist()
+                      if entry.filename.startswith("lib/arm64-v8a/")
+                      and entry.filename.endswith(".so")]
+              assert arm64, "No arm64 native libraries in APK"
+              stored = [entry.filename for entry in arm64
+                        if entry.compress_type == ZIP_STORED]
+              assert not stored, f"Uncompressed arm64 libraries remain: {stored}"
+              assert archive.testzip() is None, "APK ZIP CRC failure"
+          assert apk.stat().st_size < 75_000_000, apk.stat().st_size
+          print(f"Compact APK size: {apk.stat().st_size} bytes")
+          PY
+          META=$(unzip -p "$APK" assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'login_session=exp34 token-first single session owner'
           echo "$META" | grep 'login_ime=exp35'
+          echo "$META" | grep 'login_retry=exp38'
           echo "$META" | grep 'right_thumb_zoom=exp35'
           echo "$META" | grep 'local_picker=exp27'
 
@@ -117,12 +149,30 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug.apk | tee dist/SHA256SUMS.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug-apk
+          path: |
+            dist/GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug.apk
+            dist/SHA256SUMS.txt
           if-no-files-found: error
+
+      - name: Publish Exp38 prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v0.9.30-exp38-login-ack-retry
+          APK=dist/GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug.apk
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" "$APK" dist/SHA256SUMS.txt \
+              --title "GeoGebraForQuest Exp38 Login ACK Retry" \
+              --notes "Exp35 UI/controller runtime with acknowledgement-driven OAuth delivery retry and Exp37 compact aligned packaging. Experimental debug build." \
+              --prerelease
+          fi

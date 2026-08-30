@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 123
-        versionName = "0.9.30-exp35-ime-thumb-zoom"
+        versionCode = 126
+        versionName = "0.9.30-exp38-login-ack-retry"
 
         ndkVersion = "27.0.12077973"
     }
@@ -34,6 +34,10 @@ android {
     }
 
     packaging {
+        // SideQuest streams APKs through /data/local/tmp/_stream.apk. Keeping
+        // the large Meta native libraries compressed makes that transfer much
+        // smaller; Android extracts them while installing.
+        jniLibs.useLegacyPackaging = true
         resources.excludes.add("META-INF/LICENSE")
     }
 
@@ -61,8 +65,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp35-ime-thumb-zoom lives only on experimental-embedded-stereo.
+// v0.9.30-exp38-login-ack-retry lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
+// Exp38 keeps OAuth delivery active until exact LoginOperationW SUCCESS ACK.
+// Popup WebStorage probing lasts for the popup lifetime; no 60-second race.
+// Exp37 packaging remains: compressed native libraries and aligned resources.
 // Exp35 keeps Exp34 token-first OAuth/session ownership and the exact Exp27
 // local-file/XR runtime. Login change is limited to IME email->password focus.
 // Right thumbstick UP/DOWN is deterministic 3D zoom while the depth pointer is

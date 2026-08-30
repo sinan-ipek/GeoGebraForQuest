@@ -2,7 +2,7 @@ name: Build Quest APK
 
 on:
   push:
-    branches: [ main, experimental-embedded-stereo ]
+    branches: [ main ]
   pull_request:
     branches: [ main, stable-v0.9.29-palette ]
   workflow_dispatch:
