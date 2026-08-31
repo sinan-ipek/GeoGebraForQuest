@@ -1,4 +1,4 @@
-name: Build Exp41 Native Grip Move APK
+name: Build Exp42 Smooth Grip Move APK
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build-exp41-native-grip-move:
+  build-exp42-smooth-grip-move:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -43,7 +43,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply frozen runtime through Exp41
+      - name: Apply frozen runtime through Exp42
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -66,6 +66,7 @@ jobs:
           python3 tools/patch-android-exp39.py .
           python3 tools/patch-android-exp40.py .
           python3 tools/patch-android-exp41.py .
+          python3 tools/patch-android-exp42.py .
 
       - name: Verify Exp35 final invariants
         shell: bash
@@ -110,15 +111,18 @@ jobs:
           if grep -q 'if (attempts < 240)' "$PANEL"; then exit 1; fi
           if grep -q 'state.nextDispatchAt = now + 8000' "$PANEL"; then exit 1; fi
 
-          grep -q 'EXP41_NATIVE_GRIP_MOVE' "$PANEL"
           grep -q 'EXP41_GRIP_MODE_ONLY' "$PANEL"
           grep -q 'EXP41_PANEL_HOVER_TRACKING' "$PANEL"
           grep -q 'dispatchGripTouch(main, MotionEvent.ACTION_DOWN)' "$PANEL"
           grep -q 'dispatchGripTouch(main, MotionEvent.ACTION_MOVE)' "$PANEL"
           grep -q 'dispatchGripTouch(main, MotionEvent.ACTION_UP)' "$PANEL"
-          grep -q 'activity.onQuestGripMoveUpdated()' "$SHORTCUT"
-          grep -q 'GeoGebraWebNavigation.updateGripMove()' "$ACTIVITY"
           if grep -q 'dispatchGripMouse(' "$PANEL"; then exit 1; fi
+          grep -q 'EXP42_SMOOTH_NATIVE_GRIP_MOVE' "$PANEL"
+          grep -q 'postOnAnimation' "$PANEL"
+          grep -q 'GRIP_MOVE_EPSILON_PX = 0.75f' "$PANEL"
+          grep -q 'isDispatchingGripTouch' "$PANEL"
+          if grep -q 'fun updateGripMove()' "$PANEL"; then exit 1; fi
+          if grep -q 'activity.onQuestGripMoveUpdated()' "$SHORTCUT"; then exit 1; fi
           grep -q 'EXP39_RIGHT_THUMB_2D_3D_ZOOM' "$PANEL"
           grep -q 'if (thumbDirection != 0)' "$SHORTCUT"
           if grep -q 'thumbDirection != 0 && DepthPointerState.active' "$SHORTCUT"; then exit 1; fi
@@ -140,13 +144,13 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify Exp41 IME and controller package
+      - name: Verify Exp42 IME and controller package
         shell: bash
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
-          grep -q 'versionName = "0.9.30-exp41-native-grip-move"' app/build.gradle.kts
-          grep -q 'versionCode = 129' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp42-smooth-grip-move"' app/build.gradle.kts
+          grep -q 'versionCode = 130' app/build.gradle.kts
           grep -q 'jniLibs.useLegacyPackaging = true' app/build.gradle.kts
           "$ANDROID_HOME/build-tools/34.0.0/zipalign" -c -v 4 "$APK"
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
@@ -177,6 +181,8 @@ jobs:
           echo "$META" | grep 'right_grip=exp40'
           echo "$META" | grep 'right_grip=exp41'
           echo "$META" | grep 'trigger=exp41'
+          echo "$META" | grep 'right_grip=exp42'
+          echo "$META" | grep 'trigger=exp42'
           echo "$META" | grep 'right_thumb_zoom=exp35'
           echo "$META" | grep 'local_picker=exp27'
 
@@ -184,30 +190,30 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp41-native-grip-move-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp41-native-grip-move-debug.apk | tee dist/SHA256SUMS.txt
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp42-smooth-grip-move-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp42-smooth-grip-move-debug.apk | tee dist/SHA256SUMS.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp41-native-grip-move-debug-apk
+          name: GeoGebraForQuest-v0.9.30-exp42-smooth-grip-move-debug-apk
           path: |
-            dist/GeoGebraForQuest-v0.9.30-exp41-native-grip-move-debug.apk
+            dist/GeoGebraForQuest-v0.9.30-exp42-smooth-grip-move-debug.apk
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: Publish Exp41 prerelease
+      - name: Publish Exp42 prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=v0.9.30-exp41-native-grip-move
-          APK=dist/GeoGebraForQuest-v0.9.30-exp41-native-grip-move-debug.apk
+          TAG=v0.9.30-exp42-smooth-grip-move
+          APK=dist/GeoGebraForQuest-v0.9.30-exp42-smooth-grip-move-debug.apk
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" dist/SHA256SUMS.txt --clobber
           else
             gh release create "$TAG" "$APK" dist/SHA256SUMS.txt \
-              --title "GeoGebraForQuest Exp41 Native Grip Move" \
-              --notes "Working Exp40 login, physical side-Grip temporary Move through native WebView DOWN/MOVE/UP, unchanged Trigger pointer behavior, 2D/3D/stereo right-thumb zoom, and compact aligned packaging." \
+              --title "GeoGebraForQuest Exp42 Smooth Grip Move" \
+              --notes "Working Exp40 login, ray-driven frame-coalesced physical-Grip Move with jitter filtering, unchanged Trigger pointer and 2D/3D/stereo right-thumb zoom, and compact aligned packaging." \
               --prerelease
           fi

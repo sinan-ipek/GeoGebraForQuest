@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 129
-        versionName = "0.9.30-exp41-native-grip-move"
+        versionCode = 130
+        versionName = "0.9.30-exp42-smooth-grip-move"
 
         ndkVersion = "27.0.12077973"
     }
