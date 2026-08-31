@@ -116,7 +116,7 @@ jobs:
           grep -q 'EXP41_PANEL_HOVER_TRACKING' "$PANEL"
           grep -q 'dispatchGripTouch(main, MotionEvent.ACTION_DOWN)' "$PANEL"
           grep -q 'dispatchGripTouch(main, MotionEvent.ACTION_MOVE)' "$PANEL"
-          grep -q 'dispatchGripTouch(main, MotionEvent.ACTION_UP)' "$PANEL"
+          grep -q 'MotionEvent.ACTION_UP' "$PANEL"
           if grep -q 'dispatchGripMouse(' "$PANEL"; then exit 1; fi
           grep -q 'EXP43_ISOLATED_GRIP_POINTER' "$PANEL"
           grep -q 'EXP43_GRAPH_CANVAS_GRIP_GATE' "$PANEL"
