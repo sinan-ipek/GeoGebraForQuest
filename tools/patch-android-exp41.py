@@ -26,7 +26,9 @@ if anchor not in panel:
 panel = panel.replace(anchor, anchor + "import android.os.SystemClock\n", 1)
 
 start = panel.find("    // EXP39_GRIP_TEMPORARY_MOVE:")
-end = panel.find("    // EXP39_RIGHT_THUMB_2D_3D_ZOOM:", start)
+# The preserved Exp35 comment sits between the Grip function and Exp39's
+# replacement zoom function. Stop before it so Exp41 cannot alter zoom at all.
+end = panel.find("    // EXP35_RIGHT_THUMB_ZOOM_BRIDGE:", start)
 if start < 0 or end < 0:
     raise RuntimeError("exp41 Grip bridge boundaries missing")
 
