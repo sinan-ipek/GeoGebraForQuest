@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 131
-        versionName = "0.9.30-exp43-input-isolation-hires-splash"
+        versionCode = 132
+        versionName = "0.9.30-exp44-grip-aspect-eye-swap"
 
         ndkVersion = "27.0.12077973"
     }
