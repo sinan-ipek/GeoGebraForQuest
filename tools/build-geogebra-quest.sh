@@ -70,6 +70,9 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0933.py" "$SRC"
 echo "[GGQ] separating GeoGebra SSID cookie auth from OAuth token auth"
 python3 "$ROOT/tools/patch-geogebra-quest-v0934.py" "$SRC"
 
+echo "[GGQ] exporting exp39 direct LoginOperationW OAuth entrypoint"
+python3 "$ROOT/tools/patch-geogebra-quest-v0935.py" "$SRC"
+
 echo "[GGQ] retaining last stereo frame and real popup-state detection"
 python3 "$ROOT/tools/patch-android-ui-exp9.py" "$ROOT"
 

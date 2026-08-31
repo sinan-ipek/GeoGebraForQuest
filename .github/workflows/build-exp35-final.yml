@@ -1,4 +1,4 @@
-name: Build Exp38 Login ACK Retry APK
+name: Build Exp39 Direct Login Move APK
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build-exp38-login-ack-retry:
+  build-exp39-direct-login-move:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -63,6 +63,7 @@ jobs:
           python3 tools/patch-android-exp35.py .
           python3 tools/patch-android-exp35b.py .
           python3 tools/patch-android-exp38.py .
+          python3 tools/patch-android-exp39.py .
 
       - name: Verify Exp35 final invariants
         shell: bash
@@ -98,9 +99,23 @@ jobs:
           grep -q 'EXP38_POPUP_TOKEN_RETRY_UNTIL_ACK' "$PANEL"
           grep -q 'EXP38_LIFETIME_OAUTH_PROBE' "$PANEL"
           grep -q 'EXP38_TRUSTED_CALLBACK_RETRY' "$PANEL"
-          grep -q 'state.nextDispatchAt = now + 8000' "$PANEL"
+          grep -q 'EXP39_DIRECT_LOGIN_OPERATION' "$PANEL"
+          grep -q 'window.ggqLoginWithOAuthToken(state.token)' "$PANEL"
+          grep -q 'Date.now() - state.dispatchedAt >= 45000' "$PANEL"
+          grep -q 'GGQ_EXP39_DIRECT_OAUTH_ENTRYPOINT' "$LOGIN"
+          grep -q 'operation.performTokenLogin(token, false)' "$LOGIN"
           grep -q 'webView.postDelayed({ deliverUntilAck() }, 1500L)' "$PANEL"
           if grep -q 'if (attempts < 240)' "$PANEL"; then exit 1; fi
+          if grep -q 'state.nextDispatchAt = now + 8000' "$PANEL"; then exit 1; fi
+
+          grep -q 'EXP39_GRIP_TEMPORARY_MOVE' "$PANEL"
+          grep -q 'window.ggbApplet.setMode(0)' "$PANEL"
+          grep -q 'window.ggbApplet.setMode(state.oldMode)' "$PANEL"
+          grep -q 'EXP39_RIGHT_THUMB_2D_3D_ZOOM' "$PANEL"
+          grep -q 'EXP39_RIGHT_GRIP_GLOBAL_MOVE' "$SHORTCUT"
+          grep -q 'if (thumbDirection != 0)' "$SHORTCUT"
+          if grep -q 'thumbDirection != 0 && DepthPointerState.active' "$SHORTCUT"; then exit 1; fi
+          if grep -q 'rightGripRotateActive' "$SHORTCUT"; then exit 1; fi
 
           grep -q 'EXP27_COLD_PROCESS_PICKER' "$PANEL"
           grep -q 'KILL_MAIN_DELAY_MS = 300L' "$COLD"
@@ -111,13 +126,13 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify Exp38 login ACK retry package
+      - name: Verify Exp39 direct login and controller package
         shell: bash
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
-          grep -q 'versionName = "0.9.30-exp38-login-ack-retry"' app/build.gradle.kts
-          grep -q 'versionCode = 126' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp39-direct-login-move"' app/build.gradle.kts
+          grep -q 'versionCode = 127' app/build.gradle.kts
           grep -q 'jniLibs.useLegacyPackaging = true' app/build.gradle.kts
           "$ANDROID_HOME/build-tools/34.0.0/zipalign" -c -v 4 "$APK"
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
@@ -141,7 +156,9 @@ jobs:
           META=$(unzip -p "$APK" assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
           echo "$META" | grep 'login_session=exp34 token-first single session owner'
           echo "$META" | grep 'login_ime=exp35'
-          echo "$META" | grep 'login_retry=exp38'
+          echo "$META" | grep 'login_transport=exp39'
+          echo "$META" | grep 'right_grip=exp39'
+          echo "$META" | grep 'right_thumb_zoom=exp39'
           echo "$META" | grep 'right_thumb_zoom=exp35'
           echo "$META" | grep 'local_picker=exp27'
 
@@ -149,30 +166,30 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug.apk | tee dist/SHA256SUMS.txt
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug.apk | tee dist/SHA256SUMS.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug-apk
+          name: GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug-apk
           path: |
-            dist/GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug.apk
+            dist/GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug.apk
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: Publish Exp38 prerelease
+      - name: Publish Exp39 prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=v0.9.30-exp38-login-ack-retry
-          APK=dist/GeoGebraForQuest-v0.9.30-exp38-login-ack-retry-debug.apk
+          TAG=v0.9.30-exp39-direct-login-move
+          APK=dist/GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug.apk
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" dist/SHA256SUMS.txt --clobber
           else
             gh release create "$TAG" "$APK" dist/SHA256SUMS.txt \
-              --title "GeoGebraForQuest Exp38 Login ACK Retry" \
-              --notes "Exp35 UI/controller runtime with acknowledgement-driven OAuth delivery retry and Exp37 compact aligned packaging. Experimental debug build." \
+              --title "GeoGebraForQuest Exp39 Direct Login Move" \
+              --notes "Direct LoginOperationW OAuth transport, temporary Grip Move with exact tool restore, 2D/3D right-thumb zoom, and compact aligned packaging. Experimental debug build." \
               --prerelease
           fi

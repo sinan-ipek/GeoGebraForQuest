@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 126
-        versionName = "0.9.30-exp38-login-ack-retry"
+        versionCode = 127
+        versionName = "0.9.30-exp39-direct-login-move"
 
         ndkVersion = "27.0.12077973"
     }
@@ -65,10 +65,11 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp38-login-ack-retry lives only on experimental-embedded-stereo.
+// v0.9.30-exp39-direct-login-move lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
-// Exp38 keeps OAuth delivery active until exact LoginOperationW SUCCESS ACK.
-// Popup WebStorage probing lasts for the popup lifetime; no 60-second race.
+// Exp39 calls LoginOperationW directly once per ACK transaction; no repeated
+// MessageEvent restart. Grip is temporary Move in 2D/3D and restores prior tool.
+// Right-thumb graph-canvas zoom works in both 2D and 3D.
 // Exp37 packaging remains: compressed native libraries and aligned resources.
 // Exp35 keeps Exp34 token-first OAuth/session ownership and the exact Exp27
 // local-file/XR runtime. Login change is limited to IME email->password focus.
