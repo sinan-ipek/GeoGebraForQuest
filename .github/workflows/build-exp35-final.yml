@@ -1,4 +1,4 @@
-name: Build Exp39 Direct Login Move APK
+name: Build Exp40 IME Grip Latch APK
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build-exp39-direct-login-move:
+  build-exp40-ime-grip-latch:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -64,6 +64,7 @@ jobs:
           python3 tools/patch-android-exp35b.py .
           python3 tools/patch-android-exp38.py .
           python3 tools/patch-android-exp39.py .
+          python3 tools/patch-android-exp40.py .
 
       - name: Verify Exp35 final invariants
         shell: bash
@@ -116,6 +117,13 @@ jobs:
           grep -q 'if (thumbDirection != 0)' "$SHORTCUT"
           if grep -q 'thumbDirection != 0 && DepthPointerState.active' "$SHORTCUT"; then exit 1; fi
           if grep -q 'rightGripRotateActive' "$SHORTCUT"; then exit 1; fi
+          grep -q 'EXP40_PASSWORD_IME_COMMIT' "$PANEL"
+          grep -q "enterkeyhint', 'done'" "$PANEL"
+          grep -q 'commitPasswordAndSubmit' "$PANEL"
+          grep -q 'EXP40_PHYSICAL_GRIP_LATCH' "$SHORTCUT"
+          grep -q 'controller.isDown(ButtonBits.ButtonSqueezeR)' "$SHORTCUT"
+          grep -q 'controller.isDown(ButtonBits.ButtonSqueezeL)' "$SHORTCUT"
+          if grep -q 'controller.isPressed(ButtonBits.ButtonSqueezeR)' "$SHORTCUT"; then exit 1; fi
 
           grep -q 'EXP27_COLD_PROCESS_PICKER' "$PANEL"
           grep -q 'KILL_MAIN_DELAY_MS = 300L' "$COLD"
@@ -126,13 +134,13 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify Exp39 direct login and controller package
+      - name: Verify Exp40 IME and controller package
         shell: bash
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
-          grep -q 'versionName = "0.9.30-exp39-direct-login-move"' app/build.gradle.kts
-          grep -q 'versionCode = 127' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp40-ime-grip-latch"' app/build.gradle.kts
+          grep -q 'versionCode = 128' app/build.gradle.kts
           grep -q 'jniLibs.useLegacyPackaging = true' app/build.gradle.kts
           "$ANDROID_HOME/build-tools/34.0.0/zipalign" -c -v 4 "$APK"
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
@@ -159,6 +167,8 @@ jobs:
           echo "$META" | grep 'login_transport=exp39'
           echo "$META" | grep 'right_grip=exp39'
           echo "$META" | grep 'right_thumb_zoom=exp39'
+          echo "$META" | grep 'login_ime=exp40'
+          echo "$META" | grep 'right_grip=exp40'
           echo "$META" | grep 'right_thumb_zoom=exp35'
           echo "$META" | grep 'local_picker=exp27'
 
@@ -166,30 +176,30 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug.apk | tee dist/SHA256SUMS.txt
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp40-ime-grip-latch-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp40-ime-grip-latch-debug.apk | tee dist/SHA256SUMS.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug-apk
+          name: GeoGebraForQuest-v0.9.30-exp40-ime-grip-latch-debug-apk
           path: |
-            dist/GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug.apk
+            dist/GeoGebraForQuest-v0.9.30-exp40-ime-grip-latch-debug.apk
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: Publish Exp39 prerelease
+      - name: Publish Exp40 prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=v0.9.30-exp39-direct-login-move
-          APK=dist/GeoGebraForQuest-v0.9.30-exp39-direct-login-move-debug.apk
+          TAG=v0.9.30-exp40-ime-grip-latch
+          APK=dist/GeoGebraForQuest-v0.9.30-exp40-ime-grip-latch-debug.apk
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" dist/SHA256SUMS.txt --clobber
           else
             gh release create "$TAG" "$APK" dist/SHA256SUMS.txt \
-              --title "GeoGebraForQuest Exp39 Direct Login Move" \
-              --notes "Direct LoginOperationW OAuth transport, temporary Grip Move with exact tool restore, 2D/3D right-thumb zoom, and compact aligned packaging. Experimental debug build." \
+              --title "GeoGebraForQuest Exp40 IME Grip Latch" \
+              --notes "Quest password composition commit before real form submit, continuous physical Grip latch for temporary Move, 2D/3D right-thumb zoom, direct OAuth transport, and compact aligned packaging." \
               --prerelease
           fi

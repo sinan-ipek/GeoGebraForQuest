@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 127
-        versionName = "0.9.30-exp39-direct-login-move"
+        versionCode = 128
+        versionName = "0.9.30-exp40-ime-grip-latch"
 
         ndkVersion = "27.0.12077973"
     }
@@ -65,7 +65,7 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.30-exp39-direct-login-move lives only on experimental-embedded-stereo.
+// v0.9.30-exp40-ime-grip-latch lives only on experimental-embedded-stereo.
 // Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
 // Exp39 calls LoginOperationW directly once per ACK transaction; no repeated
 // MessageEvent restart. Grip is temporary Move in 2D/3D and restores prior tool.
