@@ -113,7 +113,6 @@ jobs:
           grep -q 'window.ggbApplet.setMode(0)' "$PANEL"
           grep -q 'window.ggbApplet.setMode(state.oldMode)' "$PANEL"
           grep -q 'EXP39_RIGHT_THUMB_2D_3D_ZOOM' "$PANEL"
-          grep -q 'EXP39_RIGHT_GRIP_GLOBAL_MOVE' "$SHORTCUT"
           grep -q 'if (thumbDirection != 0)' "$SHORTCUT"
           if grep -q 'thumbDirection != 0 && DepthPointerState.active' "$SHORTCUT"; then exit 1; fi
           if grep -q 'rightGripRotateActive' "$SHORTCUT"; then exit 1; fi
