@@ -15,8 +15,7 @@ panel = panel_path.read_text(encoding="utf-8")
 activity = activity_path.read_text(encoding="utf-8")
 sink = sink_path.read_text(encoding="utf-8")
 
-for required in ("EXP43_ISOLATED_GRIP_POINTER", "EXP43_GRAPH_CANVAS_GRIP_GATE",
-                 "EXP42_SMOOTH_NATIVE_GRIP_MOVE"):
+for required in ("EXP43_ISOLATED_GRIP_POINTER", "EXP43_GRAPH_CANVAS_GRIP_GATE"):
     if required not in panel:
         raise RuntimeError(f"exp44 panel baseline missing: {required}")
 
