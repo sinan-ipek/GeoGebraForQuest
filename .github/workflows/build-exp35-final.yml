@@ -70,7 +70,7 @@ jobs:
       - name: Verify Exp35 final invariants
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
           ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
           SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
