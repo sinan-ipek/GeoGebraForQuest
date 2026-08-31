@@ -120,7 +120,7 @@ jobs:
           grep -q 'MotionEvent.ACTION_UP' "$PANEL"
           if grep -q 'dispatchGripMouse(' "$PANEL"; then exit 1; fi
           grep -q 'EXP43_ISOLATED_GRIP_POINTER' "$PANEL"
-          grep -q 'EXP43_GRAPH_CANVAS_GRIP_GATE' "$PANEL"
+          if grep -q 'EXP43_GRAPH_CANVAS_GRIP_GATE' "$PANEL"; then exit 1; fi
           grep -q 'cancelGripForRealTrigger' "$PANEL"
           grep -q 'MotionEvent.ACTION_CANCEL' "$PANEL"
           grep -q 'gripRequestPointerSerial' "$PANEL"
