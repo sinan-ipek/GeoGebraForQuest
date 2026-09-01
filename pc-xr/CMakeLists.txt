@@ -19,9 +19,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.3 presents two complete GeoGebra frames to OpenXR. The only pixel region
-# that differs between the two frames is GeoGebra's existing 3D Graphics view.
-add_executable(GeoGebraForQuestPC.XR main-v03.cpp)
+# v0.4 keeps the normal GeoGebra PC window as the common base quad. A single
+# hidden SBS texture [L|R] is overlaid only at GeoGebra's real 3D Graphics rect.
+# The left OpenXR eye samples the left half; the right eye samples the right half.
+add_executable(GeoGebraForQuestPC.XR main-v04.cpp)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
