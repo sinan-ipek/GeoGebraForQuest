@@ -8,7 +8,8 @@ internal sealed class MainForm : Form
 {
     private const string LocalHost = "appassets.androidplatform.net";
     private const string LocalAppUrl = "https://appassets.androidplatform.net/assets/web/index.html";
-    private const string PcStereoRuntimeUrl = "https://appassets.androidplatform.net/pc-stereo-layout.js";
+    private const string PcStereoRuntimeUrl =
+        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.5.0-highres-sbs";
     private const string RemoteLoginCallback =
         "https://www.geogebra.org/apps/latest/web3d/html/ggtcallback.html";
 
@@ -29,7 +30,7 @@ internal sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "GeoGebraForQuest PC v0.2 · Exp46";
+        Text = "GeoGebraForQuest PC v0.5.0 · High-Res SBS · Exp46";
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
         MinimumSize = new Size(1000, 650);
@@ -121,7 +122,7 @@ internal sealed class MainForm : Form
             {
                 MessageBox.Show(
                     this,
-                    "GeoGebraForQuest PC v0.2 paketi eksik.\n\n" +
+                    "GeoGebraForQuest PC v0.5.0 paketi eksik.\n\n" +
                     "index.html, web3d.nocache.js ve pc-stereo-layout.js dosyaları birlikte bulunmalıdır.",
                     "GeoGebraForQuest PC",
                     MessageBoxButtons.OK,
@@ -179,7 +180,7 @@ internal sealed class MainForm : Form
             {
                 if (!e.IsSuccess)
                 {
-                    Text = $"GeoGebraForQuest PC v0.2 · Sayfa hatası: {e.WebErrorStatus}";
+                    Text = $"GeoGebraForQuest PC v0.5.0 · Sayfa hatası: {e.WebErrorStatus}";
                     return;
                 }
 
@@ -192,14 +193,14 @@ internal sealed class MainForm : Form
     {
         const string script = """
             (function () {
-              if (window.QuestBridge && window.QuestBridge.__pcBridgeV2) return;
+              if (window.QuestBridge && window.QuestBridge.__pcBridgeV5) return;
 
               function send(message) {
                 try { window.chrome.webview.postMessage(message); } catch (e) {}
               }
 
               window.QuestBridge = {
-                __pcBridgeV2: true,
+                __pcBridgeV5: true,
                 updateStereoLayout: function (json) {
                   send({ type: 'stereoLayout', payload: String(json || '') });
                 },
@@ -213,8 +214,8 @@ internal sealed class MainForm : Form
                 getStereoDebugStatus: function () {
                   return JSON.stringify({
                     platform: 'GeoGebraForQuest PC',
-                    version: '0.2.0-exp46',
-                    presentation: 'normal GeoGebra + eye-specific native 3D view overlay'
+                    version: '0.5.0-exp46-highres-sbs',
+                    presentation: 'PC normal GeoGebra; Quest normal GeoGebra + high-resolution SBS 3D overlay'
                   });
                 },
                 panelReady: function () {
@@ -259,9 +260,9 @@ internal sealed class MainForm : Form
                 setTimeout(resizeGeoGebra, 1600);
               }
 
-              if (!document.getElementById('ggq-pc-stereo-v2')) {
+              if (!document.getElementById('ggq-pc-stereo-v5')) {
                 var tag = document.createElement('script');
-                tag.id = 'ggq-pc-stereo-v2';
+                tag.id = 'ggq-pc-stereo-v5';
                 tag.src = {{stereoUrl}};
                 tag.async = false;
                 tag.onerror = function () {
@@ -356,14 +357,15 @@ internal sealed class MainForm : Form
                 case "runtimeError":
                     if (root.TryGetProperty("message", out var messageNode))
                     {
-                        Text = "GeoGebraForQuest PC v0.2 · " + (messageNode.GetString() ?? "Runtime hatası");
+                        Text = "GeoGebraForQuest PC v0.5.0 · " +
+                            (messageNode.GetString() ?? "Runtime hatası");
                     }
                     break;
             }
         }
         catch (Exception ex)
         {
-            Text = "GeoGebraForQuest PC v0.2 · Bridge: " + ex.Message;
+            Text = "GeoGebraForQuest PC v0.5.0 · Bridge: " + ex.Message;
         }
     }
 
@@ -414,7 +416,7 @@ internal sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            Text = "GeoGebraForQuest PC v0.2 · 3D konum: " + ex.Message;
+            Text = "GeoGebraForQuest PC v0.5.0 · 3D konum: " + ex.Message;
         }
     }
 
@@ -516,7 +518,7 @@ internal sealed class MainForm : Form
                         try
                         {
                             BeginInvoke((Action)(() =>
-                                Text = "GeoGebraForQuest PC v0.2 · Stereo decode: " + ex.Message));
+                                Text = "GeoGebraForQuest PC v0.5.0 · Stereo decode: " + ex.Message));
                         }
                         catch { }
                     }
@@ -690,6 +692,6 @@ internal sealed class MainForm : Form
             ? $"3D stereo hedefi {bounds.Width}×{bounds.Height} · kare {_frameNumber}"
             : "3D stereo bekleniyor";
 
-        Text = $"GeoGebraForQuest PC v0.2 · {stereo} · Quest: {_xrStatusText}";
+        Text = $"GeoGebraForQuest PC v0.5.0 · High-Res SBS · {stereo} · Quest: {_xrStatusText}";
     }
 }
