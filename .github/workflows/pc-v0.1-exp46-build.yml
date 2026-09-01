@@ -1,0 +1,141 @@
+name: GeoGebraForQuest PC v0.1 Exp46
+
+on:
+  push:
+    branches:
+      - pc-v0.1-exp46-base
+    paths:
+      - "pc/**"
+      - "pc-xr/**"
+      - "tools/**"
+      - "app/src/main/assets/web/**"
+      - ".github/workflows/pc-v0.1-exp46-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-web3d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build Exp46 patched GeoGebra Web3D
+        shell: bash
+        run: |
+          chmod +x tools/build-geogebra-quest.sh
+          ./tools/build-geogebra-quest.sh
+
+      - name: Verify Exp46 Web3D metadata
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -f app/src/main/assets/web/GeoGebra/web3d/web3d.nocache.js
+          test -f app/src/main/assets/web/GeoGebra/deployggb.js
+          META=app/src/main/assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt
+          grep -q 'projection_calibration=exp45' "$META"
+          grep -q 'renderer=QuestStereoRenderer' "$META"
+          grep -q 'bridge=serial-gated JPEG pair delivery' "$META"
+
+      - name: Pack PC web assets
+        shell: bash
+        run: |
+          tar -czf pc-web-assets-exp46.tgz -C app/src/main/assets web
+
+      - name: Upload PC web assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc-web-assets-exp46
+          path: pc-web-assets-exp46.tgz
+          if-no-files-found: error
+
+  build-windows:
+    needs: build-web3d
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download Exp46 web assets
+        uses: actions/download-artifact@v4
+        with:
+          name: pc-web-assets-exp46
+          path: .pc-web-assets
+
+      - name: Install Exp46 web assets
+        shell: powershell
+        run: |
+          if (Test-Path "app/src/main/assets/web") {
+            Remove-Item "app/src/main/assets/web" -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          tar -xzf ".pc-web-assets/pc-web-assets-exp46.tgz" -C "app/src/main/assets"
+          if (-not (Test-Path "app/src/main/assets/web/GeoGebra/web3d/web3d.nocache.js")) {
+            throw "Downloaded Web3D assets are incomplete."
+          }
+
+      - name: Build Windows app and OpenXR companion
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = "dist/GeoGebraForQuest-PC-v0.1.0-exp46-win-x64"
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
+          if (-not (Test-Path "$dir/assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt")) { throw "Exp46 source metadata missing" }
+          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.1.0-exp46-win-x64.zip")) { throw "ZIP missing" }
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.1.0-exp46-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.1.0-exp46-win-x64.zip
+          if-no-files-found: error
+
+      - name: Publish prerelease
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "pc-v0.1.0-exp46"
+          $zip = "dist/GeoGebraForQuest-PC-v0.1.0-exp46-win-x64.zip"
+          $notes = @"
+          First GeoGebraForQuest PC prototype based on the current Quest Exp46 Web3D/stereo renderer.
+
+          - Windows WebView2 GeoGebra UI with physical mouse/keyboard input
+          - Local .ggb open/save wrapper plus normal GeoGebra online UI/popup profile
+          - PC Stereo Panel B shows a mono preview by default; optional SBS diagnostic preview
+          - OpenXR companion mirrors the same Windows client area as a large quad
+          - Stereo Panel B is overlaid per-eye: L only to left eye, R only to right eye
+          - Works through the active PC OpenXR runtime, so Meta Quest Link cable and Air Link use the same app path
+          - Prototype limitation: v0.1 captures the visible PC client area with GDI, so keep the app window visible and unobscured during headset testing
+          "@
+          if (gh release view $tag 2>$null) {
+            gh release upload $tag $zip --clobber
+          } else {
+            gh release create $tag $zip --title "GeoGebraForQuest PC v0.1.0 Exp46" --notes $notes --prerelease
+          }
