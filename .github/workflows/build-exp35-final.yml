@@ -1,4 +1,4 @@
-name: Build Exp45 Quest Perspective Calibration APK
+name: Build Exp46 Hover-Target Grip Focus APK
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build-exp45-quest-perspective-calibration:
+  build-exp46-hover-target-grip-focus:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -43,7 +43,7 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Apply frozen runtime through Exp44
+      - name: Apply frozen runtime through Exp44 plus Exp46 Grip focus
         shell: bash
         run: |
           python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
@@ -69,8 +69,9 @@ jobs:
           python3 tools/patch-android-exp42.py .
           python3 tools/patch-android-exp43.py .
           python3 tools/patch-android-exp44.py .
+          python3 tools/patch-android-exp46.py .
 
-      - name: Verify Exp45 frozen runtime and projection invariants
+      - name: Verify Exp46 target-view Grip and frozen projection invariants
         shell: bash
         run: |
           set -euxo pipefail
@@ -82,6 +83,8 @@ jobs:
           LOGIN=.geogebra-source-work/geogebra/source/web/web/src/main/java/org/geogebra/web/shared/ggtapi/LoginOperationW.java
           SETTINGS=.geogebra-source-work/geogebra/source/shared/common/src/main/java/org/geogebra/common/main/settings/EuclidianSettings3D.java
           VIEW3D=.geogebra-source-work/geogebra/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/EuclidianView3D.java
+          EUCLIDIAN=.geogebra-source-work/geogebra/source/shared/common/src/main/java/org/geogebra/common/euclidian/EuclidianController.java
+          EUCLIDIANW=.geogebra-source-work/geogebra/source/web/web-common/src/main/java/org/geogebra/web/html5/euclidian/EuclidianControllerW.java
 
           grep -q 'GGQ_EXP45_QUEST_PERSPECTIVE_CALIBRATION' "$SETTINGS"
           grep -q 'EYE_SEP_DEFAULT = 46' "$SETTINGS"
@@ -91,6 +94,23 @@ jobs:
           grep -q 'PROJECTION_PERSPECTIVE_EYE_DISTANCE_DEFAULT = 1080' "$VIEW3D"
           if grep -q 'EYE_SEP_DEFAULT = 200' "$SETTINGS"; then exit 1; fi
           if grep -q 'PROJECTION_PERSPECTIVE_EYE_DISTANCE_DEFAULT = 2500' "$SETTINGS" "$VIEW3D"; then exit 1; fi
+
+          grep -q 'GGQ_EXP46_TARGET_VIEW_GRIP_MOVE' "$EUCLIDIAN"
+          grep -q 'updateFocusedPanel(event);' "$EUCLIDIAN"
+          grep -q 'activateArmedQuestGripMove();' "$EUCLIDIAN"
+          grep -q 'view.setMode(EuclidianConstants.MODE_MOVE, ModeSetter.DOCK_PANEL)' "$EUCLIDIAN"
+          grep -q 'ggqArmGripMoveForNextPress' "$EUCLIDIANW"
+          grep -q 'ggqEndGripMoveForTargetView' "$EUCLIDIANW"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path(".geogebra-source-work/geogebra/source/shared/common/src/main/java/"
+                        "org/geogebra/common/euclidian/EuclidianController.java").read_text()
+          focus = source.index("updateFocusedPanel(event);")
+          grip = source.index("activateArmedQuestGripMove();", focus)
+          hits = source.index("updateHits(event);", grip)
+          assert focus < grip < hits, "Grip Move must activate after focus and before hit/tool processing"
+          PY
 
           grep -q 'EXP34_TOKEN_FIRST_SESSION_OWNER' "$PANEL"
           grep -q 'EXP34_NO_SSID_AUTH' "$PANEL"
@@ -141,6 +161,10 @@ jobs:
           grep -q 'window.__ggqLastPointer' "$PANEL"
           grep -q 'ggqGripBlockingUi' "$PANEL"
           if grep -q 'Number(style.opacity || 1) > 0' "$PANEL"; then exit 1; fi
+          grep -q 'EXP46_TARGET_VIEW_GRIP_FOCUS' "$PANEL"
+          grep -q 'ggqArmGripMoveForNextPress(oldMode)' "$PANEL"
+          grep -q 'EXP46_ARM_FAILURE_CLEANUP' "$PANEL"
+          if grep -A30 'EXP46_TARGET_VIEW_GRIP_FOCUS' "$PANEL" | grep -q 'ggbApplet.setMode(0)'; then exit 1; fi
           grep -q 'EXP44_CONTROLLER_PALETTE_ASPECT' "$ACTIVITY"
           grep -q 'Scale(controllerPaletteScale())' "$ACTIVITY"
           if grep -q 'Scale(CONTROLLER_PALETTE_SCALE)' "$ACTIVITY"; then exit 1; fi
@@ -171,13 +195,13 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify Exp45 input isolation and package
+      - name: Verify Exp46 input isolation and package
         shell: bash
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
-          grep -q 'versionName = "0.9.30-exp45-quest-perspective-calibration"' app/build.gradle.kts
-          grep -q 'versionCode = 133' app/build.gradle.kts
+          grep -q 'versionName = "0.9.30-exp46-hover-target-grip-focus"' app/build.gradle.kts
+          grep -q 'versionCode = 134' app/build.gradle.kts
           test "$(sha256sum app/src/main/res/drawable-nodpi/stereo_splash_left.webp | cut -d' ' -f1)" = "c1099046a9b3b3bd5d9d28ef9ef9686dd6353544b6bd3cd406cfab0de6a23bb8"
           test "$(sha256sum app/src/main/res/drawable-nodpi/stereo_splash_right.webp | cut -d' ' -f1)" = "791b8de6a81a0563884d35e7fb755bbaf50b3cfa21e98bf224b378fb706edd8e"
           grep -q 'jniLibs.useLegacyPackaging = true' app/build.gradle.kts
@@ -219,6 +243,8 @@ jobs:
           echo "$META" | grep 'controller_palette=exp44'
           echo "$META" | grep 'startup_splash=exp44'
           echo "$META" | grep 'projection_calibration=exp45 eye_to_screen_px=1080 eye_separation_px=46'
+          echo "$META" | grep 'right_grip=exp46 ray-target view focused before temporary Move/tool processing'
+          echo "$META" | grep 'trigger=exp46 unchanged ordinary pointer'
           echo "$META" | grep 'right_thumb_zoom=exp35'
           echo "$META" | grep 'local_picker=exp27'
 
@@ -226,30 +252,30 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp45-quest-perspective-calibration-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.30-exp45-quest-perspective-calibration-debug.apk | tee dist/SHA256SUMS.txt
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk | tee dist/SHA256SUMS.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.30-exp45-quest-perspective-calibration-debug-apk
+          name: GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug-apk
           path: |
-            dist/GeoGebraForQuest-v0.9.30-exp45-quest-perspective-calibration-debug.apk
+            dist/GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: Publish Exp45 prerelease
+      - name: Publish Exp46 prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=v0.9.30-exp45-quest-perspective-calibration
-          APK=dist/GeoGebraForQuest-v0.9.30-exp45-quest-perspective-calibration-debug.apk
+          TAG=v0.9.30-exp46-hover-target-grip-focus
+          APK=dist/GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" dist/SHA256SUMS.txt --clobber
           else
             gh release create "$TAG" "$APK" dist/SHA256SUMS.txt \
-              --title "GeoGebraForQuest Exp45 Quest Perspective Calibration" \
-              --notes "Exp44 runtime unchanged. Quest stereo projection is calibrated as one matched pair: 1080 px eye-to-screen distance and 46 px eye separation for the fixed 1080 px / 1.50 m panel at 1.50 m nominal viewing distance. Grip/focus behavior is intentionally unchanged for isolation." \
+              --title "GeoGebraForQuest Exp46 Hover-Target Grip Focus" \
+              --notes "Exp45 projection calibration remains frozen at 1080/46. Grip now arms the ray-target 2D or 3D Euclidian view and enters temporary Move after focus but before tool processing, so no preliminary Trigger click is required and the old tool cannot execute on the first Grip press. Trigger, joystick zoom, login, stereo capture, and local-file behavior are unchanged." \
               --prerelease
           fi

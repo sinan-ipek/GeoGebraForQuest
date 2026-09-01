@@ -76,6 +76,9 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0935.py" "$SRC"
 echo "[GGQ] calibrating glasses projection for the fixed Quest panel"
 python3 "$ROOT/tools/patch-geogebra-quest-v0936.py" "$SRC"
 
+echo "[GGQ] arming temporary Grip Move on the ray-target Euclidian view"
+python3 "$ROOT/tools/patch-geogebra-quest-v0937.py" "$SRC"
+
 echo "[GGQ] retaining last stereo frame and real popup-state detection"
 python3 "$ROOT/tools/patch-android-ui-exp9.py" "$ROOT"
 
