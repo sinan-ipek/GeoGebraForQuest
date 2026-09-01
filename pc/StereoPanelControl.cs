@@ -4,12 +4,21 @@ namespace GeoGebraForQuest.PC;
 
 internal sealed class StereoPanelControl : Control
 {
+    private const int TitleHeight = 50;
+    private const int ContentMargin = 8;
+
     private readonly object _imageLock = new();
     private Bitmap? _left;
     private Bitmap? _right;
     private string _message = "3D grafik bekleniyor";
 
     public bool ShowSbsPreview { get; set; }
+
+    public Rectangle ContentRectangle => new(
+        ContentMargin,
+        TitleHeight + ContentMargin,
+        Math.Max(1, Width - ContentMargin * 2),
+        Math.Max(1, Height - TitleHeight - ContentMargin * 2));
 
     public StereoPanelControl()
     {
@@ -86,9 +95,8 @@ internal sealed class StereoPanelControl : Control
         using var titleFont = new Font(Font.FontFamily, 10.5f, FontStyle.Bold);
         using var smallFont = new Font(Font.FontFamily, 8.5f, FontStyle.Regular);
 
-        const int titleHeight = 50;
-        e.Graphics.FillRectangle(panelBrush, 0, 0, Width, titleHeight);
-        e.Graphics.DrawLine(borderPen, 0, titleHeight - 1, Width, titleHeight - 1);
+        e.Graphics.FillRectangle(panelBrush, 0, 0, Width, TitleHeight);
+        e.Graphics.DrawLine(borderPen, 0, TitleHeight - 1, Width, TitleHeight - 1);
         e.Graphics.DrawString("Stereo Panel (B)", titleFont, titleBrush, new PointF(12, 7));
         e.Graphics.DrawString(
             ShowSbsPreview ? _message + " · PC SBS önizleme" : _message + " · PC mono / Quest stereo",
@@ -104,12 +112,7 @@ internal sealed class StereoPanelControl : Control
             right = _right;
         }
 
-        var content = new Rectangle(
-            8,
-            titleHeight + 8,
-            Math.Max(1, Width - 16),
-            Math.Max(1, Height - titleHeight - 16));
-
+        var content = ContentRectangle;
         e.Graphics.DrawRectangle(borderPen, content);
 
         if (left is null || right is null)
