@@ -90,7 +90,7 @@ internal sealed class StereoSharedFrameWriter : IDisposable
                 _view.Write(44, finalLeft.Width);
                 _view.Write(48, finalLeft.Height);
                 _view.Write(52, stride);
-                _view.Write(56, frameNumber);
+                _view.Write(56, unchecked((int)frameNumber));
                 _view.Write(60, Environment.ProcessId);
 
                 WriteBitmap(finalLeft, LeftOffset, stride);
