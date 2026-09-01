@@ -8,85 +8,46 @@ internal sealed class MainForm : Form
 {
     private const string LocalHost = "appassets.androidplatform.net";
     private const string LocalAppUrl = "https://appassets.androidplatform.net/assets/web/index.html";
-    private const string StereoLayoutUrl = "https://appassets.androidplatform.net/assets/web/quest-stereo-layout.js";
+    private const string PcStereoRuntimeUrl = "https://appassets.androidplatform.net/pc-stereo-layout.js";
     private const string RemoteLoginCallback =
         "https://www.geogebra.org/apps/latest/web3d/html/ggtcallback.html";
 
     private readonly WebView2 _webView = new() { Dock = DockStyle.Fill };
-    private readonly StereoPanelControl _stereoPanel = new() { Dock = DockStyle.Fill };
-    private readonly SplitContainer _split = new()
-    {
-        Dock = DockStyle.Fill,
-        Orientation = Orientation.Vertical,
-        Panel1MinSize = 640,
-        Panel2MinSize = 320,
-        SplitterWidth = 6
-    };
-
-    private readonly ToolStripStatusLabel _status = new() { Text = "Başlatılıyor…" };
-    private readonly ToolStripStatusLabel _xrStatus = new()
-    {
-        Spring = true,
-        TextAlign = ContentAlignment.MiddleCenter,
-        Text = "Quest: hazırlanıyor"
-    };
-    private readonly ToolStripStatusLabel _frameStatus = new()
-    {
-        TextAlign = ContentAlignment.MiddleRight,
-        Text = "Stereo: bekleniyor"
-    };
-
     private readonly StereoSharedFrameWriter _sharedFrames = new();
     private readonly XrCompanionManager _xrCompanion = new();
     private readonly object _pendingFrameLock = new();
+    private readonly object _geometryLock = new();
 
     private CoreWebView2Environment? _environment;
-    private ToolStripButton? _questButton;
     private (string Left, string Right)? _pendingFrames;
+    private Rectangle _stereo3DClientBounds = Rectangle.Empty;
+    private bool _stereo3DActive;
     private int _decodeWorkerActive;
     private long _frameNumber;
     private bool _closing;
+    private string _xrStatusText = "Quest hazırlanıyor";
 
     public MainForm()
     {
-        Text = "GeoGebraForQuest PC · v0.1.0 · Exp46";
+        Text = "GeoGebraForQuest PC v0.2 · Exp46";
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
-        MinimumSize = new Size(1200, 720);
+        MinimumSize = new Size(1000, 650);
         KeyPreview = true;
+
+        Controls.Add(_webView);
 
         _xrCompanion.StatusChanged += XrStatusChanged;
 
-        var tools = BuildToolStrip();
-        var statusBar = new StatusStrip();
-        statusBar.Items.Add(_status);
-        statusBar.Items.Add(_xrStatus);
-        statusBar.Items.Add(_frameStatus);
-
-        _split.Panel1.Controls.Add(_webView);
-        _split.Panel2.Controls.Add(_stereoPanel);
-
-        Controls.Add(_split);
-        Controls.Add(statusBar);
-        Controls.Add(tools);
-
-        tools.Dock = DockStyle.Top;
-        statusBar.Dock = DockStyle.Bottom;
-
         Shown += async (_, _) =>
         {
-            _split.SplitterDistance = Math.Max(700, (int)(ClientSize.Width * 0.70));
             await InitializeWebViewAsync();
-
-            // The intended UX is automatic PC -> Quest connection. If Quest Link/Air Link
-            // is not active, the OpenXR companion exits cleanly and the toolbar button can
-            // be used to retry after the headset connection is established.
             _xrCompanion.Start();
-            UpdateQuestButton();
+            UpdateWindowTitle();
         };
 
-        Resize += (_, _) => PublishInactiveGeometryIfNeeded();
-        _split.SplitterMoved += (_, _) => PublishInactiveGeometryIfNeeded();
+        KeyDown += MainFormKeyDown;
+        Resize += (_, _) => PublishCurrentGeometryInactiveDuringResize();
 
         FormClosing += (_, _) => _closing = true;
         FormClosed += (_, _) =>
@@ -94,63 +55,35 @@ internal sealed class MainForm : Form
             _xrCompanion.Dispose();
             _sharedFrames.Dispose();
             _webView.Dispose();
-            _stereoPanel.Dispose();
         };
     }
 
-    private ToolStrip BuildToolStrip()
+    private async void MainFormKeyDown(object? sender, KeyEventArgs e)
     {
-        var bar = new ToolStrip
+        if (e.Control && e.KeyCode == Keys.O)
         {
-            GripStyle = ToolStripGripStyle.Hidden,
-            RenderMode = ToolStripRenderMode.System,
-            Padding = new Padding(6, 3, 6, 3)
-        };
+            e.SuppressKeyPress = true;
+            await OpenLocalFileAsync();
+            return;
+        }
 
-        var open = new ToolStripButton("Yerel Aç")
+        if (e.Control && e.KeyCode == Keys.S)
         {
-            ToolTipText = "Yerel .ggb dosyasını Windows dosya seçicisiyle aç"
-        };
-        var save = new ToolStripButton("Farklı Kaydet")
-        {
-            ToolTipText = "Etkin GeoGebra çalışmasını .ggb olarak kaydet"
-        };
-        var reload = new ToolStripButton("Yenile");
-        var toggleStereo = new ToolStripButton("B Paneli")
-        {
-            Checked = true,
-            CheckOnClick = true
-        };
-        var sbsPreview = new ToolStripButton("PC'de SBS")
-        {
-            Checked = false,
-            CheckOnClick = true,
-            ToolTipText = "Yalnız PC monitöründeki B önizlemesini L|R yapar; Quest stereo çıkışını değiştirmez"
-        };
-        _questButton = new ToolStripButton("Quest'e Bağlan")
-        {
-            ToolTipText = "Etkin OpenXR runtime üzerinden Meta Quest Link/Air Link bağlantısını başlat"
-        };
-        var devTools = new ToolStripButton("DevTools");
+            e.SuppressKeyPress = true;
+            await SaveLocalFileAsync();
+            return;
+        }
 
-        open.Click += async (_, _) => await OpenLocalFileAsync();
-        save.Click += async (_, _) => await SaveLocalFileAsync();
-        reload.Click += (_, _) => _webView.CoreWebView2?.Reload();
-
-        toggleStereo.CheckedChanged += (_, _) =>
+        if (e.KeyCode == Keys.F5)
         {
-            _split.Panel2Collapsed = !toggleStereo.Checked;
-            PublishInactiveGeometryIfNeeded();
-        };
+            e.SuppressKeyPress = true;
+            _webView.CoreWebView2?.Reload();
+            return;
+        }
 
-        sbsPreview.CheckedChanged += (_, _) =>
+        if (e.KeyCode == Keys.F9)
         {
-            _stereoPanel.ShowSbsPreview = sbsPreview.Checked;
-            _stereoPanel.Invalidate();
-        };
-
-        _questButton.Click += (_, _) =>
-        {
+            e.SuppressKeyPress = true;
             if (_xrCompanion.IsRunning)
             {
                 _xrCompanion.Stop();
@@ -159,24 +92,15 @@ internal sealed class MainForm : Form
             {
                 _xrCompanion.Start();
             }
-            UpdateQuestButton();
-        };
+            UpdateWindowTitle();
+            return;
+        }
 
-        devTools.Click += (_, _) => _webView.CoreWebView2?.OpenDevToolsWindow();
-
-        bar.Items.Add(open);
-        bar.Items.Add(save);
-        bar.Items.Add(new ToolStripSeparator());
-        bar.Items.Add(reload);
-        bar.Items.Add(toggleStereo);
-        bar.Items.Add(sbsPreview);
-        bar.Items.Add(new ToolStripSeparator());
-        bar.Items.Add(_questButton);
-        bar.Items.Add(new ToolStripSeparator());
-        bar.Items.Add(devTools);
-        bar.Items.Add(new ToolStripSeparator());
-        bar.Items.Add(new ToolStripLabel("A: GeoGebra Panel   B: Stereo Panel"));
-        return bar;
+        if (e.KeyCode == Keys.F12)
+        {
+            e.SuppressKeyPress = true;
+            _webView.CoreWebView2?.OpenDevToolsWindow();
+        }
     }
 
     private async Task InitializeWebViewAsync()
@@ -191,15 +115,14 @@ internal sealed class MainForm : Form
                 "GeoGebra",
                 "web3d",
                 "web3d.nocache.js");
+            var pcStereoRuntime = Path.Combine(AppContext.BaseDirectory, "pc-stereo-layout.js");
 
-            if (!File.Exists(index) || !File.Exists(boot))
+            if (!File.Exists(index) || !File.Exists(boot) || !File.Exists(pcStereoRuntime))
             {
-                _status.Text = "GeoGebra Web3D paketi eksik";
                 MessageBox.Show(
                     this,
-                    "Exp46 patched GeoGebra Web3D paketi bulunamadı.\n\n" +
-                    "Bu dosya normal kullanıcı paketinde hazır gelir. Geliştirme build'inde " +
-                    "önce Linux/CI Web3D build adımının çalışması gerekir.",
+                    "GeoGebraForQuest PC v0.2 paketi eksik.\n\n" +
+                    "index.html, web3d.nocache.js ve pc-stereo-layout.js dosyaları birlikte bulunmalıdır.",
                     "GeoGebraForQuest PC",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
@@ -218,12 +141,10 @@ internal sealed class MainForm : Form
             ConfigureCore(_webView.CoreWebView2, isMain: true);
             await InstallBridgeAsync(_webView.CoreWebView2);
 
-            _status.Text = "Yerel GeoGebra yükleniyor…";
             _webView.CoreWebView2.Navigate(LocalAppUrl);
         }
         catch (Exception ex)
         {
-            _status.Text = "Başlatma hatası";
             MessageBox.Show(
                 this,
                 ex.ToString(),
@@ -258,12 +179,11 @@ internal sealed class MainForm : Form
             {
                 if (!e.IsSuccess)
                 {
-                    _status.Text = $"Sayfa hatası: {e.WebErrorStatus}";
+                    Text = $"GeoGebraForQuest PC v0.2 · Sayfa hatası: {e.WebErrorStatus}";
                     return;
                 }
 
                 await InjectPcRuntimeAsync();
-                _status.Text = "GeoGebra sayfası hazır · applet bekleniyor";
             };
         }
     }
@@ -272,12 +192,14 @@ internal sealed class MainForm : Form
     {
         const string script = """
             (function () {
-              if (window.QuestBridge && window.QuestBridge.__pcBridge) return;
+              if (window.QuestBridge && window.QuestBridge.__pcBridgeV2) return;
+
               function send(message) {
                 try { window.chrome.webview.postMessage(message); } catch (e) {}
               }
+
               window.QuestBridge = {
-                __pcBridge: true,
+                __pcBridgeV2: true,
                 updateStereoLayout: function (json) {
                   send({ type: 'stereoLayout', payload: String(json || '') });
                 },
@@ -287,14 +209,12 @@ internal sealed class MainForm : Form
                 stereoInactive: function () {
                   send({ type: 'stereoInactive' });
                 },
-                setDepthPointerActive: function (active) {
-                  send({ type: 'depthPointer', active: String(active || '') });
-                },
+                setDepthPointerActive: function () {},
                 getStereoDebugStatus: function () {
                   return JSON.stringify({
                     platform: 'GeoGebraForQuest PC',
-                    version: '0.1.0-exp46',
-                    presentation: 'OpenXR quad + eye-specific B overlay'
+                    version: '0.2.0-exp46',
+                    presentation: 'normal GeoGebra + eye-specific native 3D view overlay'
                   });
                 },
                 panelReady: function () {
@@ -311,11 +231,11 @@ internal sealed class MainForm : Form
     {
         if (_webView.CoreWebView2 is null) return;
 
-        var stereoUrl = JsonSerializer.Serialize(StereoLayoutUrl);
+        var stereoUrl = JsonSerializer.Serialize(PcStereoRuntimeUrl);
         var script = $$"""
             (function () {
-              if (!window.__ggqPcRuntimeInstalled) {
-                window.__ggqPcRuntimeInstalled = true;
+              if (!window.__ggqPcResizeInstalled) {
+                window.__ggqPcResizeInstalled = true;
 
                 function resizeGeoGebra() {
                   try {
@@ -335,20 +255,20 @@ internal sealed class MainForm : Form
                   if (document.body) observer.observe(document.body);
                 }
                 setInterval(resizeGeoGebra, 1000);
-                setTimeout(resizeGeoGebra, 500);
-                setTimeout(resizeGeoGebra, 1800);
+                setTimeout(resizeGeoGebra, 400);
+                setTimeout(resizeGeoGebra, 1600);
               }
 
-              if (!document.getElementById('ggq-pc-stereo-layout')) {
+              if (!document.getElementById('ggq-pc-stereo-v2')) {
                 var tag = document.createElement('script');
-                tag.id = 'ggq-pc-stereo-layout';
+                tag.id = 'ggq-pc-stereo-v2';
                 tag.src = {{stereoUrl}};
                 tag.async = false;
                 tag.onerror = function () {
                   try {
                     window.chrome.webview.postMessage({
                       type: 'runtimeError',
-                      message: 'quest-stereo-layout.js yüklenemedi'
+                      message: 'pc-stereo-layout.js yüklenemedi'
                     });
                   } catch (e) {}
                 };
@@ -366,8 +286,6 @@ internal sealed class MainForm : Form
         if (!uri.Host.Equals(LocalHost, StringComparison.OrdinalIgnoreCase)) return;
         if (!uri.AbsolutePath.EndsWith("/ggtcallback.html", StringComparison.OrdinalIgnoreCase)) return;
 
-        // Local appassets is not a public OAuth callback origin. Hand the callback to
-        // GeoGebra's public page while keeping the popup in the same WebView2 profile.
         e.Cancel = true;
         if (sender is CoreWebView2 core)
         {
@@ -390,7 +308,7 @@ internal sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            _status.Text = "Popup açılamadı: " + ex.Message;
+            MessageBox.Show(this, ex.Message, "Popup açılamadı", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -409,18 +327,24 @@ internal sealed class MainForm : Form
             switch (typeNode.GetString())
             {
                 case "panelReady":
-                    _status.Text = "GeoGebra hazır · Exp46 stereo bridge hazır";
+                    UpdateWindowTitle();
                     break;
 
                 case "stereoInactive":
-                    _stereoPanel.ClearFrames("3D grafik kapalı");
-                    _frameStatus.Text = "Stereo: inactive";
-                    PublishInactiveGeometryIfNeeded();
+                    SetStereoInactive();
+                    break;
+
+                case "stereoLayout":
+                    if (root.TryGetProperty("payload", out var payloadNode))
+                    {
+                        HandleStereoLayout(payloadNode.GetString());
+                    }
                     break;
 
                 case "stereoEyes":
                     if (!root.TryGetProperty("left", out var leftNode) ||
                         !root.TryGetProperty("right", out var rightNode)) return;
+
                     var left = leftNode.GetString();
                     var right = rightNode.GetString();
                     if (!string.IsNullOrWhiteSpace(left) && !string.IsNullOrWhiteSpace(right))
@@ -432,23 +356,99 @@ internal sealed class MainForm : Form
                 case "runtimeError":
                     if (root.TryGetProperty("message", out var messageNode))
                     {
-                        _status.Text = messageNode.GetString() ?? "Runtime hatası";
+                        Text = "GeoGebraForQuest PC v0.2 · " + (messageNode.GetString() ?? "Runtime hatası");
                     }
                     break;
             }
         }
         catch (Exception ex)
         {
-            _status.Text = "Bridge mesaj hatası: " + ex.Message;
+            Text = "GeoGebraForQuest PC v0.2 · Bridge: " + ex.Message;
         }
+    }
+
+    private void HandleStereoLayout(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) return;
+
+        try
+        {
+            using var layout = JsonDocument.Parse(payload);
+            var root = layout.RootElement;
+            var active = root.TryGetProperty("active", out var activeNode) && activeNode.GetBoolean();
+
+            if (!active || !root.TryGetProperty("stereo", out var stereoNode))
+            {
+                SetStereoInactive();
+                return;
+            }
+
+            var viewWidth = root.TryGetProperty("viewWidth", out var vw) ? vw.GetDouble() : 0;
+            var viewHeight = root.TryGetProperty("viewHeight", out var vh) ? vh.GetDouble() : 0;
+            if (viewWidth < 2 || viewHeight < 2) return;
+
+            var left = stereoNode.GetProperty("left").GetDouble();
+            var top = stereoNode.GetProperty("top").GetDouble();
+            var width = stereoNode.GetProperty("width").GetDouble();
+            var height = stereoNode.GetProperty("height").GetDouble();
+            if (width < 2 || height < 2) return;
+
+            var scaleX = _webView.ClientSize.Width / viewWidth;
+            var scaleY = _webView.ClientSize.Height / viewHeight;
+
+            var webRect = new Rectangle(
+                (int)Math.Round(left * scaleX),
+                (int)Math.Round(top * scaleY),
+                Math.Max(2, (int)Math.Round(width * scaleX)),
+                Math.Max(2, (int)Math.Round(height * scaleY)));
+
+            var screenOrigin = _webView.PointToScreen(webRect.Location);
+            var clientOrigin = PointToClient(screenOrigin);
+            var formRect = new Rectangle(clientOrigin, webRect.Size);
+
+            lock (_geometryLock)
+            {
+                _stereo3DClientBounds = formRect;
+                _stereo3DActive = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Text = "GeoGebraForQuest PC v0.2 · 3D konum: " + ex.Message;
+        }
+    }
+
+    private void SetStereoInactive()
+    {
+        Rectangle bounds;
+        lock (_geometryLock)
+        {
+            bounds = _stereo3DClientBounds;
+            _stereo3DActive = false;
+        }
+
+        _sharedFrames.SetInactive(bounds, ClientSize);
+        UpdateWindowTitle();
+    }
+
+    private void PublishCurrentGeometryInactiveDuringResize()
+    {
+        if (_closing || IsDisposed) return;
+
+        Rectangle bounds;
+        lock (_geometryLock)
+        {
+            bounds = _stereo3DClientBounds;
+            _stereo3DActive = false;
+        }
+
+        _sharedFrames.SetInactive(bounds, ClientSize);
     }
 
     private void QueueStereoFrames(string left, string right)
     {
         lock (_pendingFrameLock)
         {
-            // Keep only the newest frame pair. If JPEG decoding falls behind, old stereo
-            // frames are intentionally dropped instead of building latency.
             _pendingFrames = (left, right);
         }
 
@@ -473,45 +473,52 @@ internal sealed class MainForm : Form
 
                 if (current is null) break;
 
+                Bitmap? left = null;
+                Bitmap? right = null;
+
                 try
                 {
-                    var left = DecodeDataUrl(current.Value.Left);
-                    var right = DecodeDataUrl(current.Value.Right);
+                    left = DecodeDataUrl(current.Value.Left);
+                    right = DecodeDataUrl(current.Value.Right);
                     var number = Interlocked.Increment(ref _frameNumber);
                     var geometry = GetGeometrySnapshot();
 
-                    _sharedFrames.WriteFrames(
-                        left,
-                        right,
-                        geometry.PanelBounds,
-                        geometry.ClientSize,
-                        number);
-
-                    if (_closing || IsDisposed)
+                    if (geometry.Active &&
+                        geometry.PanelBounds.Width > 1 &&
+                        geometry.PanelBounds.Height > 1 &&
+                        geometry.ClientSize.Width > 1 &&
+                        geometry.ClientSize.Height > 1)
                     {
-                        left.Dispose();
-                        right.Dispose();
-                        return;
+                        _sharedFrames.WriteFrames(
+                            left,
+                            right,
+                            geometry.PanelBounds,
+                            geometry.ClientSize,
+                            number);
                     }
 
-                    BeginInvoke((Action)(() =>
-                    {
-                        if (_closing)
-                        {
-                            left.Dispose();
-                            right.Dispose();
-                            return;
-                        }
+                    left.Dispose();
+                    right.Dispose();
+                    left = null;
+                    right = null;
 
-                        _stereoPanel.SetFrames(left, right, number);
-                        _frameStatus.Text = $"Stereo: {number} · {left.Width}×{left.Height}/göz";
-                    }));
+                    if (!_closing && !IsDisposed && number % 20 == 0)
+                    {
+                        try { BeginInvoke((Action)UpdateWindowTitle); } catch { }
+                    }
                 }
                 catch (Exception ex)
                 {
+                    left?.Dispose();
+                    right?.Dispose();
                     if (!_closing && !IsDisposed)
                     {
-                        BeginInvoke((Action)(() => _frameStatus.Text = "Stereo decode: " + ex.Message));
+                        try
+                        {
+                            BeginInvoke((Action)(() =>
+                                Text = "GeoGebraForQuest PC v0.2 · Stereo decode: " + ex.Message));
+                        }
+                        catch { }
                     }
                 }
             }
@@ -531,6 +538,29 @@ internal sealed class MainForm : Form
         }
     }
 
+    private (bool Active, Rectangle PanelBounds, Size ClientSize) GetGeometrySnapshot()
+    {
+        if (_closing || IsDisposed) return (false, Rectangle.Empty, Size.Empty);
+
+        if (InvokeRequired)
+        {
+            try
+            {
+                return ((bool Active, Rectangle PanelBounds, Size ClientSize))Invoke(
+                    new Func<(bool Active, Rectangle PanelBounds, Size ClientSize)>(GetGeometrySnapshot));
+            }
+            catch
+            {
+                return (false, Rectangle.Empty, Size.Empty);
+            }
+        }
+
+        lock (_geometryLock)
+        {
+            return (_stereo3DActive, _stereo3DClientBounds, ClientSize);
+        }
+    }
+
     private static Bitmap DecodeDataUrl(string dataUrl)
     {
         var comma = dataUrl.IndexOf(',');
@@ -543,41 +573,6 @@ internal sealed class MainForm : Form
         using var stream = new MemoryStream(bytes, writable: false);
         using var source = Image.FromStream(stream, false, false);
         return new Bitmap(source);
-    }
-
-    private (Rectangle PanelBounds, Size ClientSize) GetGeometrySnapshot()
-    {
-        if (_closing || IsDisposed) return (Rectangle.Empty, Size.Empty);
-
-        if (InvokeRequired)
-        {
-            try
-            {
-                return ((Rectangle PanelBounds, Size ClientSize))Invoke(
-                    new Func<(Rectangle PanelBounds, Size ClientSize)>(GetGeometrySnapshot));
-            }
-            catch
-            {
-                return (Rectangle.Empty, Size.Empty);
-            }
-        }
-
-        if (_split.Panel2Collapsed || !_stereoPanel.Visible)
-        {
-            return (Rectangle.Empty, ClientSize);
-        }
-
-        var content = _stereoPanel.ContentRectangle;
-        var screenOrigin = _stereoPanel.PointToScreen(content.Location);
-        var clientOrigin = PointToClient(screenOrigin);
-        return (new Rectangle(clientOrigin, content.Size), ClientSize);
-    }
-
-    private void PublishInactiveGeometryIfNeeded()
-    {
-        if (_closing || IsDisposed) return;
-        var geometry = GetGeometrySnapshot();
-        _sharedFrames.SetInactive(geometry.PanelBounds, geometry.ClientSize);
     }
 
     private async Task OpenLocalFileAsync()
@@ -595,7 +590,6 @@ internal sealed class MainForm : Form
 
         try
         {
-            _status.Text = "Dosya açılıyor…";
             var base64 = Convert.ToBase64String(await File.ReadAllBytesAsync(dialog.FileName));
             var encoded = JsonSerializer.Serialize(base64);
             var result = await _webView.CoreWebView2.ExecuteScriptAsync($$"""
@@ -610,11 +604,9 @@ internal sealed class MainForm : Form
 
             var state = JsonSerializer.Deserialize<string>(result);
             if (state != "OK") throw new InvalidOperationException("GeoGebra henüz hazır değil.");
-            _status.Text = "Açıldı: " + Path.GetFileName(dialog.FileName);
         }
         catch (Exception ex)
         {
-            _status.Text = "Dosya açılamadı";
             MessageBox.Show(
                 this,
                 ex.Message,
@@ -640,7 +632,6 @@ internal sealed class MainForm : Form
 
         try
         {
-            _status.Text = "Dosya kaydediliyor…";
             var result = await _webView.CoreWebView2.ExecuteScriptAsync("""
                 (function () {
                   if (!window.ggbApplet || typeof window.ggbApplet.getBase64 !== 'function') {
@@ -657,11 +648,9 @@ internal sealed class MainForm : Form
             }
 
             await File.WriteAllBytesAsync(dialog.FileName, Convert.FromBase64String(base64));
-            _status.Text = "Kaydedildi: " + Path.GetFileName(dialog.FileName);
         }
         catch (Exception ex)
         {
-            _status.Text = "Dosya kaydedilemedi";
             MessageBox.Show(
                 this,
                 ex.Message,
@@ -681,14 +670,26 @@ internal sealed class MainForm : Form
             return;
         }
 
-        _xrStatus.Text = "Quest: " + text;
-        UpdateQuestButton();
+        _xrStatusText = text;
+        UpdateWindowTitle();
     }
 
-    private void UpdateQuestButton()
+    private void UpdateWindowTitle()
     {
-        if (_questButton is null) return;
-        _questButton.Text = _xrCompanion.IsRunning ? "Quest'i Ayır" : "Quest'e Bağlan";
-        _questButton.Checked = _xrCompanion.IsRunning;
+        if (_closing || IsDisposed) return;
+
+        bool active;
+        Rectangle bounds;
+        lock (_geometryLock)
+        {
+            active = _stereo3DActive;
+            bounds = _stereo3DClientBounds;
+        }
+
+        var stereo = active
+            ? $"3D stereo hedefi {bounds.Width}×{bounds.Height} · kare {_frameNumber}"
+            : "3D stereo bekleniyor";
+
+        Text = $"GeoGebraForQuest PC v0.2 · {stereo} · Quest: {_xrStatusText}";
     }
 }
