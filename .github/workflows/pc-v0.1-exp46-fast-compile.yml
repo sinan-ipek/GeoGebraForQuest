@@ -1,0 +1,37 @@
+name: GeoGebraForQuest PC v0.1 Exp46 fast compile
+
+on:
+  push:
+    branches:
+      - pc-v0.1-exp46-base
+    paths:
+      - "pc/**"
+      - "pc-xr/**"
+      - ".github/workflows/pc-v0.1-exp46-fast-compile.yml"
+  workflow_dispatch:
+
+jobs:
+  compile-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Compile Windows WebView2 shell
+        shell: powershell
+        run: dotnet build .\pc\GeoGebraForQuest.PC.csproj -c Release
+
+      - name: Configure OpenXR companion
+        shell: powershell
+        run: cmake -S .\pc-xr -B .\.fast-xr -A x64
+
+      - name: Compile OpenXR companion
+        shell: powershell
+        run: cmake --build .\.fast-xr --config Release --parallel
