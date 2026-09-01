@@ -11,9 +11,9 @@ $xrBuild = Join-Path $root ".pc-xr-build"
 $boot = Join-Path $root "app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js"
 $project = Join-Path $pcDir "GeoGebraForQuest.PC.csproj"
 $distRoot = Join-Path $root "dist"
-$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.4.0-exp46-sbs-overlay-win-x64"
+$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64"
 $appPublish = Join-Path $root ".pc-app-publish"
-$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.4.0-exp46-sbs-overlay-win-x64.zip"
+$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64.zip"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK bulunamadı."
@@ -31,17 +31,17 @@ foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-Write-Host "[GGQ-PC v0.4] OpenXR SBS overlay configure..."
+Write-Host "[GGQ-PC v0.5] OpenXR High-Res SBS overlay configure..."
 & cmake -S $xrSource -B $xrBuild -A x64
 if ($LASTEXITCODE -ne 0) { throw "OpenXR CMake configure başarısız." }
 
-Write-Host "[GGQ-PC v0.4] OpenXR SBS overlay build..."
+Write-Host "[GGQ-PC v0.5] OpenXR High-Res SBS overlay build..."
 & cmake --build $xrBuild --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "OpenXR companion build başarısız." }
 
 $selfContained = if ($FrameworkDependent) { "false" } else { "true" }
 
-Write-Host "[GGQ-PC v0.4] Windows x64 app publish..."
+Write-Host "[GGQ-PC v0.5] Windows x64 app publish..."
 & dotnet publish $project `
     -c Release `
     -r win-x64 `
@@ -74,11 +74,19 @@ if (-not (Test-Path $pcStereo)) {
     throw "pc-stereo-layout.js publish paketinde bulunamadı."
 }
 
+$pcStereoText = Get-Content $pcStereo -Raw
+if ($pcStereoText -notmatch "CAPTURE_MAX_EYE_WIDTH = 2048") {
+    throw "High-Res stereo runtime doğrulaması başarısız: 2048 px eye-width ayarı bulunamadı."
+}
+if ($pcStereoText -notmatch "CAPTURE_JPEG_QUALITY = 0.95") {
+    throw "High-Res stereo runtime doğrulaması başarısız: JPEG kalite ayarı bulunamadı."
+}
+
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zip -CompressionLevel Optimal
 
 Write-Host ""
-Write-Host "[GGQ-PC v0.4] BUILD TAMAM"
+Write-Host "[GGQ-PC v0.5] BUILD TAMAM"
 Write-Host "Klasör: $publishDir"
 Write-Host "ZIP:    $zip"
 Write-Host "APP:    $(Join-Path $publishDir 'GeoGebraForQuestPC.exe')"
