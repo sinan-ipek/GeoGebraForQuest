@@ -73,6 +73,9 @@ python3 "$ROOT/tools/patch-geogebra-quest-v0934.py" "$SRC"
 echo "[GGQ] exporting exp39 direct LoginOperationW OAuth entrypoint"
 python3 "$ROOT/tools/patch-geogebra-quest-v0935.py" "$SRC"
 
+echo "[GGQ] calibrating glasses projection for the fixed Quest panel"
+python3 "$ROOT/tools/patch-geogebra-quest-v0936.py" "$SRC"
+
 echo "[GGQ] retaining last stereo frame and real popup-state detection"
 python3 "$ROOT/tools/patch-android-ui-exp9.py" "$ROOT"
 
@@ -132,6 +135,7 @@ GeoGebraForQuest source build
 version=0.9.28
 upstream_commit=$GEOGEBRA_COMMIT
 projection=PROJECTION_GLASSES (full-colour stereo camera math)
+projection_calibration=exp45 eye_to_screen_px=1080 eye_separation_px=46 fixed Quest panel geometry
 renderer=QuestStereoRenderer
 backing_store=single_eye_width
 viewport=LEFT_EYE and RIGHT_EYE both render at x=0
