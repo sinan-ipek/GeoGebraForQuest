@@ -16,7 +16,7 @@ internal static class Program
             Directory.CreateDirectory(LogDirectory);
             File.WriteAllText(
                 LogPath,
-                $"GeoGebraForQuest PC v0.3.0 Exp46 startup\r\n" +
+                $"GeoGebraForQuest PC v0.4.0 Exp46 SBS Overlay startup\r\n" +
                 $"Time: {DateTimeOffset.Now:O}\r\n" +
                 $"OS: {Environment.OSVersion}\r\n" +
                 $"64-bit OS: {Environment.Is64BitOperatingSystem}\r\n" +
@@ -54,7 +54,7 @@ internal static class Program
 
             Log("Creating MainForm");
             using var mainForm = new MainForm();
-            mainForm.Text = "GeoGebraForQuest PC · v0.3.0 · Exp46";
+            mainForm.Text = "GeoGebraForQuest PC · v0.4.0 · Exp46 SBS Overlay";
             Log("MainForm created successfully");
 
             Application.Run(mainForm);
@@ -110,7 +110,7 @@ internal static class Program
         {
             MessageBox.Show(
                 message,
-                "GeoGebraForQuest PC v0.3.0 - Başlatma Hatası",
+                "GeoGebraForQuest PC v0.4.0 - Başlatma Hatası",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
