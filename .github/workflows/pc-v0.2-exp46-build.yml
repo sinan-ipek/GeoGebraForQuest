@@ -1,9 +1,9 @@
-name: GeoGebraForQuest PC v0.4 Exp46 SBS Overlay
+name: GeoGebraForQuest PC v0.5 Exp46 High-Res SBS
 
 on:
   push:
     branches:
-      - pc-v0.4-sbs-overlay
+      - pc-v0.5-highres-sbs
     paths:
       - "pc/**"
       - "pc-xr/**"
@@ -71,16 +71,22 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.4.0-exp46-sbs-overlay-win-x64"
+          $dir = "dist/GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64"
           if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
           if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
           if (-not (Test-Path "$dir/assets/web/GeoGebra/web3d/web3d.nocache.js")) { throw "Web3D missing" }
           if (-not (Test-Path "$dir/pc-stereo-layout.js")) { throw "PC stereo runtime missing" }
-          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.4.0-exp46-sbs-overlay-win-x64.zip")) { throw "ZIP missing" }
+          if (-not (Select-String -Path "$dir/pc-stereo-layout.js" -Pattern "CAPTURE_MAX_EYE_WIDTH = 2048" -Quiet)) {
+            throw "High-Res 2048 px capture setting missing"
+          }
+          if (-not (Select-String -Path "$dir/pc-stereo-layout.js" -Pattern "CAPTURE_JPEG_QUALITY = 0.95" -Quiet)) {
+            throw "High-Res JPEG quality setting missing"
+          }
+          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64.zip")) { throw "ZIP missing" }
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.4.0-exp46-sbs-overlay-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.4.0-exp46-sbs-overlay-win-x64.zip
+          name: GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64.zip
           if-no-files-found: error
