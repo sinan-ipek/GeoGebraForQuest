@@ -13,8 +13,8 @@ android {
         applicationId = "com.sinan.geogebraforquest"
         minSdk = 34
         targetSdk = 34
-        versionCode = 80
-        versionName = "0.9.29"
+        versionCode = 134
+        versionName = "0.9.30-exp46-hover-target-grip-focus"
 
         ndkVersion = "27.0.12077973"
     }
@@ -34,6 +34,10 @@ android {
     }
 
     packaging {
+        // SideQuest streams APKs through /data/local/tmp/_stream.apk. Keeping
+        // the large Meta native libraries compressed makes that transfer much
+        // smaller; Android extracts them while installing.
+        jniLibs.useLegacyPackaging = true
         resources.excludes.add("META-INF/LICENSE")
     }
 
@@ -61,12 +65,16 @@ dependencies {
     implementation(libs.meta.spatial.sdk.isdk)
 }
 
-// v0.9.29:
-// - keeps the v0.9.28 45-degree startup angle, corrected splash and 30% ray-transparent palette;
-// - moves the palette 4 cm toward the right hand and 7 cm downward;
-// - removes ButtonA from normal GeoGebra panel input so A is only the selected-object context-menu toggle;
-// - keeps the menu open after A release and closes it only on the next A press;
-// - preserves local-file opening, login, 20 fps stereo capture and inactive-view clear.
+// v0.9.30-exp46-hover-target-grip-focus lives only on experimental-embedded-stereo.
+// Stable v0.9.29 remains frozen on stable-v0.9.29-palette.
+// Exp39 calls LoginOperationW directly once per ACK transaction; no repeated
+// MessageEvent restart. Grip is temporary Move in 2D/3D and restores prior tool.
+// Right-thumb graph-canvas zoom works in both 2D and 3D.
+// Exp37 packaging remains: compressed native libraries and aligned resources.
+// Exp35 keeps Exp34 token-first OAuth/session ownership and the exact Exp27
+// local-file/XR runtime. Login change is limited to IME email->password focus.
+// Right thumbstick UP/DOWN is deterministic 3D zoom while the depth pointer is
+// inside the live 3D hole; duplicate ISDK panel scroll is suppressed briefly.
 spatial {
     allowUsageDataCollection.set(true)
     shaders {

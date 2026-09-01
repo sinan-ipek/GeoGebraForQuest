@@ -1,0 +1,281 @@
+name: Build Exp46 Hover-Target Grip Focus APK
+
+on:
+  push:
+    branches: [ experimental-embedded-stereo ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-exp46-hover-target-grip-focus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 34 and NDK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+
+      - name: Build patched GeoGebra web3d
+        shell: bash
+        run: |
+          chmod +x tools/build-geogebra-quest.sh
+          ./tools/build-geogebra-quest.sh
+
+      - name: Apply frozen runtime through Exp44 plus Exp46 Grip focus
+        shell: bash
+        run: |
+          python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
+          python3 tools/patch-android-exp19.py .
+          python3 tools/patch-android-exp19-volatile.py .
+          python3 tools/patch-android-exp19-querycompat.py .
+          python3 tools/patch-android-exp20.py .
+          python3 tools/patch-android-exp21.py .
+          python3 tools/patch-android-exp22.py .
+          python3 tools/patch-android-exp22-preserve-navigation.py .
+          python3 tools/patch-android-exp23.py .
+          python3 tools/patch-android-exp24.py .
+          python3 tools/patch-android-exp25.py .
+          python3 tools/patch-android-exp26.py .
+          python3 tools/patch-android-exp27.py .
+          python3 tools/patch-android-exp34.py .
+          python3 tools/patch-android-exp35.py .
+          python3 tools/patch-android-exp35b.py .
+          python3 tools/patch-android-exp38.py .
+          python3 tools/patch-android-exp39.py .
+          python3 tools/patch-android-exp40.py .
+          python3 tools/patch-android-exp41.py .
+          python3 tools/patch-android-exp42.py .
+          python3 tools/patch-android-exp43.py .
+          python3 tools/patch-android-exp44.py .
+          python3 tools/patch-android-exp46.py .
+
+      - name: Verify Exp46 target-view Grip and frozen projection invariants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
+          ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
+          SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
+          THUMB=app/src/main/java/com/sinan/geogebraforquest/QuestThumbZoomState.kt
+          COLD=app/src/main/java/com/sinan/geogebraforquest/ColdLocalFilePickerActivity.kt
+          LOGIN=.geogebra-source-work/geogebra/source/web/web/src/main/java/org/geogebra/web/shared/ggtapi/LoginOperationW.java
+          SETTINGS=.geogebra-source-work/geogebra/source/shared/common/src/main/java/org/geogebra/common/main/settings/EuclidianSettings3D.java
+          VIEW3D=.geogebra-source-work/geogebra/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/EuclidianView3D.java
+          EUCLIDIAN=.geogebra-source-work/geogebra/source/shared/common/src/main/java/org/geogebra/common/euclidian/EuclidianController.java
+          EUCLIDIANW=.geogebra-source-work/geogebra/source/web/web-common/src/main/java/org/geogebra/web/html5/euclidian/EuclidianControllerW.java
+
+          grep -q 'GGQ_EXP45_QUEST_PERSPECTIVE_CALIBRATION' "$SETTINGS"
+          grep -q 'EYE_SEP_DEFAULT = 46' "$SETTINGS"
+          grep -q 'PROJECTION_PERSPECTIVE_EYE_DISTANCE_DEFAULT = 1080' "$SETTINGS"
+          grep -q 'int questDistance = PROJECTION_PERSPECTIVE_EYE_DISTANCE_DEFAULT' "$SETTINGS"
+          grep -q 'int questSeparation = EYE_SEP_DEFAULT' "$SETTINGS"
+          grep -q 'PROJECTION_PERSPECTIVE_EYE_DISTANCE_DEFAULT = 1080' "$VIEW3D"
+          if grep -q 'EYE_SEP_DEFAULT = 200' "$SETTINGS"; then exit 1; fi
+          if grep -q 'PROJECTION_PERSPECTIVE_EYE_DISTANCE_DEFAULT = 2500' "$SETTINGS" "$VIEW3D"; then exit 1; fi
+
+          grep -q 'GGQ_EXP46_TARGET_VIEW_GRIP_MOVE' "$EUCLIDIAN"
+          grep -q 'updateFocusedPanel(event);' "$EUCLIDIAN"
+          grep -q 'activateArmedQuestGripMove();' "$EUCLIDIAN"
+          grep -q 'view.setMode(EuclidianConstants.MODE_MOVE, ModeSetter.DOCK_PANEL)' "$EUCLIDIAN"
+          grep -q 'ggqArmGripMoveForNextPress' "$EUCLIDIANW"
+          grep -q 'ggqEndGripMoveForTargetView' "$EUCLIDIANW"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path(".geogebra-source-work/geogebra/source/shared/common/src/main/java/"
+                        "org/geogebra/common/euclidian/EuclidianController.java").read_text()
+          focus = source.index("updateFocusedPanel(event);")
+          grip = source.index("activateArmedQuestGripMove();", focus)
+          hits = source.index("updateHits(event);", grip)
+          assert focus < grip < hits, "Grip Move must activate after focus and before hit/tool processing"
+          PY
+
+          grep -q 'EXP34_TOKEN_FIRST_SESSION_OWNER' "$PANEL"
+          grep -q 'EXP34_NO_SSID_AUTH' "$PANEL"
+          grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
+          if grep -q 'logincookie' "$LOGIN"; then exit 1; fi
+          if grep -q 'deliverLoginCookie(' "$PANEL"; then exit 1; fi
+
+          grep -q 'EXP35_LOGIN_IME_NEXT_GUARD' "$PANEL"
+          grep -q "setAttribute('enterkeyhint', 'next')" "$PANEL"
+          grep -q "document.addEventListener('submit'" "$PANEL"
+
+          grep -q 'EXP35_RIGHT_THUMB_ZOOM_BRIDGE' "$PANEL"
+          grep -q 'EXP35_SUPPRESS_DUPLICATE_META_THUMB_SCROLL' "$PANEL"
+          grep -q 'ButtonBits.ButtonThumbRU' "$SHORTCUT"
+          grep -q 'ButtonBits.ButtonThumbRD' "$SHORTCUT"
+          grep -q 'now - lastThumbZoomAtMs >= thumbZoomRepeatMs' "$SHORTCUT"
+          if grep -q 'lastThumbZoomDirection' "$SHORTCUT"; then exit 1; fi
+          grep -q 'QuestThumbZoomState.shouldConsumePanelScroll()' "$PANEL"
+          grep -q 'DUPLICATE_SCROLL_WINDOW_MS = 220L' "$THUMB"
+
+          grep -q 'EXP38_ACK_DRIVEN_TOKEN_DELIVERY' "$PANEL"
+          grep -q 'EXP38_POPUP_TOKEN_RETRY_UNTIL_ACK' "$PANEL"
+          grep -q 'EXP38_LIFETIME_OAUTH_PROBE' "$PANEL"
+          grep -q 'EXP38_TRUSTED_CALLBACK_RETRY' "$PANEL"
+          grep -q 'EXP39_DIRECT_LOGIN_OPERATION' "$PANEL"
+          grep -q 'window.ggqLoginWithOAuthToken(state.token)' "$PANEL"
+          grep -q 'Date.now() - state.dispatchedAt >= 45000' "$PANEL"
+          grep -q 'GGQ_EXP39_DIRECT_OAUTH_ENTRYPOINT' "$LOGIN"
+          grep -q 'operation.performTokenLogin(token, false)' "$LOGIN"
+          grep -q 'webView.postDelayed({ deliverUntilAck() }, 1500L)' "$PANEL"
+          if grep -q 'if (attempts < 240)' "$PANEL"; then exit 1; fi
+          if grep -q 'state.nextDispatchAt = now + 8000' "$PANEL"; then exit 1; fi
+
+          grep -q 'EXP41_GRIP_MODE_ONLY' "$PANEL"
+          grep -q 'EXP41_PANEL_HOVER_TRACKING' "$PANEL"
+          grep -q 'dispatchGripTouch(main, MotionEvent.ACTION_DOWN)' "$PANEL"
+          grep -q 'dispatchGripTouch(main, MotionEvent.ACTION_MOVE)' "$PANEL"
+          grep -q 'MotionEvent.ACTION_UP' "$PANEL"
+          if grep -q 'dispatchGripMouse(' "$PANEL"; then exit 1; fi
+          grep -q 'EXP43_ISOLATED_GRIP_POINTER' "$PANEL"
+          if grep -q 'EXP43_GRAPH_CANVAS_GRIP_GATE' "$PANEL"; then exit 1; fi
+          grep -q 'cancelGripForRealTrigger' "$PANEL"
+          grep -q 'MotionEvent.ACTION_CANCEL' "$PANEL"
+          grep -q 'gripRequestPointerSerial' "$PANEL"
+          grep -q '__ggqBeginGripMoveModeAt' "$PANEL"
+          if grep -q 'window.__ggqBeginGripMoveMode = function' "$PANEL"; then exit 1; fi
+          grep -q 'EXP44_CSS_POINTER_TRANSPARENT_CANVAS_GATE' "$PANEL"
+          grep -q 'window.__ggqLastPointer' "$PANEL"
+          grep -q 'ggqGripBlockingUi' "$PANEL"
+          if grep -q 'Number(style.opacity || 1) > 0' "$PANEL"; then exit 1; fi
+          grep -q 'EXP46_TARGET_VIEW_GRIP_FOCUS' "$PANEL"
+          grep -q 'ggqArmGripMoveForNextPress(oldMode)' "$PANEL"
+          grep -q 'EXP46_ARM_FAILURE_CLEANUP' "$PANEL"
+          if grep -A30 'EXP46_TARGET_VIEW_GRIP_FOCUS' "$PANEL" | grep -q 'ggbApplet.setMode(0)'; then exit 1; fi
+          grep -q 'EXP44_CONTROLLER_PALETTE_ASPECT' "$ACTIVITY"
+          grep -q 'Scale(controllerPaletteScale())' "$ACTIVITY"
+          if grep -q 'Scale(CONTROLLER_PALETTE_SCALE)' "$ACTIVITY"; then exit 1; fi
+          grep -q 'EXP44_DIRECT_SPLASH_EYE_MAPPING' app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
+          grep -q 'postOnAnimation' "$PANEL"
+          grep -q 'GRIP_MOVE_EPSILON_PX = 0.75f' "$PANEL"
+          grep -q 'isDispatchingGripTouch' "$PANEL"
+          if grep -q 'fun updateGripMove()' "$PANEL"; then exit 1; fi
+          if grep -q 'activity.onQuestGripMoveUpdated()' "$SHORTCUT"; then exit 1; fi
+          grep -q 'EXP39_RIGHT_THUMB_2D_3D_ZOOM' "$PANEL"
+          grep -q 'if (thumbDirection != 0)' "$SHORTCUT"
+          if grep -q 'thumbDirection != 0 && DepthPointerState.active' "$SHORTCUT"; then exit 1; fi
+          if grep -q 'rightGripRotateActive' "$SHORTCUT"; then exit 1; fi
+          grep -q 'EXP40_PASSWORD_IME_COMMIT' "$PANEL"
+          grep -q "enterkeyhint', 'done'" "$PANEL"
+          grep -q 'commitPasswordAndSubmit' "$PANEL"
+          grep -q 'EXP40_PHYSICAL_GRIP_LATCH' "$SHORTCUT"
+          grep -q 'controller.isDown(ButtonBits.ButtonSqueezeR)' "$SHORTCUT"
+          grep -q 'controller.isDown(ButtonBits.ButtonSqueezeL)' "$SHORTCUT"
+          if grep -q 'controller.isPressed(ButtonBits.ButtonSqueezeR)' "$SHORTCUT"; then exit 1; fi
+
+          grep -q 'EXP27_COLD_PROCESS_PICKER' "$PANEL"
+          grep -q 'KILL_MAIN_DELAY_MS = 300L' "$COLD"
+          if grep -q 'controller.laserEnabled =' "$SHORTCUT"; then exit 1; fi
+          if grep -q 'entity.setComponent(controller)' "$SHORTCUT"; then exit 1; fi
+
+      - name: Build debug APK
+        shell: bash
+        run: gradle :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Verify Exp46 input isolation and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          grep -q 'versionName = "0.9.30-exp46-hover-target-grip-focus"' app/build.gradle.kts
+          grep -q 'versionCode = 134' app/build.gradle.kts
+          test "$(sha256sum app/src/main/res/drawable-nodpi/stereo_splash_left.webp | cut -d' ' -f1)" = "c1099046a9b3b3bd5d9d28ef9ef9686dd6353544b6bd3cd406cfab0de6a23bb8"
+          test "$(sha256sum app/src/main/res/drawable-nodpi/stereo_splash_right.webp | cut -d' ' -f1)" = "791b8de6a81a0563884d35e7fb755bbaf50b3cfa21e98bf224b378fb706edd8e"
+          grep -q 'jniLibs.useLegacyPackaging = true' app/build.gradle.kts
+          "$ANDROID_HOME/build-tools/34.0.0/zipalign" -c -v 4 "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_STORED
+
+          apk = Path("app/build/outputs/apk/debug/app-debug.apk")
+          with ZipFile(apk) as archive:
+              arm64 = [entry for entry in archive.infolist()
+                      if entry.filename.startswith("lib/arm64-v8a/")
+                      and entry.filename.endswith(".so")]
+              assert arm64, "No arm64 native libraries in APK"
+              stored = [entry.filename for entry in arm64
+                        if entry.compress_type == ZIP_STORED]
+              assert not stored, f"Uncompressed arm64 libraries remain: {stored}"
+              assert archive.testzip() is None, "APK ZIP CRC failure"
+          assert apk.stat().st_size < 75_000_000, apk.stat().st_size
+          print(f"Compact APK size: {apk.stat().st_size} bytes")
+          PY
+          META=$(unzip -p "$APK" assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
+          echo "$META" | grep 'login_session=exp34 token-first single session owner'
+          echo "$META" | grep 'login_ime=exp35'
+          echo "$META" | grep 'login_transport=exp39'
+          echo "$META" | grep 'right_grip=exp39'
+          echo "$META" | grep 'right_thumb_zoom=exp39'
+          echo "$META" | grep 'login_ime=exp40'
+          echo "$META" | grep 'right_grip=exp40'
+          echo "$META" | grep 'right_grip=exp41'
+          echo "$META" | grep 'trigger=exp41'
+          echo "$META" | grep 'right_grip=exp42'
+          echo "$META" | grep 'trigger=exp42'
+          echo "$META" | grep 'right_grip=exp43'
+          echo "$META" | grep 'ui_input=exp43'
+          echo "$META" | grep 'startup_splash=exp43'
+          echo "$META" | grep 'right_grip=exp44'
+          echo "$META" | grep 'controller_palette=exp44'
+          echo "$META" | grep 'startup_splash=exp44'
+          echo "$META" | grep 'projection_calibration=exp45 eye_to_screen_px=1080 eye_separation_px=46'
+          echo "$META" | grep 'right_grip=exp46 ray-target view focused before temporary Move/tool processing'
+          echo "$META" | grep 'trigger=exp46 unchanged ordinary pointer'
+          echo "$META" | grep 'right_thumb_zoom=exp35'
+          echo "$META" | grep 'local_picker=exp27'
+
+      - name: Prepare APK
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk | tee dist/SHA256SUMS.txt
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug-apk
+          path: |
+            dist/GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish Exp46 prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v0.9.30-exp46-hover-target-grip-focus
+          APK=dist/GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" "$APK" dist/SHA256SUMS.txt \
+              --title "GeoGebraForQuest Exp46 Hover-Target Grip Focus" \
+              --notes "Exp45 projection calibration remains frozen at 1080/46. Grip now arms the ray-target 2D or 3D Euclidian view and enters temporary Move after focus but before tool processing, so no preliminary Trigger click is required and the old tool cannot execute on the first Grip press. Trigger, joystick zoom, login, stereo capture, and local-file behavior are unchanged." \
+              --prerelease
+          fi

@@ -16,16 +16,14 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.min
-import kotlin.math.roundToInt
 
 /**
- * v0.9.24 live stereo sink.
+ * Live stereo sink.
  *
- * The proven v0.9.22/v0.9.23 explicit left/right eye route is preserved.
- * The swapped startup splash assignment from v0.9.23 is preserved.
- * v0.9.24 additionally supports an explicit "3D view inactive" clear signal;
- * the old idle watchdog remains only as a backup.
+ * Exp5 fills each eye's complete half of the 1440x720 SBS texture, eliminating letterbox bands.
+ * Exp6 preserves that behavior and makes the startup splash strictly one-shot: it is allowed only
+ * until the first active 3D layout or first live stereo frame. Later surface recreation during the
+ * same app session clears to transparent instead of showing the splash again.
  */
 object LiveStereoFrameSink {
     private const val TAG = "GeoGebraForQuest"
@@ -64,6 +62,17 @@ object LiveStereoFrameSink {
     @Volatile
     private var hasRenderedLiveFrame = false
 
+    @Volatile
+    private var startupSplashAllowed = true
+
+    fun resetForAppLaunch() {
+        startupSplashAllowed = true
+        hasRenderedLiveFrame = false
+        latestFrame.set(null)
+        frameSerial.set(0L)
+        Log.i(TAG, "exp6 startup splash armed for app launch")
+    }
+
     fun attachSurface(newSurface: Surface, resources: Resources) {
         surface = newSurface
         latestFrame.set(null)
@@ -72,12 +81,30 @@ object LiveStereoFrameSink {
         val generation = surfaceGeneration.incrementAndGet()
 
         executor.execute {
-            if (surfaceGeneration.get() == generation && surface === newSurface) {
+            if (surfaceGeneration.get() != generation || surface !== newSurface) return@execute
+            if (startupSplashAllowed) {
                 renderStartupSplash(resources, newSurface)
+            } else {
+                clearSurfaceToTransparent()
             }
         }
 
-        Log.i(TAG, "v0.9.24 renderer-eye sink attached with swapped stereo startup splash")
+        Log.i(TAG, "exp6 renderer-eye sink attached; startupSplashAllowed=$startupSplashAllowed")
+    }
+
+    fun dismissStartupSplash() {
+        startupSplashAllowed = false
+        val generation = surfaceGeneration.get()
+        executor.execute {
+            if (
+                enabled &&
+                surfaceGeneration.get() == generation &&
+                !hasRenderedLiveFrame
+            ) {
+                clearSurfaceToTransparent()
+            }
+        }
+        Log.i(TAG, "exp6 startup splash permanently dismissed for this app session")
     }
 
     fun detachSurface(expectedSurface: Surface? = null) {
@@ -88,7 +115,7 @@ object LiveStereoFrameSink {
             latestFrame.set(null)
             frameSerial.set(0L)
             hasRenderedLiveFrame = false
-            Log.i(TAG, "v0.9.24 renderer-eye sink detached")
+            Log.i(TAG, "exp6 renderer-eye sink detached")
         }
     }
 
@@ -104,7 +131,7 @@ object LiveStereoFrameSink {
                 }
             }
         }
-        Log.i(TAG, "v0.9.24 renderer-eye sink enabled=$value")
+        Log.i(TAG, "exp6 renderer-eye sink enabled=$value")
     }
 
     fun clearForInactiveView() {
@@ -116,7 +143,7 @@ object LiveStereoFrameSink {
             if (enabled && surfaceGeneration.get() == generation) {
                 clearSurfaceToTransparent()
                 hasRenderedLiveFrame = false
-                Log.i(TAG, "v0.9.24 visible 3D view inactive; stereo panel cleared")
+                Log.i(TAG, "exp6 visible 3D view inactive; stereo panel cleared")
             }
         }
     }
@@ -126,6 +153,10 @@ object LiveStereoFrameSink {
         if (!leftDataUrl.startsWith("data:image/")) return
         if (!rightDataUrl.startsWith("data:image/")) return
         if (surface?.isValid != true) return
+
+        // A live stereo frame itself proves that 3D has become active. Never show the startup
+        // splash again after this point even if the VideoSurface is recreated later.
+        startupSplashAllowed = false
 
         latestFrame.set(
             EyeFrame(
@@ -159,7 +190,7 @@ object LiveStereoFrameSink {
                         ) {
                             clearSurfaceToTransparent()
                             hasRenderedLiveFrame = false
-                            Log.i(TAG, "v0.9.24 stereo stream idle; panel cleared to transparent")
+                            Log.i(TAG, "exp6 stereo stream idle; panel cleared to transparent")
                         }
                     }
                 }
@@ -195,7 +226,7 @@ object LiveStereoFrameSink {
         val bytes = try {
             Base64.decode(encoded, Base64.DEFAULT)
         } catch (error: IllegalArgumentException) {
-            Log.w(TAG, "v0.9.24 invalid eye-frame Base64", error)
+            Log.w(TAG, "exp6 invalid eye-frame Base64", error)
             return null
         }
 
@@ -220,23 +251,8 @@ object LiveStereoFrameSink {
         }
     }
 
-    private fun fitCenter(bitmap: Bitmap, bounds: Rect): Rect {
-        if (bitmap.width <= 0 || bitmap.height <= 0 || bounds.width() <= 0 || bounds.height() <= 0) {
-            return Rect(bounds)
-        }
-
-        val scale = min(
-            bounds.width().toFloat() / bitmap.width.toFloat(),
-            bounds.height().toFloat() / bitmap.height.toFloat(),
-        )
-        val width = (bitmap.width * scale).roundToInt().coerceAtLeast(1)
-        val height = (bitmap.height * scale).roundToInt().coerceAtLeast(1)
-        val left = bounds.left + (bounds.width() - width) / 2
-        val top = bounds.top + (bounds.height() - height) / 2
-        return Rect(left, top, left + width, top + height)
-    }
-
     private fun renderStartupSplash(resources: Resources, expectedSurface: Surface) {
+        if (!startupSplashAllowed) return
         if (surface !== expectedSurface || !expectedSurface.isValid) return
 
         val leftBitmap = BitmapFactory.decodeResource(resources, R.drawable.stereo_splash_right) ?: return
@@ -253,7 +269,7 @@ object LiveStereoFrameSink {
                 clearColor = null,
                 markAsLive = false,
             )
-            Log.i(TAG, "v0.9.24 stereo startup splash rendered with swapped eyes")
+            Log.i(TAG, "exp6 one-shot stereo startup splash rendered")
         } finally {
             leftBitmap.recycle()
             rightBitmap.recycle()
@@ -292,10 +308,8 @@ object LiveStereoFrameSink {
             val halfWidth = canvas.width / 2
             if (halfWidth <= 0 || canvas.height <= 0) return
 
-            val leftBounds = Rect(0, 0, halfWidth, canvas.height)
-            val rightBounds = Rect(halfWidth, 0, canvas.width, canvas.height)
-            val leftDestination = fitCenter(leftBitmap, leftBounds)
-            val rightDestination = fitCenter(rightBitmap, rightBounds)
+            val leftDestination = Rect(0, 0, halfWidth, canvas.height)
+            val rightDestination = Rect(halfWidth, 0, canvas.width, canvas.height)
 
             canvas.drawBitmap(
                 leftBitmap,
@@ -311,12 +325,13 @@ object LiveStereoFrameSink {
             )
 
             if (markAsLive) {
+                startupSplashAllowed = false
                 hasRenderedLiveFrame = true
                 val count = renderedFrameCount.incrementAndGet()
                 if (count == 1L || count % 40L == 0L) {
                     Log.i(
                         TAG,
-                        "v0.9.24 explicit-eye frame #$count " +
+                        "exp6 explicit-eye frame #$count " +
                             "left=${leftBitmap.width}x${leftBitmap.height}->$leftDestination " +
                             "right=${rightBitmap.width}x${rightBitmap.height}->$rightDestination " +
                             "surface=${canvas.width}x${canvas.height}",
@@ -324,13 +339,13 @@ object LiveStereoFrameSink {
                 }
             }
         } catch (error: Throwable) {
-            Log.e(TAG, "v0.9.24 eye composition failed", error)
+            Log.e(TAG, "exp6 eye composition failed", error)
         } finally {
             if (canvas != null) {
                 try {
                     targetSurface.unlockCanvasAndPost(canvas)
                 } catch (error: Throwable) {
-                    Log.e(TAG, "v0.9.24 stereo surface post failed", error)
+                    Log.e(TAG, "exp6 stereo surface post failed", error)
                 }
             }
         }
@@ -345,13 +360,13 @@ object LiveStereoFrameSink {
             canvas = targetSurface.lockCanvas(null)
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         } catch (error: Throwable) {
-            Log.e(TAG, "v0.9.24 transparent clear failed", error)
+            Log.e(TAG, "exp6 transparent clear failed", error)
         } finally {
             if (canvas != null) {
                 try {
                     targetSurface.unlockCanvasAndPost(canvas)
                 } catch (error: Throwable) {
-                    Log.e(TAG, "v0.9.24 transparent surface post failed", error)
+                    Log.e(TAG, "exp6 transparent surface post failed", error)
                 }
             }
         }

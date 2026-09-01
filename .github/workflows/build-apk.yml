@@ -2,9 +2,9 @@ name: Build Quest APK
 
 on:
   push:
-    branches: [ main, v0.9.22-splash-20fps, v0.9.23-login-back-30fps, v0.9.24-login-back-clear-20fps, v0.9.25-local-file-picker, v0.9.26-palette-context-localfile, v0.9.27-palette-splash-context-fixes, v0.9.28-selected-menu-ray-pass, v0.9.29-a-toggle-palette-offset ]
-  pull_request:
     branches: [ main ]
+  pull_request:
+    branches: [ main, stable-v0.9.29-palette ]
   workflow_dispatch:
 
 permissions:
@@ -32,10 +32,7 @@ jobs:
         shell: bash
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager \
-            "platforms;android-34" \
-            "build-tools;34.0.0" \
-            "ndk;27.0.12077973"
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -48,133 +45,181 @@ jobs:
           chmod +x tools/build-geogebra-quest.sh
           ./tools/build-geogebra-quest.sh
 
-      - name: Verify renderer and selected-object context-menu hook
+      - name: Apply Exp27 runtime plus Exp34 auth and Exp35 input fixes
         shell: bash
         run: |
+          python3 tools/patch-quest-stereo-js-exp19.py app/src/main/assets/web/quest-stereo-layout.js
+          python3 tools/patch-android-exp19.py .
+          python3 tools/patch-android-exp19-volatile.py .
+          python3 tools/patch-android-exp19-querycompat.py .
+          python3 tools/patch-android-exp20.py .
+          python3 tools/patch-android-exp21.py .
+          python3 tools/patch-android-exp22.py .
+          python3 tools/patch-android-exp22-preserve-navigation.py .
+          python3 tools/patch-android-exp23.py .
+          python3 tools/patch-android-exp24.py .
+          python3 tools/patch-android-exp25.py .
+          python3 tools/patch-android-exp26.py .
+          python3 tools/patch-android-exp27.py .
+          # Deliberately do not apply Exp28-31 or any Exp33 Android cookie-auth patch.
+          python3 tools/patch-android-exp34.py .
+          python3 tools/patch-android-exp35.py .
+
+      - name: Verify Exp35 IME/thumb zoom, Exp34 auth, exact Exp27 XR runtime
+        shell: bash
+        run: |
+          set -x
           SRC=.geogebra-source-work/geogebra
           QUEST="$SRC/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/openGL/QuestStereoRenderer.java"
           WEB="$SRC/source/web/web/src/main/java/org/geogebra/web/geogebra3D/web/euclidian3D/openGL/RendererWithImplW.java"
-          EUCLIDIAN="$SRC/source/web/web-common/src/main/java/org/geogebra/web/html5/euclidian/EuclidianControllerW.java"
+          LOGIN="$SRC/source/web/web/src/main/java/org/geogebra/web/shared/ggtapi/LoginOperationW.java"
+          JS=app/src/main/assets/web/quest-stereo-layout.js
+          PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
+          ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
+          COLD=app/src/main/java/com/sinan/geogebraforquest/ColdLocalFilePickerActivity.kt
+          SHORTCUT=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
+          THUMB=app/src/main/java/com/sinan/geogebraforquest/QuestThumbZoomState.kt
+          MANIFEST=app/src/main/AndroidManifest.xml
+          SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
 
+          # Stereo/runtime invariants.
+          grep -q 'boolean renderStereoPair = stereoPairRequested;' "$QUEST"
           grep -q 'renderer.captureQuestEye(Renderer.EYE_LEFT)' "$QUEST"
-          grep -q 'renderer.clearColorBuffer()' "$QUEST"
-          grep -q 'renderer.captureQuestEye(Renderer.EYE_RIGHT)' "$QUEST"
-          grep -q 'int backingWidth = (int) (w \* ratio);' "$WEB"
-          grep -q 'return 0;' "$WEB"
-          grep -q 'int sourceX = 0;' "$WEB"
-          grep -q 'glContext.finish();' "$WEB"
-          grep -q 'ggq-renderer-left-eye' "$WEB"
-          grep -q 'ggq-renderer-right-eye' "$WEB"
+          grep -q 'renderer.eye = Renderer.EYE_RIGHT;' "$QUEST"
+          grep -q 'stereoFrameSerial++;' "$QUEST"
+          grep -q 'questRightEyeCanvas.id = "ggq-renderer-right-eye";' "$WEB"
+          grep -q 'CAPTURE_INTERVAL_MS = 42' "$JS"
+          grep -q 'CAPTURE_MAX_EYE_WIDTH = 720' "$JS"
+          grep -q 'CAPTURE_JPEG_QUALITY = 0.78' "$JS"
+          if grep -q 'adaptiveStereoDelay' "$JS"; then exit 1; fi
+          if grep -q 'STREAM_IDLE_TIMEOUT_MS' "$SINK"; then exit 1; fi
 
-          grep -q 'ggqOpenContextMenu' "$EUCLIDIAN"
-          grep -q 'ggqCloseContextMenu' "$EUCLIDIAN"
-          grep -q 'v0.9.28 selected-object menu' "$EUCLIDIAN"
-          grep -q 'getAppSelectedGeos()' "$EUCLIDIAN"
-          grep -q 'showPopupMenu(' "$EUCLIDIAN"
-          grep -q 'selectedGeos, controller.getView(), controller.mouseLoc' "$EUCLIDIAN"
-          grep -q 'getGuiManager().removePopup()' "$EUCLIDIAN"
-          if grep -q 'controller.handleLongTouch(x, y)' "$EUCLIDIAN"; then
-            echo 'A must not perform a new background hit-test'
-            exit 1
-          fi
+          # GeoGebra source remains the Exp22 OAuth-token handshake only.
+          grep -q 'GGQ_EXP22_LOGIN_READY_ACK' "$LOGIN"
+          grep -q '"logintoken".equals(action)' "$LOGIN"
+          grep -q 'performTokenLogin(ggqPendingLoginToken, false)' "$LOGIN"
+          if grep -q '"logincookie".equals(action)' "$LOGIN"; then exit 1; fi
+          if grep -q 'GGQ_EXP33_COOKIE_AUTH_SEMANTICS' "$LOGIN"; then exit 1; fi
 
-          if grep -q 'backingWidth = (int) (w \* ratio) \* 2' "$WEB"; then
-            echo 'Renderer must keep a single-eye-width WebGL backing store'
-            exit 1
-          fi
-          if grep -q 'sourceX = eye == EYE_RIGHT ? eyeWidth : 0' "$WEB"; then
-            echo 'Right eye must not be read from x=W'
-            exit 1
-          fi
+          # Exp34 single-token session architecture remains unchanged.
+          grep -q 'EXP34_TOKEN_FIRST_SESSION_OWNER' "$PANEL"
+          grep -q 'EXP34_REMOTE_OAUTH_STORAGE_PROBE' "$PANEL"
+          grep -q 'EXP34_VERIFIED_TOKEN_STORE' "$PANEL"
+          grep -q 'EXP34_VERIFIED_TOKEN_RESTORE' "$PANEL"
+          grep -q 'EXP34_NO_SSID_AUTH' "$PANEL"
+          grep -q 'EXP34_HIDDEN_LOGIN_TRANSPORT' "$PANEL"
+          if grep -q 'deliverLoginCookie(' "$PANEL"; then exit 1; fi
+          if grep -q 'put("action", "logincookie")' "$PANEL"; then exit 1; fi
+          if grep -q 'EXP33_COOKIE_' "$PANEL"; then exit 1; fi
+
+          # Exp35 login IME guard.
+          grep -q 'EXP35_LOGIN_IME_NEXT_GUARD' "$PANEL"
+          grep -q "setAttribute('enterkeyhint', 'next')" "$PANEL"
+          grep -q "setAttribute('enterkeyhint', 'go')" "$PANEL"
+          grep -q "document.addEventListener('keydown'" "$PANEL"
+          grep -q "document.addEventListener('submit'" "$PANEL"
+          grep -q 'installExp35LoginImeGuard(view)' "$PANEL"
+
+          # Exp35 explicit right-thumb zoom and duplicate-scroll suppression.
+          grep -q 'EXP35_RIGHT_THUMB_ZOOM_BRIDGE' "$PANEL"
+          grep -q "new WheelEvent('wheel'" "$PANEL"
+          grep -q 'delta = if (zoomIn) -96 else 96' "$PANEL"
+          grep -q 'EXP35_SUPPRESS_DUPLICATE_META_THUMB_SCROLL' "$PANEL"
+          grep -q 'QuestThumbZoomState.shouldConsumePanelScroll()' "$PANEL"
+          grep -q 'EXP35_RIGHT_THUMB_DETERMINISTIC_ZOOM' "$SHORTCUT"
+          grep -q 'ButtonBits.ButtonThumbRU' "$SHORTCUT"
+          grep -q 'ButtonBits.ButtonThumbRD' "$SHORTCUT"
+          grep -q 'QuestThumbZoomState.noteNativeThumbZoom()' "$SHORTCUT"
+          grep -q 'activity.onQuestRightThumbZoom' "$SHORTCUT"
+          grep -q 'EXP35_RIGHT_THUMB_ZOOM_ACTIVITY' "$ACTIVITY"
+          grep -q 'QuestThumbZoomState.reset()' "$ACTIVITY"
+          grep -q 'DUPLICATE_SCROLL_WINDOW_MS = 220L' "$THUMB"
+
+          # Bug1 MAIN/popup protection remains present.
+          grep -q 'EXP20_CANONICAL_MAIN_GUARD' "$PANEL"
+          grep -q 'EXP20_REMOTE_ESCAPE_FALLBACK' "$PANEL"
+          grep -q 'EXP22_LOGIN_READY_SUCCESS_HANDSHAKE' "$PANEL"
+          grep -q 'EXP25_STRICT_POPUP_WHITELIST' "$PANEL"
+          grep -q 'host == "accounts.geogebra.org"' "$PANEL"
+          grep -q 'isTrustedGeoGebraCallback(uri)' "$PANEL"
+          grep -q 'GeoGebraWebNavigation.deliverOpenFromGgt(uri.toString())' "$PANEL"
+
+          # Exact Exp27 local-file/XR architecture remains unchanged.
+          grep -q 'EXP27_COLD_PROCESS_PICKER' "$PANEL"
+          grep -q 'ColdLocalFilePickerActivity::class.java' "$PANEL"
+          grep -q 'EXP27_OPEN_COLD_PENDING_FILE' "$PANEL"
+          grep -q 'openPendingColdLocalFileIfAny' "$PANEL"
+          grep -q 'addPathHandler("/pending-cold/", ColdLocalFilePathHandler' "$PANEL"
+          grep -q 'EXP27_COLD_PICKER_PROXY' "$COLD"
+          grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$COLD"
+          grep -q 'KILL_MAIN_DELAY_MS = 300L' "$COLD"
+          grep -q 'Process.killProcess(process.pid)' "$COLD"
+          grep -q 'ColdLocalFileBridge.stage(applicationContext, uri)' "$COLD"
+          grep -q 'Intent.FLAG_ACTIVITY_CLEAR_TASK' "$COLD"
+          grep -q 'SpatialGeoGebraActivity::class.java' "$COLD"
+          grep -q 'android:name=".ColdLocalFilePickerActivity"' "$MANIFEST"
+          grep -q 'android:process=":localpicker"' "$MANIFEST"
+          if grep -q 'requestSpatialFilePickerPanel()' "$PANEL"; then exit 1; fi
+
+          # Post-Exp27 XR experiments remain absent.
+          for BAD in \
+            EXP28_KEEP_MAIN_VISIBLE_WHILE_PICKING \
+            EXP28_POST_RESULT_COLD_HANDOFF \
+            EXP29_CONFIRMED_PROCESS_EXIT \
+            EXP30_GRACEFUL_XR_SHUTDOWN \
+            EXP30_COLD_SESSION_RESTORE \
+            EXP31_CURRENT_REMOTE_SESSION \
+            EXP31_SNAPSHOT_SESSION_BEFORE_COLD_PICKER \
+            EXP31_RESTORE_COLD_SESSION_ONCE \
+            XR_RELEASE_SETTLE_MS \
+            requestGracefulSpatialShutdown \
+            prepareSessionRestore \
+            restoreColdSessionIfAny; do
+            if grep -q "$BAD" "$PANEL" "$COLD" "$ACTIVITY"; then
+              echo "Unexpected post-Exp27 XR marker: $BAD"
+              exit 1
+            fi
+          done
+
+          # Controller component remains read-only; Exp35 only reads button bits.
+          if grep -q 'requestControllerPresentationRecovery(' "$ACTIVITY"; then exit 1; fi
+          if grep -q 'controller.laserEnabled =' "$SHORTCUT"; then exit 1; fi
+          if grep -q 'entity.setComponent(controller)' "$SHORTCUT"; then exit 1; fi
+          grep -q 'ButtonBits.ButtonSqueezeR' "$SHORTCUT"
+          grep -q 'ButtonBits.ButtonA' "$SHORTCUT"
+          grep -q 'ButtonBits.ButtonB' "$SHORTCUT"
 
       - name: Build debug APK
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify v0.9.29 A-toggle and palette-offset fixes
+      - name: Verify Exp35 package
         shell: bash
         run: |
-          ACTIVITY=app/src/main/java/com/sinan/geogebraforquest/SpatialGeoGebraActivity.kt
-          CONTROLLERS=app/src/main/java/com/sinan/geogebraforquest/QuestControllerShortcutSystem.kt
-          PANEL=app/src/main/java/com/sinan/geogebraforquest/GeoGebraWebPanel.kt
-          SINK=app/src/main/java/com/sinan/geogebraforquest/LiveStereoFrameSink.kt
-          JS=app/src/main/assets/web/quest-stereo-layout.js
-          PATCH28=tools/patch-geogebra-quest-v0928.py
-          LEFT=app/src/main/res/drawable-nodpi/stereo_splash_left.webp
-          RIGHT=app/src/main/res/drawable-nodpi/stereo_splash_right.webp
-
-          # Preserved v0.9.28 behavior.
-          grep -q 'Quaternion(0f, 45f, 0f)' "$ACTIVITY"
-          grep -q 'CONTROLLER_PALETTE_SCALE = Vector3(0.30f, 0.30f, 0.30f)' "$ACTIVITY"
-          grep -q 'Hittable(MeshCollision.NoCollision)' "$ACTIVITY"
-          grep -q 'tryRemoveComponent<Hittable>()' "$ACTIVITY"
-          grep -q 'StereoMode.LeftRight' "$ACTIVITY"
-          grep -q 'LiveStereoFrameSink.attachSurface(surface, resources)' "$ACTIVITY"
-          file "$LEFT" | grep -q 'Web/P image'
-          file "$RIGHT" | grep -q 'Web/P image'
-          test "$(git hash-object "$LEFT")" = '0ed1acfd3e15cf2868370dc949b015d21a2da1f6'
-          test "$(git hash-object "$RIGHT")" = 'af4dca689d0e2774728eba349e1715a1a149bf01'
-
-          # Palette moves 4 cm right/toward hand and 7 cm down: vertical adjustment > lateral.
-          grep -q 'Vector3(-0.13f, 0.01f, 0.10f)' "$ACTIVITY"
-
-          # A must be shortcut-only: normal GeoGebra panel click input accepts triggers, not ButtonA.
-          grep -q 'input = PanelInputOptions(' "$ACTIVITY"
-          grep -q 'ButtonBits.ButtonTriggerL or ButtonBits.ButtonTriggerR' "$ACTIVITY"
-          if sed -n '/input = PanelInputOptions(/,/),/p' "$ACTIVITY" | grep -q 'ButtonBits.ButtonA'; then
-            echo 'ButtonA must not be forwarded as normal panel primary/left-click input'
-            exit 1
-          fi
-          grep -q 'GeoGebraWebNavigation.toggleContextMenu()' "$ACTIVITY"
-          grep -q 'ButtonBits.ButtonA' "$CONTROLLERS"
-          grep -q 'controller.changedButtons' "$CONTROLLERS"
-          grep -q 'controller.buttonState' "$CONTROLLERS"
-
-          # Selected-object toggle remains native and JS keeps explicit open/close state.
-          grep -q 'getAppSelectedGeos' "$PATCH28"
-          grep -q 'showPopupMenu' "$PATCH28"
-          grep -q '__ggqContextMenuVisible = false' "$PANEL"
-          grep -q 'if (window.__ggqContextMenuVisible)' "$PANEL"
-          grep -q 'window.ggqCloseContextMenu' "$PANEL"
-          grep -q 'window.__ggqContextMenuVisible = opened' "$PANEL"
-
-          # Existing working architecture remains unchanged.
-          grep -q 'Intent.ACTION_OPEN_DOCUMENT' "$PANEL"
-          grep -q 'activity.startActivityForResult' "$PANEL"
-          grep -q 'CAPTURE_INTERVAL_MS = 50' "$JS"
-          grep -q 'findVisible3DCanvas' "$JS"
-          grep -q "bridge('stereoInactive', '')" "$JS"
-          grep -q 'fun clearForInactiveView()' "$SINK"
-          grep -q 'PorterDuff.Mode.CLEAR' "$SINK"
-
-          grep -q 'versionName = "0.9.29"' app/build.gradle.kts
-          grep -q 'versionCode = 80' app/build.gradle.kts
-
-      - name: Verify source-built GeoGebra runtime layout
-        shell: bash
-        run: |
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/deployggb.js'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/web3d.nocache.js'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/css/bundles/bundle.css'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'backing_store=single_eye_width'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'no_final_sbs_split=true'
-          unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt | grep 'quest_context_menu_mode=selected_geoelements'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'stereo_splash_left.webp'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'stereo_splash_right.webp'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'assets/web/GeoGebra/web3d/html/ggtcallback.html'
+          grep -q 'versionName = "0.9.30-exp35-ime-thumb-zoom"' app/build.gradle.kts
+          grep -q 'versionCode = 123' app/build.gradle.kts
+          META=$(unzip -p app/build/outputs/apk/debug/app-debug.apk assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt)
+          echo "$META" | grep 'renderer_normal_frame=RIGHT_EYE only'
+          echo "$META" | grep 'canonical_runtime=exp20'
+          echo "$META" | grep 'login_handshake=exp22'
+          echo "$META" | grep 'popup_guard=exp25'
+          echo "$META" | grep 'local_picker=exp27'
+          echo "$META" | grep 'login_session=exp34 token-first single session owner'
+          echo "$META" | grep 'login_ime=exp35'
+          echo "$META" | grep 'right_thumb_zoom=exp35'
+          if echo "$META" | grep -q 'login_cookie_semantics=exp33'; then exit 1; fi
+          if echo "$META" | grep -q 'session_continuity=exp31'; then exit 1; fi
 
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.29-debug.apk
-          ls -lh dist/GeoGebraForQuest-v0.9.29-debug.apk
-          sha256sum dist/GeoGebraForQuest-v0.9.29-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug.apk
+          sha256sum dist/GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-v0.9.29-debug-apk
-          path: dist/GeoGebraForQuest-v0.9.29-debug.apk
+          name: GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug-apk
+          path: dist/GeoGebraForQuest-v0.9.30-exp35-ime-thumb-zoom-debug.apk
           if-no-files-found: error
-          retention-days: 30
