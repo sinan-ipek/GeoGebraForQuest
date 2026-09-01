@@ -1,21 +1,24 @@
 (function () {
   'use strict';
 
-  // PC v0.2.1
+  // GeoGebraForQuest PC v0.5 High-Res SBS runtime.
   // The Windows monitor keeps GeoGebra's normal visible 3D WebGL canvas untouched.
   // Quest/OpenXR receives a synchronized LEFT/RIGHT pair for exactly that same rectangle.
-  if (window.__ggqPcStereoRuntimeInstalled) return;
-  window.__ggqPcStereoRuntimeInstalled = true;
+  if (window.__ggqPcStereoRuntimeInstalledV5) return;
+  window.__ggqPcStereoRuntimeInstalledV5 = true;
 
   var lastPayload = '';
   var lastCanvas = null;
   var scheduled = false;
   var inactiveReported = false;
 
-  // Match the proven Exp46 delivery path: demand-driven pair, ~24 fps, 720 px eye width.
+  // Exp46 stereo renderer is still demand-driven. Unlike the standalone Quest build,
+  // this PC path does not use the old 720 px transport limit. Each eye is captured
+  // at the renderer's native backing resolution up to 2048x2048.
   var CAPTURE_INTERVAL_MS = 42;
-  var CAPTURE_MAX_EYE_WIDTH = 720;
-  var CAPTURE_JPEG_QUALITY = 0.78;
+  var CAPTURE_MAX_EYE_WIDTH = 2048;
+  var CAPTURE_MAX_EYE_HEIGHT = 2048;
+  var CAPTURE_JPEG_QUALITY = 0.95;
 
   var pendingStereoSerial = null;
   var pendingStereoRequestedAt = 0;
@@ -33,6 +36,15 @@
     alpha: false,
     desynchronized: true
   });
+
+  if (leftCaptureContext) {
+    leftCaptureContext.imageSmoothingEnabled = true;
+    leftCaptureContext.imageSmoothingQuality = 'high';
+  }
+  if (rightCaptureContext) {
+    rightCaptureContext.imageSmoothingEnabled = true;
+    rightCaptureContext.imageSmoothingQuality = 'high';
+  }
 
   function bridge(name, value) {
     try {
@@ -101,23 +113,20 @@
   }
 
   function findVisible3DCanvas() {
-    // Exp46 v0.9.20 aliases ggq-renderer-right-eye to the ACTUAL visible main
-    // GeoGebra WebGL canvas. It is therefore the authoritative 3D rectangle.
+    // Exp46 aliases ggq-renderer-right-eye to the actual visible GeoGebra WebGL canvas.
     var rightEyeMain = document.getElementById('ggq-renderer-right-eye');
     if (rightEyeMain && rectOf(rightEyeMain) && isWebGLCanvas(rightEyeMain)) {
       lastCanvas = rightEyeMain;
       return rightEyeMain;
     }
 
-    // Fallback for startup/recreation windows before the alias is attached.
+    // Fallback during renderer startup/recreation.
     var root = document.getElementById('ggb-element') || document;
     var canvases = Array.prototype.slice.call(root.querySelectorAll('canvas'));
     var best = null;
     var bestScore = 0;
 
     canvases.forEach(function (canvas) {
-      // Only the LEFT snapshot canvas is a hidden helper. Never exclude the
-      // right-eye id: in Exp46 that id belongs to the visible main WebGL canvas.
       if (canvas.id === 'ggq-renderer-left-eye') return;
 
       var r = rectOf(canvas);
@@ -212,6 +221,15 @@
     if (leftCaptureCanvas.height !== height) leftCaptureCanvas.height = height;
     if (rightCaptureCanvas.width !== width) rightCaptureCanvas.width = width;
     if (rightCaptureCanvas.height !== height) rightCaptureCanvas.height = height;
+
+    if (leftCaptureContext) {
+      leftCaptureContext.imageSmoothingEnabled = true;
+      leftCaptureContext.imageSmoothingQuality = 'high';
+    }
+    if (rightCaptureContext) {
+      rightCaptureContext.imageSmoothingEnabled = true;
+      rightCaptureContext.imageSmoothingQuality = 'high';
+    }
   }
 
   function readStereoFrameSerial() {
@@ -237,6 +255,19 @@
     }
   }
 
+  function computeCaptureSize(sourceWidth, sourceHeight) {
+    var scale = Math.min(
+      1,
+      CAPTURE_MAX_EYE_WIDTH / sourceWidth,
+      CAPTURE_MAX_EYE_HEIGHT / sourceHeight
+    );
+
+    return {
+      width: Math.max(2, Math.round(sourceWidth * scale)),
+      height: Math.max(2, Math.round(sourceHeight * scale))
+    };
+  }
+
   function captureStereoEyes(serial) {
     if (!leftCaptureContext || !rightCaptureContext) return false;
     if (serial === lastDeliveredStereoSerial) return true;
@@ -256,10 +287,13 @@
       var sourceHeight = Math.min(eyes.left.height, eyes.right.height);
       if (sourceWidth < 2 || sourceHeight < 2) return false;
 
-      var scale = Math.min(1, CAPTURE_MAX_EYE_WIDTH / sourceWidth);
-      var eyeWidth = Math.max(2, Math.round(sourceWidth * scale));
-      var eyeHeight = Math.max(2, Math.round(sourceHeight * scale));
+      var captureSize = computeCaptureSize(sourceWidth, sourceHeight);
+      var eyeWidth = captureSize.width;
+      var eyeHeight = captureSize.height;
       ensureCaptureCanvasSize(eyeWidth, eyeHeight);
+
+      leftCaptureContext.clearRect(0, 0, eyeWidth, eyeHeight);
+      rightCaptureContext.clearRect(0, 0, eyeWidth, eyeHeight);
 
       leftCaptureContext.drawImage(
         eyes.left,
@@ -284,8 +318,6 @@
         return false;
       }
 
-      // An exact equality is impossible for a useful stereo pair. Surface it
-      // visibly during this diagnostic test instead of silently shipping mono.
       if (!identicalWarningSent && leftDataUrl === rightDataUrl) {
         identicalWarningSent = true;
         reportRuntimeError('STEREO HATA: Exp46 sol ve sağ göz kareleri birebir aynı');
@@ -294,7 +326,11 @@
       bridgeStereoEyes(leftDataUrl, rightDataUrl);
       lastDeliveredStereoSerial = serial;
       return true;
-    } catch (_) {
+    } catch (error) {
+      reportRuntimeError(
+        'High-Res stereo capture hatası: ' +
+        (error && error.message ? error.message : String(error || 'bilinmeyen hata'))
+      );
       return false;
     }
   }
