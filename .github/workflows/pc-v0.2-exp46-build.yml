@@ -1,9 +1,9 @@
-name: GeoGebraForQuest PC v0.2 Exp46
+name: GeoGebraForQuest PC v0.3 Exp46
 
 on:
   push:
     branches:
-      - pc-v0.2-stereo-3d-view
+      - pc-v0.3-full-eye-composite
     paths:
       - "pc/**"
       - "pc-xr/**"
@@ -71,16 +71,16 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.2.0-exp46-win-x64"
+          $dir = "dist/GeoGebraForQuest-PC-v0.3.0-exp46-win-x64"
           if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
           if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
           if (-not (Test-Path "$dir/assets/web/GeoGebra/web3d/web3d.nocache.js")) { throw "Web3D missing" }
           if (-not (Test-Path "$dir/pc-stereo-layout.js")) { throw "PC stereo runtime missing" }
-          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.2.0-exp46-win-x64.zip")) { throw "ZIP missing" }
+          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.3.0-exp46-win-x64.zip")) { throw "ZIP missing" }
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.2.0-exp46-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.2.0-exp46-win-x64.zip
+          name: GeoGebraForQuest-PC-v0.3.0-exp46-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.3.0-exp46-win-x64.zip
           if-no-files-found: error
