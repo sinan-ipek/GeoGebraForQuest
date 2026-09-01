@@ -1,6 +1,8 @@
 (function () {
   'use strict';
 
+  // PC v0.2: keep the normal GeoGebra 3D canvas visible on the monitor;
+  // only the Quest/OpenXR presentation replaces this exact rectangle per eye.
   if (window.__ggqPcStereoRuntimeInstalled) return;
   window.__ggqPcStereoRuntimeInstalled = true;
 
@@ -139,8 +141,6 @@
 
     inactiveReported = false;
 
-    // PC RULE: never hide, resize, restyle or make the GeoGebra 3D canvas transparent.
-    // The ordinary mono 3D view must remain exactly where GeoGebra draws it on the PC.
     var payload = JSON.stringify({
       active: true,
       stereo: rect,
