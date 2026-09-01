@@ -11,9 +11,9 @@ $xrBuild = Join-Path $root ".pc-xr-build"
 $boot = Join-Path $root "app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js"
 $project = Join-Path $pcDir "GeoGebraForQuest.PC.csproj"
 $distRoot = Join-Path $root "dist"
-$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.1.0-exp46-win-x64"
+$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.2.0-exp46-win-x64"
 $appPublish = Join-Path $root ".pc-app-publish"
-$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.1.0-exp46-win-x64.zip"
+$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.2.0-exp46-win-x64.zip"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK bulunamadı."
@@ -22,7 +22,7 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
     throw "CMake bulunamadı."
 }
 if (-not (Test-Path $boot)) {
-    throw "Exp46 patched GeoGebra Web3D paketi yok. Önce Linux/CI build-web3d aşamasını çalıştırın."
+    throw "Exp46 patched GeoGebra Web3D paketi yok. Önce CI asset extraction adımını çalıştırın."
 }
 
 foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
@@ -31,17 +31,17 @@ foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-Write-Host "[GGQ-PC] OpenXR companion configure..."
+Write-Host "[GGQ-PC v0.2] OpenXR companion configure..."
 & cmake -S $xrSource -B $xrBuild -A x64
 if ($LASTEXITCODE -ne 0) { throw "OpenXR CMake configure başarısız." }
 
-Write-Host "[GGQ-PC] OpenXR companion build..."
+Write-Host "[GGQ-PC v0.2] OpenXR companion build..."
 & cmake --build $xrBuild --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "OpenXR companion build başarısız." }
 
 $selfContained = if ($FrameworkDependent) { "false" } else { "true" }
 
-Write-Host "[GGQ-PC] Windows x64 app publish..."
+Write-Host "[GGQ-PC v0.2] Windows x64 app publish..."
 & dotnet publish $project `
     -c Release `
     -r win-x64 `
@@ -59,13 +59,9 @@ $xrExe = Get-ChildItem -Path $xrBuild -Filter "GeoGebraForQuestPC.XR.exe" -Recur
 if (-not $xrExe) { throw "GeoGebraForQuestPC.XR.exe bulunamadı." }
 Copy-Item $xrExe.FullName (Join-Path $xrOut "GeoGebraForQuestPC.XR.exe") -Force
 
-# Depending on OpenXR-SDK CMake options, loader may be dynamic or linked without a sidecar.
 $loader = Get-ChildItem -Path $xrBuild -Filter "openxr_loader.dll" -Recurse | Select-Object -First 1
 if ($loader) {
     Copy-Item $loader.FullName (Join-Path $xrOut "openxr_loader.dll") -Force
-    Write-Host "[GGQ-PC] Bundled OpenXR loader: $($loader.FullName)"
-} else {
-    Write-Host "[GGQ-PC] No loader DLL sidecar produced; XR target is using its configured loader linkage."
 }
 
 $sourceInfo = Join-Path $publishDir "assets\web\GeoGebra\GGQ_SOURCE_BUILD.txt"
@@ -73,11 +69,16 @@ if (-not (Test-Path $sourceInfo)) {
     throw "GGQ_SOURCE_BUILD.txt publish paketinde bulunamadı."
 }
 
+$pcStereo = Join-Path $publishDir "pc-stereo-layout.js"
+if (-not (Test-Path $pcStereo)) {
+    throw "pc-stereo-layout.js publish paketinde bulunamadı."
+}
+
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zip -CompressionLevel Optimal
 
 Write-Host ""
-Write-Host "[GGQ-PC] BUILD TAMAM"
+Write-Host "[GGQ-PC v0.2] BUILD TAMAM"
 Write-Host "Klasör: $publishDir"
 Write-Host "ZIP:    $zip"
 Write-Host "APP:    $(Join-Path $publishDir 'GeoGebraForQuestPC.exe')"
