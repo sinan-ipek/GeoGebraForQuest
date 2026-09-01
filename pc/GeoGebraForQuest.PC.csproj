@@ -8,7 +8,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>GeoGebraForQuestPC</AssemblyName>
     <RootNamespace>GeoGebraForQuest.PC</RootNamespace>
-    <Version>0.1.2</Version>
+    <Version>0.2.0</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
@@ -19,6 +19,10 @@
   <ItemGroup>
     <Content Include="..\app\src\main\assets\**\*">
       <Link>assets\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="pc-stereo-layout.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
