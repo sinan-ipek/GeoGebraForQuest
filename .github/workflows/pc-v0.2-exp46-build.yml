@@ -1,0 +1,86 @@
+name: GeoGebraForQuest PC v0.2 Exp46
+
+on:
+  push:
+    branches:
+      - pc-v0.2-stereo-3d-view
+    paths:
+      - "pc/**"
+      - "pc-xr/**"
+      - ".github/workflows/pc-v0.2-exp46-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download exact published Quest Exp46 APK
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" `
+            --repo "sinan-ipek/GeoGebraForQuest" `
+            --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" `
+            --dir ".exp46"
+
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          if (-not $apk) { throw "Published Exp46 APK could not be downloaded." }
+
+      - name: Extract exact Exp46 web assets from APK
+        shell: powershell
+        run: |
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          $zip = ".exp46/exp46.zip"
+          $extract = ".exp46/unpacked"
+          Copy-Item $apk.FullName $zip -Force
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+
+          $source = Join-Path $extract "assets/web"
+          if (-not (Test-Path "$source/GeoGebra/web3d/web3d.nocache.js")) {
+            throw "Published Exp46 APK does not contain expected Web3D assets."
+          }
+          if (-not (Test-Path "$source/GeoGebra/GGQ_SOURCE_BUILD.txt")) {
+            throw "Published Exp46 APK source metadata missing."
+          }
+
+          if (Test-Path "app/src/main/assets/web") {
+            Remove-Item "app/src/main/assets/web" -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+
+      - name: Build Windows app and OpenXR companion
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = "dist/GeoGebraForQuest-PC-v0.2.0-exp46-win-x64"
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
+          if (-not (Test-Path "$dir/assets/web/GeoGebra/web3d/web3d.nocache.js")) { throw "Web3D missing" }
+          if (-not (Test-Path "$dir/pc-stereo-layout.js")) { throw "PC stereo runtime missing" }
+          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.2.0-exp46-win-x64.zip")) { throw "ZIP missing" }
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.2.0-exp46-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.2.0-exp46-win-x64.zip
+          if-no-files-found: error
