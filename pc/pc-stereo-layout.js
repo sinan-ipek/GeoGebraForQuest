@@ -1,9 +1,10 @@
 (function () {
   'use strict';
 
-  // PC v0.2.1
+  // PC v0.3.1 diagnostic runtime.
   // The Windows monitor keeps GeoGebra's normal visible 3D WebGL canvas untouched.
   // Quest/OpenXR receives a synchronized LEFT/RIGHT pair for exactly that same rectangle.
+  // Diagnostic markers are drawn ONLY into the captured eye frames sent to Quest.
   if (window.__ggqPcStereoRuntimeInstalled) return;
   window.__ggqPcStereoRuntimeInstalled = true;
 
@@ -22,6 +23,7 @@
   var lastDeliveredStereoSerial = -1;
   var nextStereoRequestAt = 0;
   var identicalWarningSent = false;
+  var lastSourceDiff = -1;
 
   var leftCaptureCanvas = document.createElement('canvas');
   var rightCaptureCanvas = document.createElement('canvas');
@@ -33,6 +35,15 @@
     alpha: false,
     desynchronized: true
   });
+
+  var leftProbeCanvas = document.createElement('canvas');
+  var rightProbeCanvas = document.createElement('canvas');
+  leftProbeCanvas.width = 64;
+  leftProbeCanvas.height = 64;
+  rightProbeCanvas.width = 64;
+  rightProbeCanvas.height = 64;
+  var leftProbeContext = leftProbeCanvas.getContext('2d', { alpha: false });
+  var rightProbeContext = rightProbeCanvas.getContext('2d', { alpha: false });
 
   function bridge(name, value) {
     try {
@@ -237,6 +248,71 @@
     }
   }
 
+  function estimateSourceDifference() {
+    if (!leftProbeContext || !rightProbeContext) return -1;
+
+    try {
+      leftProbeContext.drawImage(leftCaptureCanvas, 0, 0, 64, 64);
+      rightProbeContext.drawImage(rightCaptureCanvas, 0, 0, 64, 64);
+
+      var a = leftProbeContext.getImageData(0, 0, 64, 64).data;
+      var b = rightProbeContext.getImageData(0, 0, 64, 64).data;
+      if (!a || !b || a.length !== b.length) return -1;
+
+      var sum = 0;
+      var count = 0;
+      for (var i = 0; i < a.length; i += 16) {
+        sum += Math.abs(a[i] - b[i]);
+        sum += Math.abs(a[i + 1] - b[i + 1]);
+        sum += Math.abs(a[i + 2] - b[i + 2]);
+        count += 3;
+      }
+      return count ? sum / count : 0;
+    } catch (_) {
+      return -1;
+    }
+  }
+
+  function drawEyeMarker(context, eyeName, diff, width, height) {
+    if (!context) return;
+
+    var markerSize = Math.max(48, Math.min(88, Math.round(Math.min(width, height) * 0.13)));
+    var pad = Math.max(8, Math.round(markerSize * 0.16));
+    var isLeft = eyeName === 'L';
+    var x = isLeft ? pad : Math.max(pad, width - markerSize - pad);
+    var y = pad;
+
+    context.save();
+    context.globalAlpha = 0.96;
+    context.fillStyle = isLeft ? '#d93025' : '#1565c0';
+    context.fillRect(x, y, markerSize, markerSize);
+
+    context.globalAlpha = 1;
+    context.fillStyle = '#ffffff';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.font = 'bold ' + Math.max(30, Math.round(markerSize * 0.62)) + 'px sans-serif';
+    context.fillText(eyeName, x + markerSize / 2, y + markerSize / 2);
+
+    var label = diff >= 0 ? 'L/R fark=' + diff.toFixed(2) : 'L/R fark=?';
+    context.font = 'bold ' + Math.max(14, Math.round(markerSize * 0.22)) + 'px sans-serif';
+    context.textAlign = isLeft ? 'left' : 'right';
+    context.textBaseline = 'top';
+    var tx = isLeft ? pad : width - pad;
+    var ty = y + markerSize + Math.max(6, Math.round(markerSize * 0.08));
+
+    var measure = context.measureText(label);
+    var boxW = Math.ceil(measure.width) + 12;
+    var boxH = Math.max(22, Math.round(markerSize * 0.30));
+    var boxX = isLeft ? tx - 5 : tx - boxW + 5;
+
+    context.fillStyle = diff >= 0 && diff < 0.35 ? '#ff8f00' : 'rgba(0,0,0,0.78)';
+    context.fillRect(boxX, ty - 3, boxW, boxH);
+    context.fillStyle = '#ffffff';
+    context.fillText(label, tx, ty);
+    context.restore();
+  }
+
   function captureStereoEyes(serial) {
     if (!leftCaptureContext || !rightCaptureContext) return false;
     if (serial === lastDeliveredStereoSerial) return true;
@@ -272,6 +348,14 @@
         0, 0, eyeWidth, eyeHeight
       );
 
+      // Measure the REAL source pair before adding any diagnostic graphics.
+      lastSourceDiff = estimateSourceDifference();
+
+      // Eye-isolation markers. These are never drawn to the Windows GeoGebra canvas;
+      // they exist only in the frames sent through the Quest/OpenXR path.
+      drawEyeMarker(leftCaptureContext, 'L', lastSourceDiff, eyeWidth, eyeHeight);
+      drawEyeMarker(rightCaptureContext, 'R', lastSourceDiff, eyeWidth, eyeHeight);
+
       var leftDataUrl = leftCaptureCanvas.toDataURL(
         'image/jpeg', CAPTURE_JPEG_QUALITY
       );
@@ -284,11 +368,11 @@
         return false;
       }
 
-      // An exact equality is impossible for a useful stereo pair. Surface it
-      // visibly during this diagnostic test instead of silently shipping mono.
-      if (!identicalWarningSent && leftDataUrl === rightDataUrl) {
+      if (!identicalWarningSent && lastSourceDiff >= 0 && lastSourceDiff < 0.05) {
         identicalWarningSent = true;
-        reportRuntimeError('STEREO HATA: Exp46 sol ve sağ göz kareleri birebir aynı');
+        reportRuntimeError(
+          'STEREO KAYNAK UYARISI: L/R gerçek görüntü farkı ' + lastSourceDiff.toFixed(3)
+        );
       }
 
       bridgeStereoEyes(leftDataUrl, rightDataUrl);
