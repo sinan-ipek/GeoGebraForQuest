@@ -11,10 +11,15 @@ $xrBuild = Join-Path $root ".pc-xr-build"
 $boot = Join-Path $root "app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js"
 $project = Join-Path $pcDir "GeoGebraForQuest.PC.csproj"
 $distRoot = Join-Path $root "dist"
-$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64"
+$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.11.0-cef-gpu-direct-win-x64"
 $appPublish = Join-Path $root ".pc-app-publish"
-$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64.zip"
-$xrMain = Join-Path $xrSource "main-v10.cpp"
+$xrMain = Join-Path $xrSource "main-v11.cpp"
+$xrShared = Join-Path $xrSource "v11-shared.hpp"
+$xrRender = Join-Path $xrSource "v11-render.hpp"
+$mainForm = Join-Path $pcDir "MainFormV11.cs"
+$graphics = Join-Path $pcDir "MainFormV11.Graphics.cs"
+$inputStereo = Join-Path $pcDir "MainFormV11.InputStereo.cs"
+$cefBrowser = Join-Path $pcDir "D3DChromiumWebBrowser.cs"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK bulunamadı."
@@ -25,31 +30,46 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path $boot)) {
     throw "Exp46 patched GeoGebra Web3D paketi yok. Önce CI asset extraction adımını çalıştırın."
 }
-if (-not (Test-Path $xrMain)) {
-    throw "v0.10 real stereo screen kaynağı bulunamadı."
+foreach ($required in @($xrMain, $xrShared, $xrRender, $mainForm, $graphics, $inputStereo, $cefBrowser)) {
+    if (-not (Test-Path $required)) {
+        throw "v0.11 kaynak dosyası eksik: $required"
+    }
 }
 
 $xrText = Get-Content $xrMain -Raw
+$sharedText = Get-Content $xrShared -Raw
+$graphicsText = Get-Content $graphics -Raw
+$browserText = Get-Content $cefBrowser -Raw
+$allV11 = $xrText + "`n" + $sharedText + "`n" + $graphicsText + "`n" + $browserText
+
+if ($allV11 -match "BitBlt\s*\(") {
+    throw "v0.11 doğrulaması başarısız: BitBlt ekran yakalaması bulundu."
+}
+if ($allV11 -match "Windows\.Graphics\.Capture|GraphicsCaptureItem|PrintWindow\s*\(") {
+    throw "v0.11 doğrulaması başarısız: ekran yakalama API'si bulundu."
+}
+if ($browserText -notmatch "SharedTextureEnabled = true") {
+    throw "v0.11 doğrulaması başarısız: CEF shared GPU texture etkin değil."
+}
+if ($graphicsText -notmatch "OnAcceleratedPaint") {
+    throw "v0.11 doğrulaması başarısız: CEF accelerated paint yolu bulunamadı."
+}
+if ($graphicsText -notmatch "CopyResource\(cefTexture, _xrSharedTexture\)") {
+    throw "v0.11 doğrulaması başarısız: CEF -> uygulama-owned GPU texture kopyası bulunamadı."
+}
+if ($sharedText -notmatch "OpenSharedResource") {
+    throw "v0.11 doğrulaması başarısız: XR shared GPU texture açma yolu bulunamadı."
+}
+if ($xrText -notmatch "XR_ACTION_TYPE_POSE_INPUT" -or
+    $xrText -notmatch "XR_ACTION_TYPE_FLOAT_INPUT" -or
+    $xrText -notmatch "/interaction_profiles/oculus/touch_controller") {
+    throw "v0.11 doğrulaması başarısız: Meta Touch OpenXR input yolu eksik."
+}
 if ($xrText -notmatch "XrCompositionLayerProjection") {
-    throw "v0.10 doğrulaması başarısız: projection layer bulunamadı."
+    throw "v0.11 doğrulaması başarısız: projection layer bulunamadı."
 }
-if ($xrText -notmatch "kScreenDistanceMeters = 1.55f") {
-    throw "v0.10 doğrulaması başarısız: A sanal ekran mesafesi bulunamadı."
-}
-if ($xrText -notmatch "kStereoDistanceMeters = 1.53f") {
-    throw "v0.10 doğrulaması başarısız: B öne alma mesafesi bulunamadı."
-}
-if ($xrText -match "InterlockedCompareExchange64") {
-    $unsafeUse = Select-String -InputObject $xrText -Pattern "return static_cast.*InterlockedCompareExchange64|InterlockedCompareExchange64\(" -AllMatches
-    if ($unsafeUse) {
-        throw "v0.10 doğrulaması başarısız: read-only mapping üzerinde InterlockedCompareExchange64 kullanımı bulundu."
-    }
-}
-if ($xrText -notmatch "rightEye \? 0.5f : 0.0f") {
-    throw "v0.10 doğrulaması başarısız: SBS sol/sağ yarım örnekleme bulunamadı."
-}
-if ($xrText -notmatch "ScaleRect") {
-    throw "v0.10 doğrulaması başarısız: B perspektif hizalama ölçeği bulunamadı."
+if ($xrText -notmatch "rightEye" -and $xrText -notmatch "eye == 1") {
+    throw "v0.11 doğrulaması başarısız: per-eye stereo yönlendirmesi bulunamadı."
 }
 
 foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
@@ -58,22 +78,23 @@ foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-Write-Host "[GGQ-PC v0.10] OpenXR real stereo screen configure..."
+Write-Host "[GGQ-PC v0.11] OpenXR GPU-direct configure..."
 & cmake -S $xrSource -B $xrBuild -A x64
 if ($LASTEXITCODE -ne 0) { throw "OpenXR CMake configure başarısız." }
 
-Write-Host "[GGQ-PC v0.10] OpenXR real stereo screen build..."
+Write-Host "[GGQ-PC v0.11] OpenXR GPU-direct build..."
 & cmake --build $xrBuild --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "OpenXR companion build başarısız." }
 
 $selfContained = if ($FrameworkDependent) { "false" } else { "true" }
 
-Write-Host "[GGQ-PC v0.10] Windows x64 app publish..."
+Write-Host "[GGQ-PC v0.11] CEF/Windows x64 app publish..."
 & dotnet publish $project `
     -c Release `
     -r win-x64 `
     --self-contained $selfContained `
     -o $appPublish `
+    -p:Platform=x64 `
     -p:PublishReadyToRun=true
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish başarısız." }
 
@@ -95,14 +116,21 @@ $sourceInfo = Join-Path $publishDir "assets\web\GeoGebra\GGQ_SOURCE_BUILD.txt"
 if (-not (Test-Path $sourceInfo)) {
     throw "GGQ_SOURCE_BUILD.txt publish paketinde bulunamadı."
 }
+if (-not (Test-Path (Join-Path $publishDir "GeoGebraForQuestPC.exe"))) {
+    throw "GeoGebraForQuestPC.exe publish paketinde bulunamadı."
+}
+if (-not (Test-Path (Join-Path $xrOut "GeoGebraForQuestPC.XR.exe"))) {
+    throw "OpenXR helper publish paketinde bulunamadı."
+}
 
-if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zip -CompressionLevel Optimal
-
+# Important: no inner ZIP here. GitHub Actions uploads this directory directly,
+# therefore the downloadable Actions artifact is the one and only ZIP layer.
 Write-Host ""
-Write-Host "[GGQ-PC v0.10] BUILD TAMAM"
+Write-Host "[GGQ-PC v0.11] BUILD TAMAM"
 Write-Host "Klasör: $publishDir"
-Write-Host "ZIP:    $zip"
 Write-Host "APP:    $(Join-Path $publishDir 'GeoGebraForQuestPC.exe')"
 Write-Host "XR:     $(Join-Path $xrOut 'GeoGebraForQuestPC.XR.exe')"
-Write-Host "HEDEF:  A=normal GeoGebra 1.55 m uzakta; B=3D alanı 1.53 m uzakta; sol göz=L, sağ göz=R."
+Write-Host "A:      CEF D3D11 shared texture -> GPU-to-GPU -> OpenXR (screen capture yok)"
+Write-Host "B:      Exp46 L/R -> per-eye projection"
+Write-Host "INPUT:  Right Touch aim/trigger -> CEF GeoGebra"
+Write-Host "PAKET:  Tek ZIP katmanı (Actions artifact doğrudan klasörü paketler)"
