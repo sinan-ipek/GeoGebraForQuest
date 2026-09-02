@@ -11,10 +11,10 @@ $xrBuild = Join-Path $root ".pc-xr-build"
 $boot = Join-Path $root "app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js"
 $project = Join-Path $pcDir "GeoGebraForQuest.PC.csproj"
 $distRoot = Join-Path $root "dist"
-$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.7.0-openxr-visibility-test-win-x64"
+$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.8.0-b-panel-diagnostic-win-x64"
 $appPublish = Join-Path $root ".pc-app-publish"
-$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.7.0-openxr-visibility-test-win-x64.zip"
-$visibilitySource = Join-Path $xrSource "main-v07.cpp"
+$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.8.0-b-panel-diagnostic-win-x64.zip"
+$diagnosticSource = Join-Path $xrSource "main-v08.cpp"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK bulunamadı."
@@ -25,19 +25,22 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path $boot)) {
     throw "Exp46 patched GeoGebra Web3D paketi yok. Önce CI asset extraction adımını çalıştırın."
 }
-if (-not (Test-Path $visibilitySource)) {
-    throw "v0.7 OpenXR visibility test kaynağı bulunamadı."
+if (-not (Test-Path $diagnosticSource)) {
+    throw "v0.8 B-panel diagnostic kaynağı bulunamadı."
 }
 
-$visibilityText = Get-Content $visibilitySource -Raw
-if ($visibilityText -notmatch "XrCompositionLayerProjection") {
-    throw "v0.7 doğrulaması başarısız: projection layer bulunamadı."
+$diagnosticText = Get-Content $diagnosticSource -Raw
+if ($diagnosticText -notmatch "XrCompositionLayerProjection") {
+    throw "v0.8 doğrulaması başarısız: projection layer bulunamadı."
 }
-if ($visibilityText -notmatch "XR_SESSION_STATE_FOCUSED") {
-    throw "v0.7 doğrulaması başarısız: FOCUSED durum takibi bulunamadı."
+if ($diagnosticText -notmatch "MAGENTA B BOTH EYES") {
+    throw "v0.8 doğrulaması başarısız: mor B modu bulunamadı."
 }
-if ($visibilityText -notmatch "0.00f, 1.00f, 0.12f") {
-    throw "v0.7 doğrulaması başarısız: neon yeşil foreground test rengi bulunamadı."
+if ($diagnosticText -notmatch "LEFT RED / RIGHT BLUE") {
+    throw "v0.8 doğrulaması başarısız: per-eye renk modu bulunamadı."
+}
+if ($diagnosticText -notmatch "shared geometry") {
+    throw "v0.8 doğrulaması başarısız: shared geometry tanısı bulunamadı."
 }
 
 foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
@@ -46,17 +49,17 @@ foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-Write-Host "[GGQ-PC v0.7] OpenXR visibility diagnostic configure..."
+Write-Host "[GGQ-PC v0.8] OpenXR B-panel diagnostic configure..."
 & cmake -S $xrSource -B $xrBuild -A x64
 if ($LASTEXITCODE -ne 0) { throw "OpenXR CMake configure başarısız." }
 
-Write-Host "[GGQ-PC v0.7] OpenXR visibility diagnostic build..."
+Write-Host "[GGQ-PC v0.8] OpenXR B-panel diagnostic build..."
 & cmake --build $xrBuild --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "OpenXR companion build başarısız." }
 
 $selfContained = if ($FrameworkDependent) { "false" } else { "true" }
 
-Write-Host "[GGQ-PC v0.7] Windows x64 app publish..."
+Write-Host "[GGQ-PC v0.8] Windows x64 app publish..."
 & dotnet publish $project `
     -c Release `
     -r win-x64 `
@@ -88,9 +91,9 @@ if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zip -CompressionLevel Optimal
 
 Write-Host ""
-Write-Host "[GGQ-PC v0.7] BUILD TAMAM"
+Write-Host "[GGQ-PC v0.8] BUILD TAMAM"
 Write-Host "Klasör: $publishDir"
 Write-Host "ZIP:    $zip"
 Write-Host "APP:    $(Join-Path $publishDir 'GeoGebraForQuestPC.exe')"
 Write-Host "XR:     $(Join-Path $xrOut 'GeoGebraForQuestPC.XR.exe')"
-Write-Host "TEST:   Quest immersive OpenXR görünürse parlak yeşil/cyan ekran görülmelidir."
+Write-Host "TEST:   A normal GeoGebra; B 6 sn mor, 6 sn sol kırmızı/sağ mavi; sol üst gösterge yeşil=geometry, turuncu=fallback."
