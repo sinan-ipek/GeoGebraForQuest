@@ -1,9 +1,9 @@
-name: GeoGebraForQuest PC v0.8 B-Panel Diagnostic
+name: GeoGebraForQuest PC v0.9 Read-Only Sequence Fix
 
 on:
   push:
     branches:
-      - pc-v0.8-b-panel-diagnostic
+      - pc-v0.9-readonly-sequence-fix
     paths:
       - "pc/**"
       - "pc-xr/**"
@@ -64,21 +64,33 @@ jobs:
           New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
           Copy-Item $source "app/src/main/assets/web" -Recurse -Force
 
-      - name: Verify B-panel diagnostic source
+      - name: Verify read-only sequence fix and B-panel diagnostic
         shell: powershell
         run: |
-          $xr = Get-Content "pc-xr/main-v08.cpp" -Raw
-          if ($xr -notmatch "XrCompositionLayerProjection") {
+          $base = Get-Content "pc-xr/main-v08.cpp" -Raw
+          $fix = Get-Content "pc-xr/main-v09.cpp" -Raw
+          $cmake = Get-Content "pc-xr/CMakeLists.txt" -Raw
+
+          if ($base -notmatch "XrCompositionLayerProjection") {
             throw "Projection layer implementation missing"
           }
-          if ($xr -notmatch "MAGENTA B BOTH EYES") {
+          if ($base -notmatch "MAGENTA B BOTH EYES") {
             throw "Magenta B diagnostic mode missing"
           }
-          if ($xr -notmatch "LEFT RED / RIGHT BLUE") {
+          if ($base -notmatch "LEFT RED / RIGHT BLUE") {
             throw "Per-eye diagnostic mode missing"
           }
-          if ($xr -notmatch "shared geometry") {
+          if ($base -notmatch "shared geometry") {
             throw "Shared-geometry diagnostic missing"
+          }
+          if ($fix -notmatch "GgqReadOnlySequence") {
+            throw "Read-only sequence fix missing"
+          }
+          if ($fix -notmatch '#include "main-v08.cpp"') {
+            throw "v0.8 diagnostic body not included by v0.9"
+          }
+          if ($cmake -notmatch "main-v09.cpp") {
+            throw "CMake is not building v0.9 source"
           }
 
       - name: Build Windows app and OpenXR companion
@@ -88,15 +100,15 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.8.0-b-panel-diagnostic-win-x64"
+          $dir = "dist/GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64"
           if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
           if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
           if (-not (Test-Path "$dir/assets/web/GeoGebra/web3d/web3d.nocache.js")) { throw "Web3D missing" }
-          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.8.0-b-panel-diagnostic-win-x64.zip")) { throw "ZIP missing" }
+          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64.zip")) { throw "ZIP missing" }
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.8.0-b-panel-diagnostic-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.8.0-b-panel-diagnostic-win-x64.zip
+          name: GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64.zip
           if-no-files-found: error
