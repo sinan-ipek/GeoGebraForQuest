@@ -19,11 +19,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.11 removes the Windows-screen capture path completely.
-# A arrives from the CEF renderer through a shared D3D11 texture and is copied
-# GPU-to-GPU into the OpenXR renderer. B remains the Exp46 [L|R] stereo texture.
-# The right Touch-controller aim/trigger is converted to A-panel UV input.
-add_executable(GeoGebraForQuestPC.XR main-v11.cpp)
+# v0.11 removes Windows-screen capture completely.
+# A: CEF OnAcceleratedPaint D3D11 texture -> application-owned shared D3D11 texture
+#    -> GPU-to-GPU OpenXR texture. No BitBlt, screenshot, JPEG, CPU readback or desktop capture.
+# B: existing Exp46 [L|R] stereo source, sampled separately by the two projection views.
+# Input: right Meta Touch aim pose + trigger -> normalized A-panel UV -> CEF browser input.
+add_executable(GeoGebraForQuestPC.XR
+  main-v11.cpp
+  v11-shared.hpp
+  v11-render.hpp
+)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
@@ -39,6 +44,7 @@ target_link_libraries(GeoGebraForQuestPC.XR PRIVATE
   d3d11
   d3dcompiler
   dxgi
+  user32
 )
 
 if(MSVC)
