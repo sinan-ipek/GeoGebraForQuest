@@ -19,12 +19,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.6 no longer uses left/right XrCompositionLayerQuad overlays.
-# The complete Quest image is rendered into a PRIMARY_STEREO projection swapchain:
-# array slice 0 = left eye, array slice 1 = right eye. The ordinary GeoGebra panel
-# is identical in both views; only the measured 3D Graphics rectangle samples the
-# corresponding L/R half of the hidden SBS source texture.
-add_executable(GeoGebraForQuestPC.XR main-v06.cpp)
+# v0.7 is intentionally a minimal visibility diagnostic.
+# No GeoGebra capture and no SBS path are involved. If the Meta/OpenXR immersive
+# session is actually foreground/visible, the headset must show a bright solid
+# projection color. The log records runtime and every session-state transition.
+add_executable(GeoGebraForQuestPC.XR main-v07.cpp)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
@@ -38,11 +37,8 @@ target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
 target_link_libraries(GeoGebraForQuestPC.XR PRIVATE
   openxr_loader
   d3d11
-  d3dcompiler
   dxgi
   user32
-  gdi32
-  dwmapi
 )
 
 if(MSVC)
