@@ -1,9 +1,9 @@
-name: GeoGebraForQuest PC v0.9 Read-Only Sequence Fix
+name: GeoGebraForQuest PC v0.10 Real Stereo Screen
 
 on:
   push:
     branches:
-      - pc-v0.9-readonly-sequence-fix
+      - pc-v0.10-real-stereo-screen
     paths:
       - "pc/**"
       - "pc-xr/**"
@@ -64,33 +64,32 @@ jobs:
           New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
           Copy-Item $source "app/src/main/assets/web" -Recurse -Force
 
-      - name: Verify read-only sequence fix and B-panel diagnostic
+      - name: Verify real stereo screen source
         shell: powershell
         run: |
-          $base = Get-Content "pc-xr/main-v08.cpp" -Raw
-          $fix = Get-Content "pc-xr/main-v09.cpp" -Raw
+          $xr = Get-Content "pc-xr/main-v10.cpp" -Raw
           $cmake = Get-Content "pc-xr/CMakeLists.txt" -Raw
 
-          if ($base -notmatch "XrCompositionLayerProjection") {
+          if ($xr -notmatch "XrCompositionLayerProjection") {
             throw "Projection layer implementation missing"
           }
-          if ($base -notmatch "MAGENTA B BOTH EYES") {
-            throw "Magenta B diagnostic mode missing"
+          if ($xr -notmatch "kScreenDistanceMeters = 1.55f") {
+            throw "A virtual-screen distance missing"
           }
-          if ($base -notmatch "LEFT RED / RIGHT BLUE") {
-            throw "Per-eye diagnostic mode missing"
+          if ($xr -notmatch "kStereoDistanceMeters = 1.53f") {
+            throw "B front offset missing"
           }
-          if ($base -notmatch "shared geometry") {
-            throw "Shared-geometry diagnostic missing"
+          if ($xr -notmatch "rightEye \? 0.5f : 0.0f") {
+            throw "SBS per-eye sampling missing"
           }
-          if ($fix -notmatch "GgqReadOnlySequence") {
-            throw "Read-only sequence fix missing"
+          if ($xr -notmatch "ReadI64") {
+            throw "Read-only sequence reader missing"
           }
-          if ($fix -notmatch '#include "main-v08.cpp"') {
-            throw "v0.8 diagnostic body not included by v0.9"
+          if ($xr -notmatch "ScaleRect") {
+            throw "B perspective alignment missing"
           }
-          if ($cmake -notmatch "main-v09.cpp") {
-            throw "CMake is not building v0.9 source"
+          if ($cmake -notmatch "main-v10.cpp") {
+            throw "CMake is not building v0.10 source"
           }
 
       - name: Build Windows app and OpenXR companion
@@ -100,15 +99,15 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64"
+          $dir = "dist/GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64"
           if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
           if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
           if (-not (Test-Path "$dir/assets/web/GeoGebra/web3d/web3d.nocache.js")) { throw "Web3D missing" }
-          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64.zip")) { throw "ZIP missing" }
+          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64.zip")) { throw "ZIP missing" }
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64.zip
+          name: GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64.zip
           if-no-files-found: error
