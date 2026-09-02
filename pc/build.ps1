@@ -63,7 +63,7 @@ if ($graphicsText -notmatch "OnAcceleratedPaint") {
 if ($graphicsText -match "SendExternalBeginFrame") {
     throw "v0.11.1 doğrulaması başarısız: manuel external frame çağrısı bulundu."
 }
-if ($graphicsText -notmatch "new InputElement\(\"POSITION\"") {
+if ($graphicsText -notmatch 'new InputElement\("POSITION"') {
     throw "v0.11.1 doğrulaması başarısız: standart POSITION input layout eksik."
 }
 if ($graphicsText -notmatch "CullMode = CullMode.None") {
