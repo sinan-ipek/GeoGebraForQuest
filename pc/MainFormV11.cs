@@ -16,7 +16,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private const string LocalHost = "appassets.androidplatform.net";
     private const string LocalAppUrl = "https://appassets.androidplatform.net/assets/web/index.html";
     private const string PcStereoRuntimeUrl =
-        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.11.0-cef-gpu-direct";
+        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.11.1-cef-gpu-direct";
 
     private const float BrowserSupersample = 1.35f;
     private const int MaxBrowserWidth = 3072;
@@ -46,6 +46,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private InputLayout? _inputLayout;
     private D3D11Buffer? _vertexBuffer;
     private SamplerState? _sampler;
+    private RasterizerState? _rasterizer;
     private readonly Texture2D?[] _pcTextures = new Texture2D?[2];
     private readonly ShaderResourceView?[] _pcSrvs = new ShaderResourceView?[2];
     private int _currentPcTexture;
@@ -72,7 +73,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
 
     public MainForm()
     {
-        Text = "GeoGebraForQuest PC · v0.11.0 · CEF GPU Direct";
+        Text = "GeoGebraForQuest PC · v0.11.1 · CEF GPU Direct";
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
         MinimumSize = new Size(1000, 650);
@@ -94,8 +95,8 @@ internal sealed partial class MainForm : Form, IRenderHandler
         try
         {
             CreateD3D();
-            CreateBrowser();
             UpdateBrowserSize();
+            CreateBrowser();
 
             _renderThread = new Thread(RenderLoop)
             {
@@ -113,7 +114,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
             MessageBox.Show(
                 this,
                 ex.ToString(),
-                "GeoGebraForQuest PC v0.11 başlatma hatası",
+                "GeoGebraForQuest PC v0.11.1 başlatma hatası",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -146,10 +147,14 @@ internal sealed partial class MainForm : Form, IRenderHandler
                 hostName: LocalHost,
                 defaultPage: "index.html"));
 
-        _browser = new D3DChromiumWebBrowser(_requestContext)
-        {
-            RenderHandler = this
-        };
+        Size initialSize;
+        lock (_geometryLock) initialSize = _browserSize;
+
+        _browser = new D3DChromiumWebBrowser(
+            _requestContext,
+            this,
+            initialSize.Width,
+            initialSize.Height);
         _browser.JavascriptMessageReceived += BrowserJavascriptMessageReceived;
         _browser.FrameLoadEnd += BrowserFrameLoadEnd;
         _browser.LoadError += (_, args) =>
@@ -157,7 +162,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
             if (!_closing && args.ErrorCode != CefErrorCode.Aborted)
             {
                 BeginInvokeSafe(() =>
-                    Text = $"GeoGebraForQuest PC v0.11 · CEF load error: {args.ErrorText}");
+                    Text = $"GeoGebraForQuest PC v0.11.1 · CEF load error: {args.ErrorText}");
             }
         };
         _browser.Load(LocalAppUrl);
@@ -195,7 +200,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
                 getStereoDebugStatus: function () {
                   return JSON.stringify({
                     platform: 'GeoGebraForQuest PC',
-                    version: '0.11.0-cef-gpu-direct',
+                    version: '0.11.1-cef-gpu-direct',
                     presentation: 'CEF D3D11 shared texture -> PC + OpenXR; B=Exp46 L/R'
                   });
                 }
@@ -267,7 +272,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
                     if (root.TryGetProperty("message", out var message))
                     {
                         BeginInvokeSafe(() =>
-                            Text = "GeoGebraForQuest PC v0.11 · " + message.GetString());
+                            Text = "GeoGebraForQuest PC v0.11.1 · " + message.GetString());
                     }
                     break;
             }
@@ -275,7 +280,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
         catch (Exception ex)
         {
             BeginInvokeSafe(() =>
-                Text = "GeoGebraForQuest PC v0.11 · JS bridge: " + ex.Message);
+                Text = "GeoGebraForQuest PC v0.11.1 · JS bridge: " + ex.Message);
         }
     }
 
@@ -324,7 +329,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
         catch (Exception ex)
         {
             BeginInvokeSafe(() =>
-                Text = "GeoGebraForQuest PC v0.11 · 3D rect: " + ex.Message);
+                Text = "GeoGebraForQuest PC v0.11.1 · 3D rect: " + ex.Message);
         }
     }
 
@@ -347,7 +352,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
             render = _browserSize;
         }
 
-        Text = $"GeoGebraForQuest PC v0.11 · CEF GPU Direct · " +
+        Text = $"GeoGebraForQuest PC v0.11.1 · CEF GPU Direct · " +
                $"A {render.Width}×{render.Height} GPU#{_gpuFrameNumber} · " +
                (stereo
                    ? $"B {rect.Width}×{rect.Height} stereo#{_stereoFrameNumber}"
@@ -386,6 +391,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
             _xrSharedTexture?.Dispose();
             foreach (var retired in _retiredSharedResources) retired.Dispose();
             _copyQuery?.Dispose();
+            _rasterizer?.Dispose();
             _sampler?.Dispose();
             _vertexBuffer?.Dispose();
             _inputLayout?.Dispose();
