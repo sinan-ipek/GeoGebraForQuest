@@ -1,3 +1,6 @@
+using CefSharp;
+using CefSharp.OffScreen;
+
 namespace GeoGebraForQuest.PC;
 
 internal static class Program
@@ -16,111 +19,77 @@ internal static class Program
             Directory.CreateDirectory(LogDirectory);
             File.WriteAllText(
                 LogPath,
-                $"GeoGebraForQuest PC v0.10.0 Real Stereo Screen startup\r\n" +
+                $"GeoGebraForQuest PC v0.11.0 CEF GPU Direct startup\r\n" +
                 $"Time: {DateTimeOffset.Now:O}\r\n" +
                 $"OS: {Environment.OSVersion}\r\n" +
-                $"64-bit OS: {Environment.Is64BitOperatingSystem}\r\n" +
                 $"64-bit process: {Environment.Is64BitProcess}\r\n" +
                 $"BaseDirectory: {AppContext.BaseDirectory}\r\n\r\n");
         }
         catch
         {
-            // Logging must never prevent the application from attempting to start.
         }
-
-        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
-        {
-            var ex = args.ExceptionObject as Exception
-                ?? new Exception(args.ExceptionObject?.ToString() ?? "Unknown AppDomain exception");
-            WriteException("AppDomain.UnhandledException", ex);
-        };
 
         try
         {
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-            Application.ThreadException += (_, args) =>
-            {
-                ShowFatal("Windows Forms thread exception", args.Exception);
-            };
-
-            Log("Application.SetHighDpiMode");
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
-
-            Log("Application.EnableVisualStyles");
             Application.EnableVisualStyles();
-
-            Log("Application.SetCompatibleTextRenderingDefault");
             Application.SetCompatibleTextRenderingDefault(false);
 
-            Log("Creating MainForm");
-            using var mainForm = new MainForm();
-            mainForm.Text = "GeoGebraForQuest PC · v0.10.0 · Real Stereo Screen";
-            Log("MainForm created successfully");
+            CefSharpSettings.SubprocessExitIfParentProcessClosed = true;
 
+            var cefCache = Path.Combine(LogDirectory, "CEF");
+            Directory.CreateDirectory(cefCache);
+
+            var settings = new CefSettings
+            {
+                CachePath = cefCache,
+                WindowlessRenderingEnabled = true,
+                LogFile = Path.Combine(LogDirectory, "cef.log"),
+                LogSeverity = LogSeverity.Warning
+            };
+            settings.EnableAudio();
+            settings.CefCommandLineArgs["use-angle"] = "d3d11";
+            settings.CefCommandLineArgs["autoplay-policy"] = "no-user-gesture-required";
+            settings.CefCommandLineArgs["disable-gpu-shader-disk-cache"] = "1";
+
+            if (!Cef.Initialize(settings, performDependencyCheck: true, browserProcessHandler: null))
+            {
+                throw new InvalidOperationException($"Cef.Initialize başarısız. ExitCode={Cef.GetExitCode()}");
+            }
+
+            using var mainForm = new MainForm();
             Application.Run(mainForm);
-            Log("Application.Run returned normally");
         }
         catch (Exception ex)
         {
-            ShowFatal("Startup exception", ex);
-        }
-    }
+            try
+            {
+                File.AppendAllText(LogPath, $"\r\nFATAL\r\n{ex}\r\n");
+            }
+            catch
+            {
+            }
 
-    private static void Log(string message)
-    {
-        try
-        {
-            Directory.CreateDirectory(LogDirectory);
-            File.AppendAllText(
-                LogPath,
-                $"[{DateTimeOffset.Now:O}] {message}\r\n");
+            try
+            {
+                MessageBox.Show(
+                    ex.ToString(),
+                    "GeoGebraForQuest PC v0.11.0 - Başlatma Hatası",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            catch
+            {
+            }
         }
-        catch
-        {
-        }
-    }
-
-    private static void WriteException(string stage, Exception exception)
-    {
-        try
-        {
-            Directory.CreateDirectory(LogDirectory);
-            File.AppendAllText(
-                LogPath,
-                $"\r\n[{DateTimeOffset.Now:O}] FATAL: {stage}\r\n" +
-                exception +
-                "\r\n");
-        }
-        catch
-        {
-        }
-    }
-
-    private static void ShowFatal(string stage, Exception exception)
-    {
-        WriteException(stage, exception);
-
-        var message =
-            "GeoGebraForQuest PC başlatılamadı.\n\n" +
-            $"Aşama: {stage}\n\n" +
-            $"{exception.GetType().FullName}: {exception.Message}\n\n" +
-            "Ayrıntılı kayıt:\n" + LogPath;
-
-        try
-        {
-            MessageBox.Show(
-                message,
-                "GeoGebraForQuest PC v0.10.0 - Başlatma Hatası",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
-        }
-        catch
+        finally
         {
             try
             {
-                File.WriteAllText(
-                    Path.Combine(AppContext.BaseDirectory, "GeoGebraForQuestPC-FATAL.txt"),
-                    message + "\r\n\r\n" + exception);
+                if (Cef.IsInitialized == true)
+                {
+                    Cef.Shutdown();
+                }
             }
             catch
             {
