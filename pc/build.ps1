@@ -33,8 +33,8 @@ $visibilityText = Get-Content $visibilitySource -Raw
 if ($visibilityText -notmatch "XrCompositionLayerProjection") {
     throw "v0.7 doğrulaması başarısız: projection layer bulunamadı."
 }
-if ($visibilityText -notmatch "sessionState=FOCUSED") {
-    throw "v0.7 doğrulaması başarısız: FOCUSED durum kaydı bulunamadı."
+if ($visibilityText -notmatch "XR_SESSION_STATE_FOCUSED") {
+    throw "v0.7 doğrulaması başarısız: FOCUSED durum takibi bulunamadı."
 }
 if ($visibilityText -notmatch "0.00f, 1.00f, 0.12f") {
     throw "v0.7 doğrulaması başarısız: neon yeşil foreground test rengi bulunamadı."
