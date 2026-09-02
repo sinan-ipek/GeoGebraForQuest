@@ -10,6 +10,7 @@ using SharpDX.DXGI;
 using SharpDX.Mathematics.Interop;
 using D3D11Buffer = SharpDX.Direct3D11.Buffer;
 using D3D11Device = SharpDX.Direct3D11.Device;
+using D3D11Device1 = SharpDX.Direct3D11.Device1;
 using D3D11Resource = SharpDX.Direct3D11.Resource;
 using CefRange = CefSharp.Structs.Range;
 
@@ -31,9 +32,7 @@ internal sealed partial class MainForm
             _device = new D3D11Device(
                 DriverType.Hardware,
                 DeviceCreationFlags.BgraSupport);
-            _device1 = _device.QueryInterface<Device1>();
-            _deviceMultithread = _device.QueryInterfaceOrNull<DeviceMultithread>();
-            _deviceMultithread?.SetMultithreadProtected(true);
+            _device1 = _device.QueryInterface<D3D11Device1>();
 
             using var dxgiDevice = _device.QueryInterface<SharpDX.DXGI.Device>();
             using var adapter = dxgiDevice.Adapter;
