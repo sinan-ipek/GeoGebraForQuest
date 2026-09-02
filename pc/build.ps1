@@ -33,8 +33,11 @@ $projectionText = Get-Content $projectionSource -Raw
 if ($projectionText -notmatch "XrCompositionLayerProjection") {
     throw "v0.6 doğrulaması başarısız: projection layer bulunamadı."
 }
-if ($projectionText -match "XrCompositionLayerQuad") {
-    throw "v0.6 doğrulaması başarısız: XR kaynağında Quad layer kalmış."
+if ($projectionText -match "XR_TYPE_COMPOSITION_LAYER_QUAD") {
+    throw "v0.6 doğrulaması başarısız: XR kaynağında legacy Quad layer kalmış."
+}
+if ($projectionText -notmatch "imageArrayIndex = eye") {
+    throw "v0.6 doğrulaması başarısız: sol/sağ projection array slice yönlendirmesi bulunamadı."
 }
 
 foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
