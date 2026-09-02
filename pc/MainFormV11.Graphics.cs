@@ -397,7 +397,7 @@ internal sealed partial class MainForm
 
     public Rect GetViewRect()
     {
-        Size size;
+        System.Drawing.Size size;
         lock (_geometryLock) size = _browserSize;
         return new Rect(0, 0, Math.Max(2, size.Width), Math.Max(2, size.Height));
     }
