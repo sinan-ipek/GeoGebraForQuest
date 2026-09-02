@@ -8,9 +8,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>GeoGebraForQuestPC</AssemblyName>
     <RootNamespace>GeoGebraForQuest.PC</RootNamespace>
-    <Version>0.7.0</Version>
-    <FileVersion>0.7.0.0</FileVersion>
-    <AssemblyVersion>0.7.0.0</AssemblyVersion>
+    <Version>0.8.0</Version>
+    <FileVersion>0.8.0.0</FileVersion>
+    <AssemblyVersion>0.8.0.0</AssemblyVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
