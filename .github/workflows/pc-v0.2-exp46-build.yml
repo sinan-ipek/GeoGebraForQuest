@@ -1,9 +1,9 @@
-name: GeoGebraForQuest PC v0.5 Exp46 High-Res SBS
+name: GeoGebraForQuest PC v0.6 Exp46 Projection Stereo
 
 on:
   push:
     branches:
-      - pc-v0.5-highres-sbs
+      - pc-v0.6-projection-stereo
     paths:
       - "pc/**"
       - "pc-xr/**"
@@ -64,6 +64,23 @@ jobs:
           New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
           Copy-Item $source "app/src/main/assets/web" -Recurse -Force
 
+      - name: Verify projection architecture source
+        shell: powershell
+        run: |
+          $xr = Get-Content "pc-xr/main-v06.cpp" -Raw
+          if ($xr -notmatch "XrCompositionLayerProjection") {
+            throw "Projection layer implementation missing"
+          }
+          if ($xr -match "XR_TYPE_COMPOSITION_LAYER_QUAD") {
+            throw "Legacy Quad composition layer still present in v0.6"
+          }
+          if ($xr -notmatch "imageArrayIndex = eye") {
+            throw "Per-eye projection array slices missing"
+          }
+          if ($xr -notmatch "rightEye \? 0.5f : 0.0f") {
+            throw "SBS left/right UV eye split missing"
+          }
+
       - name: Build Windows app and OpenXR companion
         shell: powershell
         run: .\pc\build.ps1
@@ -71,7 +88,7 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64"
+          $dir = "dist/GeoGebraForQuest-PC-v0.6.0-exp46-projection-stereo-win-x64"
           if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
           if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
           if (-not (Test-Path "$dir/assets/web/GeoGebra/web3d/web3d.nocache.js")) { throw "Web3D missing" }
@@ -82,11 +99,11 @@ jobs:
           if (-not (Select-String -Path "$dir/pc-stereo-layout.js" -Pattern "CAPTURE_JPEG_QUALITY = 0.95" -Quiet)) {
             throw "High-Res JPEG quality setting missing"
           }
-          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64.zip")) { throw "ZIP missing" }
+          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.6.0-exp46-projection-stereo-win-x64.zip")) { throw "ZIP missing" }
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64.zip
+          name: GeoGebraForQuest-PC-v0.6.0-exp46-projection-stereo-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.6.0-exp46-projection-stereo-win-x64.zip
           if-no-files-found: error
