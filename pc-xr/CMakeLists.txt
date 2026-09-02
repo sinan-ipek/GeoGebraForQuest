@@ -19,13 +19,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.8 isolates B-panel composition from the real SBS texture path.
-# The OpenXR projection contains the captured normal GeoGebra window as A.
-# B is a solid diagnostic rectangle: magenta in both eyes, then red in the
-# left eye and blue in the right eye. A small top-left square is green when
-# the existing shared-memory header contains usable 3D-panel geometry and
-# orange when v0.8 is using its fixed fallback rectangle.
-add_executable(GeoGebraForQuestPC.XR main-v08.cpp)
+# v0.9 keeps the v0.8 B-panel diagnostic unchanged, but fixes the crash in
+# the shared-memory sequence reader. v0.8 opened the mapping with FILE_MAP_READ
+# and then used InterlockedCompareExchange64 as a read, which is a write-capable
+# read-modify-write primitive. main-v09.cpp replaces that operation with a
+# read-only aligned 64-bit load on the x64 target before including v0.8.
+add_executable(GeoGebraForQuestPC.XR main-v09.cpp)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
