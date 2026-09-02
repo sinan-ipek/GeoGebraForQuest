@@ -19,11 +19,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.7 is intentionally a minimal visibility diagnostic.
-# No GeoGebra capture and no SBS path are involved. If the Meta/OpenXR immersive
-# session is actually foreground/visible, the headset must show a bright solid
-# projection color. The log records runtime and every session-state transition.
-add_executable(GeoGebraForQuestPC.XR main-v07.cpp)
+# v0.8 isolates B-panel composition from the real SBS texture path.
+# The OpenXR projection contains the captured normal GeoGebra window as A.
+# B is a solid diagnostic rectangle: magenta in both eyes, then red in the
+# left eye and blue in the right eye. A small top-left square is green when
+# the existing shared-memory header contains usable 3D-panel geometry and
+# orange when v0.8 is using its fixed fallback rectangle.
+add_executable(GeoGebraForQuestPC.XR main-v08.cpp)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
@@ -37,8 +39,10 @@ target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
 target_link_libraries(GeoGebraForQuestPC.XR PRIVATE
   openxr_loader
   d3d11
+  d3dcompiler
   dxgi
   user32
+  gdi32
 )
 
 if(MSVC)
