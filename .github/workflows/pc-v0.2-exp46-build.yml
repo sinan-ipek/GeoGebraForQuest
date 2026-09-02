@@ -1,9 +1,9 @@
-name: GeoGebraForQuest PC v0.10 Real Stereo Screen
+name: GeoGebraForQuest PC v0.11 CEF GPU Direct
 
 on:
   push:
     branches:
-      - pc-v0.10-real-stereo-screen
+      - pc-v0.11-cef-gpu-direct
     paths:
       - "pc/**"
       - "pc-xr/**"
@@ -64,32 +64,45 @@ jobs:
           New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
           Copy-Item $source "app/src/main/assets/web" -Recurse -Force
 
-      - name: Verify real stereo screen source
+      - name: Verify GPU-direct architecture
         shell: powershell
         run: |
-          $xr = Get-Content "pc-xr/main-v10.cpp" -Raw
-          $cmake = Get-Content "pc-xr/CMakeLists.txt" -Raw
+          $main = Get-Content "pc-xr/main-v11.cpp" -Raw
+          $shared = Get-Content "pc-xr/v11-shared.hpp" -Raw
+          $graphics = Get-Content "pc/MainFormV11.Graphics.cs" -Raw
+          $cef = Get-Content "pc/D3DChromiumWebBrowser.cs" -Raw
+          $build = Get-Content "pc/build.ps1" -Raw
+          $all = $main + "`n" + $shared + "`n" + $graphics + "`n" + $cef
 
-          if ($xr -notmatch "XrCompositionLayerProjection") {
-            throw "Projection layer implementation missing"
+          if ($all -match "BitBlt\s*\(" -or
+              $all -match "PrintWindow\s*\(" -or
+              $all -match "Windows\.Graphics\.Capture") {
+            throw "Screen-capture code found in v0.11 GPU-direct path"
           }
-          if ($xr -notmatch "kScreenDistanceMeters = 1.55f") {
-            throw "A virtual-screen distance missing"
+          if ($cef -notmatch "SharedTextureEnabled = true") {
+            throw "CEF shared-texture mode missing"
           }
-          if ($xr -notmatch "kStereoDistanceMeters = 1.53f") {
-            throw "B front offset missing"
+          if ($graphics -notmatch "OnAcceleratedPaint") {
+            throw "CEF accelerated-paint callback missing"
           }
-          if ($xr -notmatch "rightEye \? 0.5f : 0.0f") {
-            throw "SBS per-eye sampling missing"
+          if ($graphics -notmatch "CopyResource\(cefTexture, _xrSharedTexture\)") {
+            throw "CEF-to-owned D3D11 texture path missing"
           }
-          if ($xr -notmatch "ReadI64") {
-            throw "Read-only sequence reader missing"
+          if ($shared -notmatch "OpenSharedResource") {
+            throw "XR shared D3D11 consumer missing"
           }
-          if ($xr -notmatch "ScaleRect") {
-            throw "B perspective alignment missing"
+          if ($main -notmatch "XrCompositionLayerProjection") {
+            throw "OpenXR stereo projection missing"
           }
-          if ($cmake -notmatch "main-v10.cpp") {
-            throw "CMake is not building v0.10 source"
+          if ($main -notmatch "/interaction_profiles/oculus/touch_controller") {
+            throw "Meta Touch interaction profile missing"
+          }
+          if ($main -notmatch "/user/hand/right/input/aim/pose" -or
+              $main -notmatch "/user/hand/right/input/trigger/value") {
+            throw "Right Touch aim/trigger bindings missing"
+          }
+          if ($build -match "Compress-Archive") {
+            throw "Nested ZIP regression: build.ps1 must not create an inner ZIP"
           }
 
       - name: Build Windows app and OpenXR companion
@@ -99,15 +112,32 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64"
-          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
-          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
-          if (-not (Test-Path "$dir/assets/web/GeoGebra/web3d/web3d.nocache.js")) { throw "Web3D missing" }
-          if (-not (Test-Path "dist/GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64.zip")) { throw "ZIP missing" }
+          $dir = "dist/GeoGebraForQuest-PC-v0.11.0-cef-gpu-direct-win-x64"
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) {
+            throw "Main EXE missing"
+          }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) {
+            throw "XR EXE missing"
+          }
+          if (-not (Test-Path "$dir/assets/web/GeoGebra/web3d/web3d.nocache.js")) {
+            throw "Web3D missing"
+          }
+          if (-not (Test-Path "$dir/libcef.dll")) {
+            throw "CEF libcef.dll missing"
+          }
+          $subprocess = Get-ChildItem $dir -Filter "CefSharp.BrowserSubprocess*.exe" -Recurse | Select-Object -First 1
+          if (-not $subprocess) {
+            throw "CEF browser subprocess missing"
+          }
+          $innerZip = Get-ChildItem $dir -Filter "*.zip" -Recurse | Select-Object -First 1
+          if ($innerZip) {
+            throw "Nested ZIP regression: package directory contains a ZIP"
+          }
 
-      - name: Upload Windows package
+      - name: Upload single-layer Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64.zip
+          name: GeoGebraForQuest-PC-v0.11.0-cef-gpu-direct-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.11.0-cef-gpu-direct-win-x64/**
           if-no-files-found: error
+          compression-level: 6
