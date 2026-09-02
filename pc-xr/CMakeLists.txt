@@ -19,12 +19,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.10 is the first post-diagnostic real stereo-screen build.
-# A is the ordinary GeoGebra window rendered as a world-locked virtual monitor.
-# B is the measured 3D Graphics rectangle, 2 cm in front of A, sampling the
-# left half of the SBS texture for the left projection view and the right half
-# for the right projection view. Shared memory is read strictly read-only.
-add_executable(GeoGebraForQuestPC.XR main-v10.cpp)
+# v0.11 removes the Windows-screen capture path completely.
+# A arrives from the CEF renderer through a shared D3D11 texture and is copied
+# GPU-to-GPU into the OpenXR renderer. B remains the Exp46 [L|R] stereo texture.
+# The right Touch-controller aim/trigger is converted to A-panel UV input.
+add_executable(GeoGebraForQuestPC.XR main-v11.cpp)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
@@ -40,8 +39,6 @@ target_link_libraries(GeoGebraForQuestPC.XR PRIVATE
   d3d11
   d3dcompiler
   dxgi
-  user32
-  gdi32
 )
 
 if(MSVC)
