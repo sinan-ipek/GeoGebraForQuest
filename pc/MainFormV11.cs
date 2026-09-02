@@ -7,6 +7,7 @@ using SharpDX.Direct3D11;
 using SharpDX.DXGI;
 using D3D11Buffer = SharpDX.Direct3D11.Buffer;
 using D3D11Device = SharpDX.Direct3D11.Device;
+using D3D11Device1 = SharpDX.Direct3D11.Device1;
 
 namespace GeoGebraForQuest.PC;
 
@@ -35,8 +36,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private D3DChromiumWebBrowser? _browser;
 
     private D3D11Device? _device;
-    private Device1? _device1;
-    private DeviceMultithread? _deviceMultithread;
+    private D3D11Device1? _device1;
     private Factory2? _factory;
     private SwapChain1? _swapChain;
     private RenderTargetView? _renderTarget;
@@ -394,7 +394,6 @@ internal sealed partial class MainForm : Form, IRenderHandler
             _renderTarget?.Dispose();
             _swapChain?.Dispose();
             _factory?.Dispose();
-            _deviceMultithread?.Dispose();
             _device1?.Dispose();
             _device?.Dispose();
         }
