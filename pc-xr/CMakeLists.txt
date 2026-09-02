@@ -19,12 +19,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.9 keeps the v0.8 B-panel diagnostic unchanged, but fixes the crash in
-# the shared-memory sequence reader. v0.8 opened the mapping with FILE_MAP_READ
-# and then used InterlockedCompareExchange64 as a read, which is a write-capable
-# read-modify-write primitive. main-v09.cpp replaces that operation with a
-# read-only aligned 64-bit load on the x64 target before including v0.8.
-add_executable(GeoGebraForQuestPC.XR main-v09.cpp)
+# v0.10 is the first post-diagnostic real stereo-screen build.
+# A is the ordinary GeoGebra window rendered as a world-locked virtual monitor.
+# B is the measured 3D Graphics rectangle, 2 cm in front of A, sampling the
+# left half of the SBS texture for the left projection view and the right half
+# for the right projection view. Shared memory is read strictly read-only.
+add_executable(GeoGebraForQuestPC.XR main-v10.cpp)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
