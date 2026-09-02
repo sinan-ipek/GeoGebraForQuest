@@ -11,9 +11,10 @@ $xrBuild = Join-Path $root ".pc-xr-build"
 $boot = Join-Path $root "app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js"
 $project = Join-Path $pcDir "GeoGebraForQuest.PC.csproj"
 $distRoot = Join-Path $root "dist"
-$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64"
+$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.6.0-exp46-projection-stereo-win-x64"
 $appPublish = Join-Path $root ".pc-app-publish"
-$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.5.0-exp46-highres-sbs-win-x64.zip"
+$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.6.0-exp46-projection-stereo-win-x64.zip"
+$projectionSource = Join-Path $xrSource "main-v06.cpp"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK bulunamadı."
@@ -24,6 +25,17 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path $boot)) {
     throw "Exp46 patched GeoGebra Web3D paketi yok. Önce CI asset extraction adımını çalıştırın."
 }
+if (-not (Test-Path $projectionSource)) {
+    throw "v0.6 projection stereo XR kaynağı bulunamadı."
+}
+
+$projectionText = Get-Content $projectionSource -Raw
+if ($projectionText -notmatch "XrCompositionLayerProjection") {
+    throw "v0.6 doğrulaması başarısız: projection layer bulunamadı."
+}
+if ($projectionText -match "XrCompositionLayerQuad") {
+    throw "v0.6 doğrulaması başarısız: XR kaynağında Quad layer kalmış."
+}
 
 foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
     if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
@@ -31,17 +43,17 @@ foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-Write-Host "[GGQ-PC v0.5] OpenXR High-Res SBS overlay configure..."
+Write-Host "[GGQ-PC v0.6] OpenXR PRIMARY_STEREO projection configure..."
 & cmake -S $xrSource -B $xrBuild -A x64
 if ($LASTEXITCODE -ne 0) { throw "OpenXR CMake configure başarısız." }
 
-Write-Host "[GGQ-PC v0.5] OpenXR High-Res SBS overlay build..."
+Write-Host "[GGQ-PC v0.6] OpenXR PRIMARY_STEREO projection build..."
 & cmake --build $xrBuild --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "OpenXR companion build başarısız." }
 
 $selfContained = if ($FrameworkDependent) { "false" } else { "true" }
 
-Write-Host "[GGQ-PC v0.5] Windows x64 app publish..."
+Write-Host "[GGQ-PC v0.6] Windows x64 app publish..."
 & dotnet publish $project `
     -c Release `
     -r win-x64 `
@@ -86,7 +98,7 @@ if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zip -CompressionLevel Optimal
 
 Write-Host ""
-Write-Host "[GGQ-PC v0.5] BUILD TAMAM"
+Write-Host "[GGQ-PC v0.6] BUILD TAMAM"
 Write-Host "Klasör: $publishDir"
 Write-Host "ZIP:    $zip"
 Write-Host "APP:    $(Join-Path $publishDir 'GeoGebraForQuestPC.exe')"
