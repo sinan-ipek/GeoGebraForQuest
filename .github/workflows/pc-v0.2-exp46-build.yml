@@ -94,7 +94,7 @@ jobs:
           if ($graphics -match "SendExternalBeginFrame") {
             throw "Manual CEF external begin-frame call still exists"
           }
-          if ($graphics -notmatch "new InputElement\(\"POSITION\"") {
+          if ($graphics -notmatch 'new InputElement\("POSITION"') {
             throw "Standard PC POSITION shader input missing"
           }
           if ($graphics -notmatch "CullMode = CullMode.None") {
