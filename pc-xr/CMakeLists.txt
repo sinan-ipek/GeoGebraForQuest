@@ -19,10 +19,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.4 keeps the normal GeoGebra PC window as the common base quad. A single
-# hidden SBS texture [L|R] is overlaid only at GeoGebra's real 3D Graphics rect.
-# The left OpenXR eye samples the left half; the right eye samples the right half.
-add_executable(GeoGebraForQuestPC.XR main-v04.cpp)
+# v0.6 no longer uses left/right XrCompositionLayerQuad overlays.
+# The complete Quest image is rendered into a PRIMARY_STEREO projection swapchain:
+# array slice 0 = left eye, array slice 1 = right eye. The ordinary GeoGebra panel
+# is identical in both views; only the measured 3D Graphics rectangle samples the
+# corresponding L/R half of the hidden SBS source texture.
+add_executable(GeoGebraForQuestPC.XR main-v06.cpp)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
@@ -36,6 +38,7 @@ target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
 target_link_libraries(GeoGebraForQuestPC.XR PRIVATE
   openxr_loader
   d3d11
+  d3dcompiler
   dxgi
   user32
   gdi32
