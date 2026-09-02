@@ -115,10 +115,13 @@ internal sealed partial class MainForm
         const string shader = """
             Texture2D tex0 : register(t0);
             SamplerState samp0 : register(s0);
-            struct VSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };
+            struct VSIn { float4 pos : POSITION; float2 uv : TEXCOORD; };
             struct PSIn { float4 pos : SV_POSITION; float2 uv : TEXCOORD; };
             PSIn VSMain(VSIn input) { PSIn o; o.pos=input.pos; o.uv=input.uv; return o; }
-            float4 PSMain(PSIn input) : SV_Target { return tex0.Sample(samp0, input.uv); }
+            float4 PSMain(PSIn input) : SV_Target {
+                float4 c = tex0.Sample(samp0, input.uv);
+                return float4(c.rgb, 1.0);
+            }
             """;
 
         using var vsBytecode = ShaderBytecode.Compile(shader, "VSMain", "vs_4_0_level_9_1");
@@ -131,7 +134,7 @@ internal sealed partial class MainForm
             signature,
             new[]
             {
-                new InputElement("SV_POSITION", 0, Format.R32G32B32A32_Float, 0, 0),
+                new InputElement("POSITION", 0, Format.R32G32B32A32_Float, 0, 0),
                 new InputElement("TEXCOORD", 0, Format.R32G32_Float, 16, 0)
             });
 
@@ -155,6 +158,15 @@ internal sealed partial class MainForm
                 AddressW = TextureAddressMode.Clamp,
                 MaximumLod = float.MaxValue
             });
+
+        _rasterizer = new RasterizerState(
+            _device,
+            new RasterizerStateDescription
+            {
+                FillMode = FillMode.Solid,
+                CullMode = CullMode.None,
+                IsDepthClipEnabled = true
+            });
     }
 
     private void RenderLoop()
@@ -163,8 +175,6 @@ internal sealed partial class MainForm
         {
             try
             {
-                _browser?.GetBrowserHost()?.SendExternalBeginFrame();
-
                 lock (_d3dLock)
                 {
                     if (_device is null || _swapChain is null || _renderTarget is null)
@@ -178,6 +188,7 @@ internal sealed partial class MainForm
                     var context = _device.ImmediateContext;
                     context.OutputMerger.SetRenderTargets(_renderTarget);
                     context.ClearRenderTargetView(_renderTarget, new Color4(0, 0, 0, 1));
+                    context.Rasterizer.State = _rasterizer;
                     context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList;
                     context.InputAssembler.InputLayout = _inputLayout;
                     if (_vertexBuffer is not null)
@@ -209,7 +220,7 @@ internal sealed partial class MainForm
                 if (!_closing)
                 {
                     BeginInvokeSafe(() =>
-                        Text = "GeoGebraForQuest PC v0.11 · Present: " + ex.Message);
+                        Text = "GeoGebraForQuest PC v0.11.1 · Present: " + ex.Message);
                     Thread.Sleep(50);
                 }
             }
@@ -260,7 +271,7 @@ internal sealed partial class MainForm
             if (!_closing)
             {
                 BeginInvokeSafe(() =>
-                    Text = "GeoGebraForQuest PC v0.11 · GPU paint: " + ex.Message);
+                    Text = "GeoGebraForQuest PC v0.11.1 · GPU paint: " + ex.Message);
             }
         }
     }
