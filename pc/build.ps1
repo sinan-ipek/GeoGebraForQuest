@@ -11,11 +11,10 @@ $xrBuild = Join-Path $root ".pc-xr-build"
 $boot = Join-Path $root "app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js"
 $project = Join-Path $pcDir "GeoGebraForQuest.PC.csproj"
 $distRoot = Join-Path $root "dist"
-$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64"
+$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64"
 $appPublish = Join-Path $root ".pc-app-publish"
-$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.9.0-readonly-sequence-fix-win-x64.zip"
-$diagnosticSource = Join-Path $xrSource "main-v08.cpp"
-$fixedSource = Join-Path $xrSource "main-v09.cpp"
+$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.10.0-real-stereo-screen-win-x64.zip"
+$xrMain = Join-Path $xrSource "main-v10.cpp"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK bulunamadı."
@@ -26,32 +25,31 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path $boot)) {
     throw "Exp46 patched GeoGebra Web3D paketi yok. Önce CI asset extraction adımını çalıştırın."
 }
-if (-not (Test-Path $diagnosticSource)) {
-    throw "v0.8 B-panel diagnostic kaynağı bulunamadı."
-}
-if (-not (Test-Path $fixedSource)) {
-    throw "v0.9 read-only sequence fix kaynağı bulunamadı."
+if (-not (Test-Path $xrMain)) {
+    throw "v0.10 real stereo screen kaynağı bulunamadı."
 }
 
-$diagnosticText = Get-Content $diagnosticSource -Raw
-$fixedText = Get-Content $fixedSource -Raw
-if ($diagnosticText -notmatch "XrCompositionLayerProjection") {
-    throw "v0.9 doğrulaması başarısız: projection layer bulunamadı."
+$xrText = Get-Content $xrMain -Raw
+if ($xrText -notmatch "XrCompositionLayerProjection") {
+    throw "v0.10 doğrulaması başarısız: projection layer bulunamadı."
 }
-if ($diagnosticText -notmatch "MAGENTA B BOTH EYES") {
-    throw "v0.9 doğrulaması başarısız: mor B modu bulunamadı."
+if ($xrText -notmatch "kScreenDistanceMeters = 1.55f") {
+    throw "v0.10 doğrulaması başarısız: A sanal ekran mesafesi bulunamadı."
 }
-if ($diagnosticText -notmatch "LEFT RED / RIGHT BLUE") {
-    throw "v0.9 doğrulaması başarısız: per-eye renk modu bulunamadı."
+if ($xrText -notmatch "kStereoDistanceMeters = 1.53f") {
+    throw "v0.10 doğrulaması başarısız: B öne alma mesafesi bulunamadı."
 }
-if ($diagnosticText -notmatch "shared geometry") {
-    throw "v0.9 doğrulaması başarısız: shared geometry tanısı bulunamadı."
+if ($xrText -match "InterlockedCompareExchange64") {
+    $unsafeUse = Select-String -InputObject $xrText -Pattern "return static_cast.*InterlockedCompareExchange64|InterlockedCompareExchange64\(" -AllMatches
+    if ($unsafeUse) {
+        throw "v0.10 doğrulaması başarısız: read-only mapping üzerinde InterlockedCompareExchange64 kullanımı bulundu."
+    }
 }
-if ($fixedText -notmatch "GgqReadOnlySequence") {
-    throw "v0.9 doğrulaması başarısız: read-only sequence reader bulunamadı."
+if ($xrText -notmatch "rightEye \? 0.5f : 0.0f") {
+    throw "v0.10 doğrulaması başarısız: SBS sol/sağ yarım örnekleme bulunamadı."
 }
-if ($fixedText -notmatch '#include "main-v08.cpp"') {
-    throw "v0.9 doğrulaması başarısız: v0.8 diagnostic gövdesi bağlanmamış."
+if ($xrText -notmatch "ScaleRect") {
+    throw "v0.10 doğrulaması başarısız: B perspektif hizalama ölçeği bulunamadı."
 }
 
 foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
@@ -60,17 +58,17 @@ foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-Write-Host "[GGQ-PC v0.9] OpenXR read-only sequence fix configure..."
+Write-Host "[GGQ-PC v0.10] OpenXR real stereo screen configure..."
 & cmake -S $xrSource -B $xrBuild -A x64
 if ($LASTEXITCODE -ne 0) { throw "OpenXR CMake configure başarısız." }
 
-Write-Host "[GGQ-PC v0.9] OpenXR read-only sequence fix build..."
+Write-Host "[GGQ-PC v0.10] OpenXR real stereo screen build..."
 & cmake --build $xrBuild --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "OpenXR companion build başarısız." }
 
 $selfContained = if ($FrameworkDependent) { "false" } else { "true" }
 
-Write-Host "[GGQ-PC v0.9] Windows x64 app publish..."
+Write-Host "[GGQ-PC v0.10] Windows x64 app publish..."
 & dotnet publish $project `
     -c Release `
     -r win-x64 `
@@ -102,9 +100,9 @@ if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zip -CompressionLevel Optimal
 
 Write-Host ""
-Write-Host "[GGQ-PC v0.9] BUILD TAMAM"
+Write-Host "[GGQ-PC v0.10] BUILD TAMAM"
 Write-Host "Klasör: $publishDir"
 Write-Host "ZIP:    $zip"
 Write-Host "APP:    $(Join-Path $publishDir 'GeoGebraForQuestPC.exe')"
 Write-Host "XR:     $(Join-Path $xrOut 'GeoGebraForQuestPC.XR.exe')"
-Write-Host "TEST:   XR helper shared-memory sequence okumasında artık write işlemi yapmamalı; B 6 sn mor, 6 sn sol kırmızı/sağ mavi."
+Write-Host "HEDEF:  A=normal GeoGebra 1.55 m uzakta; B=3D alanı 1.53 m uzakta; sol göz=L, sağ göz=R."
