@@ -26,6 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="MainForm.cs" />
     <Compile Remove="PopupForm.cs" />
     <Compile Remove="SplitContainer.cs" />
     <Compile Remove="StereoPanelControl.cs" />
