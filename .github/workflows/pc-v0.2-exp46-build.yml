@@ -1,4 +1,4 @@
-name: GeoGebraForQuest PC v0.11 CEF GPU Direct
+name: GeoGebraForQuest PC v0.11.1 CEF GPU Direct
 
 on:
   push:
@@ -77,13 +77,28 @@ jobs:
           if ($all -match "BitBlt\s*\(" -or
               $all -match "PrintWindow\s*\(" -or
               $all -match "Windows\.Graphics\.Capture") {
-            throw "Screen-capture code found in v0.11 GPU-direct path"
+            throw "Screen-capture code found in v0.11.1 GPU-direct path"
           }
           if ($cef -notmatch "SharedTextureEnabled = true") {
             throw "CEF shared-texture mode missing"
           }
+          if ($cef -match "ExternalBeginFrameEnabled = true") {
+            throw "Old external CEF frame scheduling still enabled"
+          }
+          if ($cef -notmatch "windowInfo.Width" -or $cef -notmatch "windowInfo.Height") {
+            throw "CEF initial dimensions missing"
+          }
           if ($graphics -notmatch "OnAcceleratedPaint") {
             throw "CEF accelerated-paint callback missing"
+          }
+          if ($graphics -match "SendExternalBeginFrame") {
+            throw "Manual CEF external begin-frame call still exists"
+          }
+          if ($graphics -notmatch "new InputElement\(\"POSITION\"") {
+            throw "Standard PC POSITION shader input missing"
+          }
+          if ($graphics -notmatch "CullMode = CullMode.None") {
+            throw "PC rasterizer culling fix missing"
           }
           if ($graphics -notmatch "CopyResource\(cefTexture, _xrSharedTexture\)") {
             throw "CEF-to-owned D3D11 texture path missing"
@@ -112,7 +127,7 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.11.0-cef-gpu-direct-win-x64"
+          $dir = "dist/GeoGebraForQuest-PC-v0.11.1-cef-gpu-direct-win-x64"
           if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) {
             throw "Main EXE missing"
           }
@@ -137,7 +152,7 @@ jobs:
       - name: Upload single-layer Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.11.0-cef-gpu-direct-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.11.0-cef-gpu-direct-win-x64/**
+          name: GeoGebraForQuest-PC-v0.11.1-cef-gpu-direct-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.11.1-cef-gpu-direct-win-x64/**
           if-no-files-found: error
           compression-level: 6
