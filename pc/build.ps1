@@ -11,10 +11,10 @@ $xrBuild = Join-Path $root ".pc-xr-build"
 $boot = Join-Path $root "app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js"
 $project = Join-Path $pcDir "GeoGebraForQuest.PC.csproj"
 $distRoot = Join-Path $root "dist"
-$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.6.0-exp46-projection-stereo-win-x64"
+$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.7.0-openxr-visibility-test-win-x64"
 $appPublish = Join-Path $root ".pc-app-publish"
-$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.6.0-exp46-projection-stereo-win-x64.zip"
-$projectionSource = Join-Path $xrSource "main-v06.cpp"
+$zip = Join-Path $distRoot "GeoGebraForQuest-PC-v0.7.0-openxr-visibility-test-win-x64.zip"
+$visibilitySource = Join-Path $xrSource "main-v07.cpp"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK bulunamadı."
@@ -25,19 +25,19 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path $boot)) {
     throw "Exp46 patched GeoGebra Web3D paketi yok. Önce CI asset extraction adımını çalıştırın."
 }
-if (-not (Test-Path $projectionSource)) {
-    throw "v0.6 projection stereo XR kaynağı bulunamadı."
+if (-not (Test-Path $visibilitySource)) {
+    throw "v0.7 OpenXR visibility test kaynağı bulunamadı."
 }
 
-$projectionText = Get-Content $projectionSource -Raw
-if ($projectionText -notmatch "XrCompositionLayerProjection") {
-    throw "v0.6 doğrulaması başarısız: projection layer bulunamadı."
+$visibilityText = Get-Content $visibilitySource -Raw
+if ($visibilityText -notmatch "XrCompositionLayerProjection") {
+    throw "v0.7 doğrulaması başarısız: projection layer bulunamadı."
 }
-if ($projectionText -match "XR_TYPE_COMPOSITION_LAYER_QUAD") {
-    throw "v0.6 doğrulaması başarısız: XR kaynağında legacy Quad layer kalmış."
+if ($visibilityText -notmatch "sessionState=FOCUSED") {
+    throw "v0.7 doğrulaması başarısız: FOCUSED durum kaydı bulunamadı."
 }
-if ($projectionText -notmatch "imageArrayIndex = eye") {
-    throw "v0.6 doğrulaması başarısız: sol/sağ projection array slice yönlendirmesi bulunamadı."
+if ($visibilityText -notmatch "0.00f, 1.00f, 0.12f") {
+    throw "v0.7 doğrulaması başarısız: neon yeşil foreground test rengi bulunamadı."
 }
 
 foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
@@ -46,17 +46,17 @@ foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-Write-Host "[GGQ-PC v0.6] OpenXR PRIMARY_STEREO projection configure..."
+Write-Host "[GGQ-PC v0.7] OpenXR visibility diagnostic configure..."
 & cmake -S $xrSource -B $xrBuild -A x64
 if ($LASTEXITCODE -ne 0) { throw "OpenXR CMake configure başarısız." }
 
-Write-Host "[GGQ-PC v0.6] OpenXR PRIMARY_STEREO projection build..."
+Write-Host "[GGQ-PC v0.7] OpenXR visibility diagnostic build..."
 & cmake --build $xrBuild --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "OpenXR companion build başarısız." }
 
 $selfContained = if ($FrameworkDependent) { "false" } else { "true" }
 
-Write-Host "[GGQ-PC v0.6] Windows x64 app publish..."
+Write-Host "[GGQ-PC v0.7] Windows x64 app publish..."
 & dotnet publish $project `
     -c Release `
     -r win-x64 `
@@ -84,25 +84,13 @@ if (-not (Test-Path $sourceInfo)) {
     throw "GGQ_SOURCE_BUILD.txt publish paketinde bulunamadı."
 }
 
-$pcStereo = Join-Path $publishDir "pc-stereo-layout.js"
-if (-not (Test-Path $pcStereo)) {
-    throw "pc-stereo-layout.js publish paketinde bulunamadı."
-}
-
-$pcStereoText = Get-Content $pcStereo -Raw
-if ($pcStereoText -notmatch "CAPTURE_MAX_EYE_WIDTH = 2048") {
-    throw "High-Res stereo runtime doğrulaması başarısız: 2048 px eye-width ayarı bulunamadı."
-}
-if ($pcStereoText -notmatch "CAPTURE_JPEG_QUALITY = 0.95") {
-    throw "High-Res stereo runtime doğrulaması başarısız: JPEG kalite ayarı bulunamadı."
-}
-
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zip -CompressionLevel Optimal
 
 Write-Host ""
-Write-Host "[GGQ-PC v0.6] BUILD TAMAM"
+Write-Host "[GGQ-PC v0.7] BUILD TAMAM"
 Write-Host "Klasör: $publishDir"
 Write-Host "ZIP:    $zip"
 Write-Host "APP:    $(Join-Path $publishDir 'GeoGebraForQuestPC.exe')"
 Write-Host "XR:     $(Join-Path $xrOut 'GeoGebraForQuestPC.XR.exe')"
+Write-Host "TEST:   Quest immersive OpenXR görünürse parlak yeşil/cyan ekran görülmelidir."
