@@ -12,8 +12,6 @@ def rep(path, old, new, count=None):
         raise SystemExit(f'Expected {count}, got {n} in {path}: {old[:120]!r}')
     p.write_text(t.replace(old, new), encoding='utf-8')
 
-# 1) Slightly lower final XR target again. This removes another resampling step
-# without reducing GeoGebra's CSS/device-pixel raster quality.
 rep('pc-xr/main-v13fixed.cpp',
     'constexpr float kRenderQualityScale = 1.15f;',
     'constexpr float kRenderQualityScale = 1.08f;', 1)
@@ -21,7 +19,6 @@ rep('pc-xr/main-v13fixed.cpp',
     'v0.13.1 eye target = OpenXR recommended x1.15, clamped to Quest3 physical/runtime max',
     'v0.13.2 eye target = OpenXR recommended x1.08, clamped to Quest3 physical/runtime max', 1)
 
-# 2) Make the physical panel about five percent larger, preserving aspect ratio.
 p = Path('pc-xr/v11-shared.hpp')
 t = p.read_text(encoding='utf-8')
 t = t.replace('constexpr float kScreenWidthMeters = 1.95f;',
@@ -30,9 +27,6 @@ t = t.replace('constexpr float kScreenHeightMeters = 1.10f;',
               'constexpr float kScreenHeightMeters = 1.155f;', 1)
 p.write_text(t, encoding='utf-8')
 
-# 3) CEF raster: fewer logical pixels but a stable 1.25 device-pixel ratio.
-# This gives one-CSS-pixel GeoGebra strokes real subpixel coverage rather than
-# making them razor-thin in a huge 1.0-DPR canvas.
 p = Path('pc/MainFormV11.InputStereo.cs')
 t = p.read_text(encoding='utf-8')
 t = t.replace('const int xrSourceWidth = 2560;', 'const int xrSourceWidth = 2048;', 1)
@@ -47,9 +41,6 @@ if old not in t:
 t = t.replace(old, new, 1)
 p.write_text(t, encoding='utf-8')
 
-# 4) GeoGebra sign-in is a real browser popup/new window, not PaintElementType.Popup.
-# Cancel that native popup and navigate the existing off-screen browser to the same
-# URL so the login surface goes through the exact same GPU/XR texture pipeline.
 p = Path('pc/SameSurfaceLifeSpanHandler.cs')
 p.write_text(r'''using CefSharp;
 using CefSharp.Handler;
@@ -75,7 +66,6 @@ internal sealed class SameSurfaceLifeSpanHandler : LifeSpanHandler
         newBrowser = null!;
         if (!string.IsNullOrWhiteSpace(targetUrl))
         {
-            // Keep authentication/new-window content in the single XR surface.
             browser.MainFrame.LoadUrl(targetUrl);
         }
         return true;
@@ -92,7 +82,6 @@ if needle not in t:
 t = t.replace(needle, replace, 1)
 p.write_text(t, encoding='utf-8')
 
-# 5) Version and old build guards inherited from 0.13.1.
 for file in ('pc/MainFormV11.cs', 'pc/GeoGebraForQuest.PC.csproj', 'pc/build.ps1'):
     p = Path(file)
     t = p.read_text(encoding='utf-8')
@@ -112,6 +101,10 @@ for file in ('pc/MainFormV11.cs', 'pc/GeoGebraForQuest.PC.csproj', 'pc/build.ps1
         t = t.replace('kScreenHeightMeters = 1\\.10f', 'kScreenHeightMeters = 1\\.155f')
         t = t.replace('kScreenHeightMeters = 1.10f', 'kScreenHeightMeters = 1.155f')
         t = t.replace('xrSourceWidth = 2560', 'xrSourceWidth = 2048')
+        old_guard = '''if ($graphicsText -notmatch "DeviceDpi" -or\n    $graphicsText -notmatch "DeviceScaleFactor = GetBrowserDeviceScaleFactor") {\n    throw "v0.13 doğrulaması başarısız: native Windows DPI CEF'e bağlı değil."\n}'''
+        new_guard = '''if ($graphicsText -notmatch "return 1\\.25F" -or\n    $graphicsText -notmatch "DeviceScaleFactor = GetBrowserDeviceScaleFactor") {\n    throw "v0.13.2 doğrulaması başarısız: sabit 1.25 CEF DPR yolu eksik."\n}'''
+        if old_guard in t:
+            t = t.replace(old_guard, new_guard, 1)
     p.write_text(t, encoding='utf-8')
 
 print('GeoGebraForQuest PC v0.13.2 popup/clarity tuning applied')
