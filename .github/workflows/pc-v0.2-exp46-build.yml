@@ -1,4 +1,4 @@
-name: GeoGebraForQuest PC v0.13 GPU Stereo
+name: GeoGebraForQuest PC v0.13.1 GPU Stereo Fix
 
 on:
   push:
@@ -64,27 +64,31 @@ jobs:
           New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
           Copy-Item $source "app/src/main/assets/web" -Recurse -Force
 
-      - name: Verify v0.13 GPU-only stereo architecture
+      - name: Verify v0.13.1 GPU stereo repair architecture
         shell: powershell
         run: |
           $graphics = Get-Content "pc/MainFormV11.Graphics.cs" -Raw
           $runtime = Get-Content "pc/pc-stereo-layout.js" -Raw
           $input = Get-Content "pc/MainFormV11.InputStereo.cs" -Raw
           $publisher = Get-Content "pc/GpuStereoTexturePublisher.cs" -Raw
+          $manager = Get-Content "pc/XrCompanionManager.cs" -Raw
           $xr = Get-Content "pc-xr/main-v13.cpp" -Raw
           $xrStereo = Get-Content "pc-xr/v13-gpu-stereo.hpp" -Raw
-          $all = $graphics + "`n" + $runtime + "`n" + $input + "`n" + $publisher + "`n" + $xr + "`n" + $xrStereo
+          $all = $graphics + "`n" + $runtime + "`n" + $input + "`n" + $publisher + "`n" + $manager + "`n" + $xr + "`n" + $xrStereo
 
           if ($all -match "BitBlt\s*\(" -or
               $all -match "PrintWindow\s*\(" -or
               $all -match "Windows\.Graphics\.Capture") {
-            throw "Screen-capture code found in v0.13"
+            throw "Screen-capture code found in v0.13.1"
           }
           if ($runtime -match "toDataURL|toBlob|image/jpeg|FileReader") {
             throw "JPEG/base64 stereo transport still exists"
           }
           if ($input -match "DecodeDataUrl|QueueStereoFrames") {
             throw "CPU stereo decode path still exists"
+          }
+          if ($runtime -notmatch "STEREO_INTERVAL_MS = 33") {
+            throw "30 Hz stereo GPU cadence missing"
           }
           if ($runtime -notmatch "stereoGpuPhase" -or
               $runtime -notmatch "ggq-pc-gpu-left-eye-overlay") {
@@ -95,7 +99,7 @@ jobs:
             throw "GPU stereo crop path missing"
           }
           if ($graphics -match "WaitForGpuLocked") {
-            throw "Blocking GPU query path still exists"
+            throw "Blocking GPU query path returned to GeoGebra/CEF thread"
           }
           if ($graphics -match 'Present\(1,') {
             throw "Blocking VSync Present(1) path still exists"
@@ -103,8 +107,18 @@ jobs:
           if ($graphics -notmatch "_presentEvent\.WaitOne") {
             throw "Event-driven PC present path missing"
           }
-          if ($xrStereo -notmatch "SharedGpuTextureCache") {
-            throw "XR shared GPU cache missing"
+          if ($xrStereo -notmatch "SharedGpuTextureCache" -or
+              $xrStereo -notmatch "D3D11_QUERY_EVENT" -or
+              $xrStereo -notmatch "GetData\(") {
+            throw "Synchronized XR-only shared GPU cache missing"
+          }
+          if ($input -notmatch "questBalancedMaxWidth = 2880" -or
+              $input -notmatch "questBalancedMaxHeight = 1800") {
+            throw "Balanced CEF viewport cap missing"
+          }
+          if ($manager -notmatch "WmClose" -or
+              $manager -notmatch "owner\.Stop\(\)") {
+            throw "Immediate XR shutdown hook missing"
           }
           if ($xr -notmatch "kProjectionResolutionScale = 1\.30f") {
             throw "HQ projection scale missing"
@@ -120,7 +134,7 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.13.0-gpu-stereo-win-x64"
+          $dir = "dist/GeoGebraForQuest-PC-v0.13.1-gpu-stereo-fix-win-x64"
           if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) {
             throw "Main EXE missing"
           }
@@ -145,7 +159,7 @@ jobs:
       - name: Upload single-layer Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.13.0-gpu-stereo-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.13.0-gpu-stereo-win-x64/**
+          name: GeoGebraForQuest-PC-v0.13.1-gpu-stereo-fix-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.13.1-gpu-stereo-fix-win-x64/**
           if-no-files-found: error
           compression-level: 6
