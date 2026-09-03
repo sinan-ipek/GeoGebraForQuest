@@ -102,6 +102,11 @@ private:
     }
 };
 
+// Keeps the last complete shared frame in an XR-owned D3D11 texture.
+// v0.13.0 released the keyed mutex immediately after queueing CopyResource. That
+// allowed the producer to overwrite the shared surface while the XR GPU could still
+// be reading it, which can yield an all-white/corrupt cache. The copy query below is
+// intentionally on the XR helper thread only: it never blocks GeoGebra/CEF's UI.
 class SharedGpuTextureCache {
 public:
     void Reset() {
@@ -109,6 +114,7 @@ public:
         localTexture_.Reset();
         mutex_.Reset();
         sharedTexture_.Reset();
+        copyQuery_.Reset();
         sharedHandle_ = nullptr;
         width_ = 0;
         height_ = 0;
@@ -145,7 +151,9 @@ public:
             return true;
         }
 
-        if (!mutex_ || !sharedTexture_ || !localTexture_) return false;
+        if (!mutex_ || !sharedTexture_ || !localTexture_ || !copyQuery_) {
+            return false;
+        }
 
         const HRESULT acquire = mutex_->AcquireSync(1, 0);
         if (acquire == WAIT_TIMEOUT) return false;
@@ -158,18 +166,31 @@ public:
         bool releaseNeeded = true;
         try {
             context->CopyResource(localTexture_.Get(), sharedTexture_.Get());
+            context->End(copyQuery_.Get());
             context->Flush();
-            const HRESULT release = mutex_->ReleaseSync(0);
-            releaseNeeded = false;
-            if (FAILED(release)) {
-                Log("ReleaseSync(GPU cache,key=0) failed HRESULT=" +
-                    std::to_string(static_cast<long long>(release)));
-                return false;
+
+            BOOL copyDone = FALSE;
+            for (;;) {
+                const HRESULT status = context->GetData(
+                    copyQuery_.Get(),
+                    &copyDone,
+                    sizeof(copyDone),
+                    D3D11_ASYNC_GETDATA_DONOTFLUSH);
+                if (status == S_OK && copyDone != FALSE) break;
+                if (FAILED(status)) {
+                    CheckHr(status, "GetData(GPU cache copy)");
+                }
+                std::this_thread::yield();
             }
+
+            CheckHr(mutex_->ReleaseSync(0), "ReleaseSync(GPU cache,key=0)");
+            releaseNeeded = false;
             copiedSequence_ = sequence;
             return true;
         } catch (...) {
-            if (releaseNeeded) mutex_->ReleaseSync(0);
+            if (releaseNeeded && mutex_) {
+                mutex_->ReleaseSync(0);
+            }
             throw;
         }
     }
@@ -185,6 +206,7 @@ private:
     ComPtr<IDXGIKeyedMutex> mutex_;
     ComPtr<ID3D11Texture2D> localTexture_;
     ComPtr<ID3D11ShaderResourceView> srv_;
+    ComPtr<ID3D11Query> copyQuery_;
     HANDLE sharedHandle_{};
     int width_{};
     int height_{};
@@ -265,10 +287,22 @@ private:
             return false;
         }
 
+        D3D11_QUERY_DESC queryDesc{};
+        queryDesc.Query = D3D11_QUERY_EVENT;
+        queryDesc.MiscFlags = 0;
+        ComPtr<ID3D11Query> query;
+        const HRESULT queryHr = device->CreateQuery(&queryDesc, &query);
+        if (FAILED(queryHr) || !query) {
+            Log("CreateQuery(GPU cache) failed HRESULT=" +
+                std::to_string(static_cast<long long>(queryHr)));
+            return false;
+        }
+
         sharedTexture_ = shared;
         mutex_ = mutex;
         localTexture_ = local;
         srv_ = srv;
+        copyQuery_ = query;
         sharedHandle_ = sharedHandle;
         width_ = width;
         height_ = height;
