@@ -1,0 +1,83 @@
+name: GeoGebraForQuest PC v0.13.3 Resume Controls
+
+on:
+  push:
+    branches:
+      - pc-v0.13.3-resume-controls
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Download Exp46 assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" --repo "sinan-ipek/GeoGebraForQuest" --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          Copy-Item $apk.FullName ".exp46/exp46.zip" -Force
+          Expand-Archive ".exp46/exp46.zip" ".exp46/unpacked" -Force
+          $source = ".exp46/unpacked/assets/web"
+          if (Test-Path "app/src/main/assets/web") { Remove-Item "app/src/main/assets/web" -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+      - name: Apply v0.13 architecture
+        shell: powershell
+        run: |
+          python tools/patch-pc-v013.py
+          python tools/patch-pc-v013-buildfix.py
+      - name: Apply v0.13.1 tuning
+        shell: powershell
+        run: python tools/patch-pc-v0131.py
+      - name: Apply v0.13.2 popup clarity
+        shell: powershell
+        run: python tools/patch-pc-v0132.py
+      - name: Apply v0.13.3 resume and controls
+        shell: powershell
+        run: python tools/patch-pc-v0133.py
+      - name: Verify v0.13.3 changes
+        shell: powershell
+        run: |
+          $wrapper = Get-Content "pc-xr/main-v13fixed.cpp" -Raw
+          $shared = Get-Content "pc-xr/v11-shared.hpp" -Raw
+          $xr = Get-Content "pc-xr/main-v11.cpp" -Raw
+          $input = Get-Content "pc/MainFormV11.InputStereo.cs" -Raw
+          $reader = Get-Content "pc/XrInputSharedReader.cs" -Raw
+          $graphics = Get-Content "pc/MainFormV11.Graphics.cs" -Raw
+          $life = Get-Content "pc/SameSurfaceLifeSpanHandler.cs" -Raw
+          $project = Get-Content "pc/GeoGebraForQuest.PC.csproj" -Raw
+          if ($wrapper -notmatch "kRenderQualityScale = 1.00f") { throw "1.00 XR scale missing" }
+          if ($shared -notmatch "kScreenWidthMeters = 2.15f" -or $shared -notmatch "Input_v2" -or $shared -notmatch "ResetSharedResources") { throw "v0.13.3 XR shared changes missing" }
+          if ($xr -notmatch "right_thumbstick" -or $xr -notmatch "right_a" -or $xr -notmatch "right_grip") { throw "controller actions missing" }
+          if ($xr -notmatch "A texture consumer reset") { throw "resume reset missing" }
+          if ($input -notmatch "MouseButtonType.Right" -or $input -notmatch "StickY" -or $input -notmatch "xrSourceWidth = 1856") { throw "PC controller mapping missing" }
+          if ($reader -notmatch "ProtocolVersion = 2" -or $reader -notmatch "GripDown") { throw "input protocol v2 reader missing" }
+          if ($graphics -notmatch "return 1.20F") { throw "1.20 DPR missing" }
+          if ($life -notmatch "DoClose" -or $life -notmatch "window.close") { throw "login close protection missing" }
+          if ($project -notmatch "<Version>0.13.3</Version>") { throw "v0.13.3 version missing" }
+      - name: Build Windows EXE package
+        shell: powershell
+        run: .\pc\build.ps1
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = "dist/GeoGebraForQuest-PC-v0.13.3-resume-controls-win-x64"
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.13.3-resume-controls-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.13.3-resume-controls-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
