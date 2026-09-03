@@ -4,11 +4,20 @@ namespace GeoGebraForQuest.PC;
 
 internal sealed class XrCompanionManager : IDisposable
 {
+    private const int WmClose = 0x0010;
+
     private readonly object _sync = new();
+    private readonly CloseMessageFilter _closeMessageFilter;
     private Process? _process;
     private bool _disposed;
     private bool _wantRunning;
     private int _restartGeneration;
+
+    public XrCompanionManager()
+    {
+        _closeMessageFilter = new CloseMessageFilter(this);
+        Application.AddMessageFilter(_closeMessageFilter);
+    }
 
     public event Action<string>? StatusChanged;
 
@@ -167,6 +176,43 @@ internal sealed class XrCompanionManager : IDisposable
             if (_disposed) return;
             _disposed = true;
         }
+
+        try { Application.RemoveMessageFilter(_closeMessageFilter); } catch { }
         Stop();
+    }
+
+    private sealed class CloseMessageFilter : IMessageFilter
+    {
+        private readonly WeakReference<XrCompanionManager> _owner;
+
+        public CloseMessageFilter(XrCompanionManager owner)
+        {
+            _owner = new WeakReference<XrCompanionManager>(owner);
+        }
+
+        public bool PreFilterMessage(ref Message m)
+        {
+            if (m.Msg != WmClose || !_owner.TryGetTarget(out var owner))
+                return false;
+
+            // Stop XR only when the application's main form is the window being closed.
+            // This avoids stopping VR when a file dialog or another temporary window closes.
+            try
+            {
+                if (Application.OpenForms.Count > 0)
+                {
+                    var main = Application.OpenForms[0];
+                    if (main is not null && main.IsHandleCreated && m.HWnd == main.Handle)
+                    {
+                        owner.Stop();
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
     }
 }
