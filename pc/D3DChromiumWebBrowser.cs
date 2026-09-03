@@ -38,7 +38,10 @@ internal sealed class D3DChromiumWebBrowser : ChromiumWebBrowser
             windowInfo,
             new BrowserSettings
             {
-                WindowlessFrameRate = 90,
+                // 90 fps forced CEF to spend GPU time repainting A even while the
+                // stereo transport was also producing eye pairs. 60 fps keeps normal
+                // GeoGebra interaction fluid and leaves headroom for OpenXR + B.
+                WindowlessFrameRate = 60,
                 DefaultEncoding = "UTF-8",
                 Javascript = CefState.Enabled,
                 WebGl = CefState.Enabled,
