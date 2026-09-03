@@ -11,4 +11,10 @@ t = p.read_text(encoding='utf-8')
 t = t.replace('private Rect _cefPopupRect;', 'private CefSharp.Structs.Rect _cefPopupRect;')
 p.write_text(t, encoding='utf-8')
 
-print('v0.13 build validation and popup Rect namespace fixed')
+p = Path('pc/MainFormV11.Graphics.cs')
+t = p.read_text(encoding='utf-8')
+t = t.replace('        Size browserSize;\n        lock (_geometryLock) browserSize = _browserSize;',
+              '        System.Drawing.Size browserSize;\n        lock (_geometryLock) browserSize = _browserSize;')
+p.write_text(t, encoding='utf-8')
+
+print('v0.13 build validation, popup Rect and Size namespaces fixed')
