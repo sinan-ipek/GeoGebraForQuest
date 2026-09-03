@@ -11,17 +11,19 @@ $xrBuild = Join-Path $root ".pc-xr-build"
 $boot = Join-Path $root "app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js"
 $project = Join-Path $pcDir "GeoGebraForQuest.PC.csproj"
 $distRoot = Join-Path $root "dist"
-$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.12.0-performance-win-x64"
+$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.13.0-gpu-stereo-win-x64"
 $appPublish = Join-Path $root ".pc-app-publish"
-$xrMain = Join-Path $xrSource "main-v11.cpp"
+
+$xrMain = Join-Path $xrSource "main-v13.cpp"
 $xrShared = Join-Path $xrSource "v11-shared.hpp"
 $xrRender = Join-Path $xrSource "v11-render.hpp"
+$xrStereo = Join-Path $xrSource "v13-gpu-stereo.hpp"
 $mainForm = Join-Path $pcDir "MainFormV11.cs"
 $graphics = Join-Path $pcDir "MainFormV11.Graphics.cs"
 $inputStereo = Join-Path $pcDir "MainFormV11.InputStereo.cs"
 $cefBrowser = Join-Path $pcDir "D3DChromiumWebBrowser.cs"
 $stereoRuntime = Join-Path $pcDir "pc-stereo-layout.js"
-$stereoWriter = Join-Path $pcDir "StereoSharedFrameWriter.cs"
+$gpuStereoPublisher = Join-Path $pcDir "GpuStereoTexturePublisher.cs"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK bulunamadı."
@@ -32,90 +34,80 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path $boot)) {
     throw "Exp46 patched GeoGebra Web3D paketi yok. Önce CI asset extraction adımını çalıştırın."
 }
+
 foreach ($required in @(
-    $xrMain, $xrShared, $xrRender, $mainForm, $graphics,
-    $inputStereo, $cefBrowser, $stereoRuntime, $stereoWriter)) {
+    $xrMain, $xrShared, $xrRender, $xrStereo,
+    $mainForm, $graphics, $inputStereo, $cefBrowser,
+    $stereoRuntime, $gpuStereoPublisher)) {
     if (-not (Test-Path $required)) {
-        throw "v0.12 kaynak dosyası eksik: $required"
+        throw "v0.13 kaynak dosyası eksik: $required"
     }
 }
 
 $xrText = Get-Content $xrMain -Raw
-$sharedText = Get-Content $xrShared -Raw
+$xrStereoText = Get-Content $xrStereo -Raw
 $graphicsText = Get-Content $graphics -Raw
 $browserText = Get-Content $cefBrowser -Raw
 $mainFormText = Get-Content $mainForm -Raw
 $inputText = Get-Content $inputStereo -Raw
 $runtimeText = Get-Content $stereoRuntime -Raw
-$writerText = Get-Content $stereoWriter -Raw
-$allV12 = $xrText + "`n" + $sharedText + "`n" + $graphicsText + "`n" +
+$gpuStereoPublisherText = Get-Content $gpuStereoPublisher -Raw
+$allV13 = $xrText + "`n" + $xrStereoText + "`n" + $graphicsText + "`n" +
           $browserText + "`n" + $mainFormText + "`n" + $inputText + "`n" +
-          $runtimeText + "`n" + $writerText
+          $runtimeText + "`n" + $gpuStereoPublisherText
 
-if ($allV12 -match "BitBlt\s*\(") {
-    throw "v0.12 doğrulaması başarısız: BitBlt ekran yakalaması bulundu."
-}
-if ($allV12 -match "Windows\.Graphics\.Capture|GraphicsCaptureItem|PrintWindow\s*\(") {
-    throw "v0.12 doğrulaması başarısız: ekran yakalama API'si bulundu."
+if ($allV13 -match "BitBlt\s*\(" -or
+    $allV13 -match "Windows\.Graphics\.Capture|GraphicsCaptureItem|PrintWindow\s*\(") {
+    throw "v0.13 doğrulaması başarısız: ekran yakalama kodu bulundu."
 }
 if ($browserText -notmatch "SharedTextureEnabled = true") {
-    throw "v0.12 doğrulaması başarısız: CEF shared GPU texture etkin değil."
+    throw "v0.13 doğrulaması başarısız: CEF shared GPU texture etkin değil."
 }
-if ($browserText -match 'base\("about:blank"') {
-    throw "v0.12 doğrulaması başarısız: CEF hâlâ about:blank ile oluşturuluyor."
+if ($runtimeText -match "toDataURL|toBlob|image/jpeg|FileReader") {
+    throw "v0.13 doğrulaması başarısız: JPEG/base64 stereo taşıma kodu hâlâ var."
 }
-if ($browserText -notmatch 'base\(initialAddress') {
-    throw "v0.12 doğrulaması başarısız: gerçek başlangıç adresi CEF constructor'a bağlı değil."
+if ($inputText -match "DecodeDataUrl|Convert\.FromBase64String\(dataUrl|QueueStereoFrames") {
+    throw "v0.13 doğrulaması başarısız: CPU stereo decode yolu hâlâ aktif."
 }
-if ($browserText -notmatch "CreateGpuBrowser") {
-    throw "v0.12 doğrulaması başarısız: geciktirilmiş native browser oluşturma yolu eksik."
+if ($runtimeText -notmatch "stereoGpuPhase" -or
+    $runtimeText -notmatch "ggq-pc-gpu-left-eye-overlay") {
+    throw "v0.13 doğrulaması başarısız: GPU stereo compositor phase yolu eksik."
 }
-if ($mainFormText -match '_browser\.Load\(LocalAppUrl\)') {
-    throw "v0.12 doğrulaması başarısız: erken Load(LocalAppUrl) çağrısı hâlâ var."
+if ($graphicsText -notmatch "CaptureStereoGpuPhaseLocked" -or
+    $graphicsText -notmatch "CopySubresourceRegion") {
+    throw "v0.13 doğrulaması başarısız: CEF 3D bölgesinin GPU crop yolu eksik."
 }
-if ($mainFormText -notmatch '_browser\.CreateGpuBrowser\(\)') {
-    throw "v0.12 doğrulaması başarısız: CreateGpuBrowser çağrısı eksik."
+if ($graphicsText -notmatch "GpuStereoTexturePublisher" -and
+    $mainFormText -notmatch "GpuStereoTexturePublisher") {
+    throw "v0.13 doğrulaması başarısız: B GPU metadata publisher kullanılmıyor."
 }
 if ($graphicsText -match "WaitForGpuLocked") {
-    throw "v0.12 performans regresyonu: CPU GPU-query bekleme yolu bulundu."
+    throw "v0.13 performans regresyonu: CPU GPU-query bekleme yolu bulundu."
 }
 if ($graphicsText -match 'Present\(1,') {
-    throw "v0.12 performans regresyonu: Present(1) VSync bekleme yolu bulundu."
+    throw "v0.13 performans regresyonu: Present(1) VSync bekleme yolu bulundu."
 }
-if ($graphicsText -notmatch 'Present\(0,') {
-    throw "v0.12 doğrulaması başarısız: non-blocking PC present yolu eksik."
+if ($graphicsText -notmatch "_presentEvent\.WaitOne") {
+    throw "v0.13 doğrulaması başarısız: event-driven PC present yolu eksik."
 }
-if ($runtimeText -notmatch "canvas\.toBlob") {
-    throw "v0.12 doğrulaması başarısız: async stereo JPEG yolu eksik."
+if ($xrStereoText -notmatch "SharedGpuTextureCache" -or
+    $xrStereoText -match "GetData\(") {
+    throw "v0.13 doğrulaması başarısız: XR GPU cache CPU beklemesiz değil."
 }
-if ($runtimeText -notmatch "CAPTURE_MAX_EYE_WIDTH = 2048") {
-    throw "v0.12 doğrulaması başarısız: 2K/göz stereo kalite sınırı korunmuyor."
+if ($xrText -notmatch "kProjectionResolutionScale = 1\.30f") {
+    throw "v0.13 doğrulaması başarısız: yüksek çözünürlüklü Quest projection ayarı eksik."
 }
-if ($inputText -notmatch "Math\.Clamp\(scale, 0\.5f, BrowserSupersample\)") {
-    throw "v0.12 doğrulaması başarısız: 4K CEF boyut cap düzeltmesi eksik."
-}
-if ($writerText -notmatch "ArrayPool<byte>") {
-    throw "v0.12 doğrulaması başarısız: SBS buffer reuse optimizasyonu eksik."
-}
-if ($graphicsText -notmatch "OnAcceleratedPaint") {
-    throw "v0.12 doğrulaması başarısız: CEF accelerated paint yolu bulunamadı."
-}
-if ($graphicsText -notmatch 'new InputElement\("POSITION"') {
-    throw "v0.12 doğrulaması başarısız: standart POSITION input layout eksik."
-}
-if ($graphicsText -notmatch "CopyResource\(cefTexture, _xrSharedTexture\)") {
-    throw "v0.12 doğrulaması başarısız: CEF -> A GPU shared texture kopyası bulunamadı."
-}
-if ($sharedText -notmatch "OpenSharedResource") {
-    throw "v0.12 doğrulaması başarısız: XR shared GPU texture açma yolu bulunamadı."
+if ($xrText -notmatch "StereoGpuFrameInfoReader" -or
+    $xrText -notmatch "stereoTexture_\.Srv\(\)") {
+    throw "v0.13 doğrulaması başarısız: B GPU texture OpenXR'a bağlanmamış."
 }
 if ($xrText -notmatch "XR_ACTION_TYPE_POSE_INPUT" -or
     $xrText -notmatch "XR_ACTION_TYPE_FLOAT_INPUT" -or
     $xrText -notmatch "/interaction_profiles/oculus/touch_controller") {
-    throw "v0.12 doğrulaması başarısız: Meta Touch OpenXR input yolu eksik."
+    throw "v0.13 doğrulaması başarısız: Meta Touch OpenXR input yolu eksik."
 }
 if ($xrText -notmatch "XrCompositionLayerProjection") {
-    throw "v0.12 doğrulaması başarısız: projection layer bulunamadı."
+    throw "v0.13 doğrulaması başarısız: projection layer bulunamadı."
 }
 
 foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
@@ -124,17 +116,17 @@ foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-Write-Host "[GGQ-PC v0.12] OpenXR configure..."
+Write-Host "[GGQ-PC v0.13] OpenXR configure..."
 & cmake -S $xrSource -B $xrBuild -A x64
 if ($LASTEXITCODE -ne 0) { throw "OpenXR CMake configure başarısız." }
 
-Write-Host "[GGQ-PC v0.12] OpenXR build..."
+Write-Host "[GGQ-PC v0.13] OpenXR build..."
 & cmake --build $xrBuild --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "OpenXR companion build başarısız." }
 
 $selfContained = if ($FrameworkDependent) { "false" } else { "true" }
 
-Write-Host "[GGQ-PC v0.12] CEF/Windows x64 app publish..."
+Write-Host "[GGQ-PC v0.13] CEF/Windows x64 app publish..."
 & dotnet publish $project `
     -c Release `
     -r win-x64 `
@@ -170,12 +162,14 @@ if (-not (Test-Path (Join-Path $xrOut "GeoGebraForQuestPC.XR.exe"))) {
 }
 
 Write-Host ""
-Write-Host "[GGQ-PC v0.12] BUILD TAMAM"
+Write-Host "[GGQ-PC v0.13] BUILD TAMAM"
 Write-Host "Klasör: $publishDir"
 Write-Host "APP:    $(Join-Path $publishDir 'GeoGebraForQuestPC.exe')"
 Write-Host "XR:     $(Join-Path $xrOut 'GeoGebraForQuestPC.XR.exe')"
-Write-Host "A:      CEF D3D11 GPU direct; 3072x2048 cap; CPU query wait yok"
-Write-Host "PC:     Present(0), yalnız yeni CEF frame geldiğinde"
-Write-Host "B:      Exp46 L/R 2048px/göz; async JPEG encode; pooled SBS copy"
-Write-Host "INPUT:  Right Touch aim/trigger -> CEF GeoGebra"
+Write-Host "A:      CEF D3D11 GPU -> shared GPU -> XR GPU cache"
+Write-Host "B:      Exp46 L/R -> CEF GPU phase -> D3D11 crop -> shared GPU -> XR GPU cache"
+Write-Host "PIXELS: JPEG/base64/Bitmap/CPU stereo transport yok"
+Write-Host "QUEST:  recommended projection x1.30, runtime max/cap sınırında"
+Write-Host "PC:     event-driven Present(0); yalnız yeni CEF frame"
+Write-Host "INPUT:  mevcut sağ Touch aim/trigger yolu korunuyor"
 Write-Host "PAKET:  Tek ZIP katmanı"
