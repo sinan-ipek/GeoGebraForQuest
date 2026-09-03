@@ -1,0 +1,97 @@
+name: GeoGebraForQuest PC v0.12.1 Quality Safe
+
+on:
+  push:
+    branches:
+      - pc-v0.12.1-quality-safe
+    paths:
+      - "pc/**"
+      - "pc-xr/**"
+      - ".github/workflows/pc-v0.12.1-quality-safe-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download exact published Quest Exp46 APK
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" `
+            --repo "sinan-ipek/GeoGebraForQuest" `
+            --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" `
+            --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          if (-not $apk) { throw "Published Exp46 APK could not be downloaded." }
+
+      - name: Extract exact Exp46 web assets from APK
+        shell: powershell
+        run: |
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          $zip = ".exp46/exp46.zip"
+          $extract = ".exp46/unpacked"
+          Copy-Item $apk.FullName $zip -Force
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+          $source = Join-Path $extract "assets/web"
+          if (-not (Test-Path "$source/GeoGebra/web3d/web3d.nocache.js")) {
+            throw "Published Exp46 APK does not contain expected Web3D assets."
+          }
+          if (Test-Path "app/src/main/assets/web") {
+            Remove-Item "app/src/main/assets/web" -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+
+      - name: Verify quality-safe changes only
+        shell: powershell
+        run: |
+          $wrapper = Get-Content "pc-xr/main-v121.cpp" -Raw
+          $cmake = Get-Content "pc-xr/CMakeLists.txt" -Raw
+          $cef = Get-Content "pc/D3DChromiumWebBrowser.cs" -Raw
+          $input = Get-Content "pc/MainFormV11.InputStereo.cs" -Raw
+          $runtime = Get-Content "pc/pc-stereo-layout.js" -Raw
+          if ($wrapper -notmatch "recommendedImageRectWidth \* 5 / 4") { throw "XR +25% projection wrapper missing" }
+          if ($cmake -notmatch "main-v121.cpp") { throw "v0.12.1 wrapper is not built" }
+          if ($cef -notmatch "WindowlessFrameRate = 60") { throw "CEF 60 fps cap missing" }
+          if ($input -notmatch "Parallel\.Invoke") { throw "Parallel stereo decode missing" }
+          if ($runtime -notmatch "CAPTURE_MAX_EYE_WIDTH = 2048") { throw "v0.12 stereo source changed unexpectedly" }
+          if ($runtime -notmatch "CAPTURE_JPEG_QUALITY = 0\.96") { throw "v0.12 stereo quality changed unexpectedly" }
+          if ($runtime -match "stereoGpuPhase|ggq-pc-gpu-left-eye-overlay") { throw "v0.13 GPU stereo path leaked into safe branch" }
+
+      - name: Build Windows app and OpenXR companion
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = "dist/GeoGebraForQuest-PC-v0.12.0-performance-win-x64"
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
+          if (-not (Test-Path "$dir/libcef.dll")) { throw "CEF libcef.dll missing" }
+          $innerZip = Get-ChildItem $dir -Filter "*.zip" -Recurse | Select-Object -First 1
+          if ($innerZip) { throw "Nested ZIP regression" }
+
+      - name: Upload single-layer Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.12.1-quality-safe-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.12.0-performance-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
