@@ -7,7 +7,6 @@ using SharpDX.D3DCompiler;
 using SharpDX.Direct3D;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
-using SharpDX.Mathematics.Interop;
 using D3D11Buffer = SharpDX.Direct3D11.Buffer;
 using D3D11Device = SharpDX.Direct3D11.Device;
 using D3D11Device1 = SharpDX.Direct3D11.Device1;
@@ -40,9 +39,6 @@ internal sealed partial class MainForm
 
             CreateSwapChainLocked();
             CreateShadersLocked();
-            _copyQuery = new Query(
-                _device,
-                new QueryDescription { Type = QueryType.Event, Flags = QueryFlags.None });
         }
     }
 
@@ -171,10 +167,22 @@ internal sealed partial class MainForm
 
     private void RenderLoop()
     {
+        long lastPresentedFrame = -1;
+
         while (!_closing)
         {
             try
             {
+                var currentFrame = Interlocked.Read(ref _gpuFrameNumber);
+                bool resizePending;
+                lock (_d3dLock) resizePending = _swapChainResizePending;
+
+                if (currentFrame == lastPresentedFrame && !resizePending)
+                {
+                    Thread.Sleep(1);
+                    continue;
+                }
+
                 lock (_d3dLock)
                 {
                     if (_device is null || _swapChain is null || _renderTarget is null)
@@ -212,16 +220,20 @@ internal sealed partial class MainForm
                         context.PixelShader.SetShaderResource(0, null);
                     }
 
-                    _swapChain.Present(1, PresentFlags.None);
+                    // v0.11 held the global D3D lock while waiting for Present(1)/VSync.
+                    // That stalled CEF accelerated-paint callbacks and made all input laggy.
+                    // Present(0) only when a new CEF frame exists; DWM still composites normally.
+                    _swapChain.Present(0, PresentFlags.None);
+                    lastPresentedFrame = currentFrame;
                 }
             }
             catch (Exception ex)
             {
                 if (!_closing)
                 {
-                    BeginInvokeSafe(() =>
-                        Text = "GeoGebraForQuest PC v0.11.1 · Present: " + ex.Message);
-                    Thread.Sleep(50);
+                    _presentStatus = "Present: " + ShortError(ex);
+                    BeginInvokeSafe(UpdateWindowTitle);
+                    Thread.Sleep(25);
                 }
             }
         }
@@ -235,7 +247,6 @@ internal sealed partial class MainForm
         if (_closing || type != PaintElementType.View ||
             _device is null || _device1 is null) return;
 
-        var xrCopyQueued = false;
         try
         {
             lock (_d3dLock)
@@ -248,30 +259,49 @@ internal sealed partial class MainForm
                 var target = _pcTextures[next];
                 if (target is null) return;
 
-                xrCopyQueued = TryQueueGpuPublishLocked(cefTexture);
+                // PC A copy is always allowed to succeed independently of Quest sharing.
                 _device.ImmediateContext.CopyResource(cefTexture, target);
-                WaitForGpuLocked();
                 _currentPcTexture = next;
 
-                if (xrCopyQueued)
+                try
                 {
-                    CompleteGpuPublishLocked(cefTexture.Description);
-                    xrCopyQueued = false;
+                    if (TryQueueGpuPublishLocked(cefTexture))
+                    {
+                        // No CPU query/spin-wait. Keyed mutex synchronization is enough;
+                        // Flush only submits the GPU copy before handing key=1 to XR.
+                        _device.ImmediateContext.Flush();
+                        CompleteGpuPublishLocked(cefTexture.Description);
+                        if (_gpuShareStatus != "A-share GPU")
+                        {
+                            _gpuShareStatus = "A-share GPU";
+                            BeginInvokeSafe(UpdateWindowTitle);
+                        }
+                    }
+                }
+                catch (Exception shareError)
+                {
+                    try { _xrSharedMutex?.Release(0); } catch { }
+                    var status = "A-share: " + ShortError(shareError);
+                    if (!string.Equals(_gpuShareStatus, status, StringComparison.Ordinal))
+                    {
+                        _gpuShareStatus = status;
+                        BeginInvokeSafe(UpdateWindowTitle);
+                    }
                 }
 
-                Interlocked.Increment(ref _gpuFrameNumber);
+                var frame = Interlocked.Increment(ref _gpuFrameNumber);
+                if ((frame % 120) == 0)
+                {
+                    BeginInvokeSafe(UpdateWindowTitle);
+                }
             }
         }
         catch (Exception ex)
         {
-            if (xrCopyQueued)
-            {
-                try { _xrSharedMutex?.Release(0); } catch { }
-            }
             if (!_closing)
             {
-                BeginInvokeSafe(() =>
-                    Text = "GeoGebraForQuest PC v0.11.1 · GPU paint: " + ex.Message);
+                _gpuPaintStatus = "GPU paint: " + ShortError(ex);
+                BeginInvokeSafe(UpdateWindowTitle);
             }
         }
     }
@@ -353,6 +383,7 @@ internal sealed partial class MainForm
         }
         catch
         {
+            // XR still owns the previous frame. Drop this A update instead of blocking CEF.
             return false;
         }
 
@@ -379,22 +410,11 @@ internal sealed partial class MainForm
             source.Format);
     }
 
-    private void WaitForGpuLocked()
+    private static string ShortError(Exception ex)
     {
-        if (_device is null || _copyQuery is null) return;
-        var context = _device.ImmediateContext;
-        context.End(_copyQuery);
-        context.Flush();
-        RawBool finished = context.GetData<RawBool>(
-            _copyQuery,
-            AsynchronousFlags.DoNotFlush);
-        while (!_closing && !finished)
-        {
-            Thread.Yield();
-            finished = context.GetData<RawBool>(
-                _copyQuery,
-                AsynchronousFlags.DoNotFlush);
-        }
+        var text = ex.Message.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        if (text.Length > 120) text = text[..120] + "…";
+        return text;
     }
 
     public ScreenInfo? GetScreenInfo() => new() { DeviceScaleFactor = 1.0F };
