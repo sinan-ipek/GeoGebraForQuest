@@ -220,9 +220,6 @@ internal sealed partial class MainForm
                         context.PixelShader.SetShaderResource(0, null);
                     }
 
-                    // v0.11 held the global D3D lock while waiting for Present(1)/VSync.
-                    // That stalled CEF accelerated-paint callbacks and made all input laggy.
-                    // Present(0) only when a new CEF frame exists; DWM still composites normally.
                     _swapChain.Present(0, PresentFlags.None);
                     lastPresentedFrame = currentFrame;
                 }
@@ -259,7 +256,6 @@ internal sealed partial class MainForm
                 var target = _pcTextures[next];
                 if (target is null) return;
 
-                // PC A copy is always allowed to succeed independently of Quest sharing.
                 _device.ImmediateContext.CopyResource(cefTexture, target);
                 _currentPcTexture = next;
 
@@ -267,8 +263,6 @@ internal sealed partial class MainForm
                 {
                     if (TryQueueGpuPublishLocked(cefTexture))
                     {
-                        // No CPU query/spin-wait. Keyed mutex synchronization is enough;
-                        // Flush only submits the GPU copy before handing key=1 to XR.
                         _device.ImmediateContext.Flush();
                         CompleteGpuPublishLocked(cefTexture.Description);
                         if (_gpuShareStatus != "A-share GPU")
@@ -383,7 +377,6 @@ internal sealed partial class MainForm
         }
         catch
         {
-            // XR still owns the previous frame. Drop this A update instead of blocking CEF.
             return false;
         }
 
@@ -417,7 +410,16 @@ internal sealed partial class MainForm
         return text;
     }
 
-    public ScreenInfo? GetScreenInfo() => new() { DeviceScaleFactor = 1.0F };
+    private float GetBrowserDeviceScaleFactor()
+    {
+        var dpi = DeviceDpi > 0 ? DeviceDpi : 96;
+        return Math.Clamp(dpi / 96.0F, 1.0F, 4.0F);
+    }
+
+    public ScreenInfo? GetScreenInfo() => new()
+    {
+        DeviceScaleFactor = GetBrowserDeviceScaleFactor()
+    };
 
     public bool GetScreenPoint(int viewX, int viewY, out int screenX, out int screenY)
     {
@@ -440,7 +442,6 @@ internal sealed partial class MainForm
         int width,
         int height)
     {
-        // SharedTextureEnabled=true: CPU paint path is deliberately unused.
     }
 
     public void OnCursorChange(IntPtr cursor, CursorType type, CursorInfo customCursorInfo)
@@ -449,7 +450,11 @@ internal sealed partial class MainForm
             Cursor = type == CursorType.Hand ? Cursors.Hand : Cursors.Default);
     }
 
-    public void OnPopupShow(bool show) { }
+    public void OnPopupShow(bool show)
+    {
+        SetStereoUiSuspended(show);
+    }
+
     public void OnPopupSize(Rect rect) { }
     public void OnImeCompositionRangeChanged(CefRange selectedRange, Rect[] characterBounds) { }
     public bool StartDragging(IDragData dragData, DragOperationsMask mask, int x, int y) => false;
