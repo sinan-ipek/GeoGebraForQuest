@@ -102,21 +102,24 @@ private:
     }
 };
 
-class SharedGpuTextureView {
+class SharedGpuTextureCache {
 public:
     void Reset() {
-        locked_ = false;
         srv_.Reset();
+        localTexture_.Reset();
         mutex_.Reset();
-        texture_.Reset();
+        sharedTexture_.Reset();
         sharedHandle_ = nullptr;
         width_ = 0;
         height_ = 0;
         format_ = DXGI_FORMAT_UNKNOWN;
+        copiedSequence_ = -1;
     }
 
     bool Update(
         ID3D11Device* device,
+        ID3D11DeviceContext* context,
+        std::int64_t sequence,
         bool active,
         HANDLE sharedHandle,
         int width,
@@ -128,103 +131,151 @@ public:
             return false;
         }
 
-        if (texture_ && sharedHandle_ == sharedHandle &&
-            width_ == width && height_ == height && format_ == format) {
+        if (!sharedTexture_ ||
+            sharedHandle_ != sharedHandle ||
+            width_ != width ||
+            height_ != height ||
+            format_ != format) {
+            if (!OpenResource(device, sharedHandle, width, height, format)) {
+                return false;
+            }
+        }
+
+        if (copiedSequence_ == sequence && srv_) {
             return true;
         }
 
-        Reset();
+        if (!mutex_ || !sharedTexture_ || !localTexture_) return false;
 
-        ComPtr<ID3D11Texture2D> texture;
-        const HRESULT open = device->OpenSharedResource(
-            sharedHandle,
-            __uuidof(ID3D11Texture2D),
-            reinterpret_cast<void**>(texture.GetAddressOf()));
-        if (FAILED(open) || !texture) {
-            Log("OpenSharedResource(GPU view) failed HRESULT=" +
-                std::to_string(static_cast<long long>(open)));
+        const HRESULT acquire = mutex_->AcquireSync(1, 0);
+        if (acquire == WAIT_TIMEOUT) return false;
+        if (FAILED(acquire)) {
+            Log("AcquireSync(GPU cache,key=1) failed HRESULT=" +
+                std::to_string(static_cast<long long>(acquire)));
             return false;
         }
 
-        D3D11_TEXTURE2D_DESC desc{};
-        texture->GetDesc(&desc);
-        if (static_cast<int>(desc.Width) != width ||
-            static_cast<int>(desc.Height) != height ||
-            desc.Format != format) {
-            Log("Shared GPU texture metadata mismatch");
-            return false;
+        bool releaseNeeded = true;
+        try {
+            context->CopyResource(localTexture_.Get(), sharedTexture_.Get());
+            context->Flush();
+            const HRESULT release = mutex_->ReleaseSync(0);
+            releaseNeeded = false;
+            if (FAILED(release)) {
+                Log("ReleaseSync(GPU cache,key=0) failed HRESULT=" +
+                    std::to_string(static_cast<long long>(release)));
+                return false;
+            }
+            copiedSequence_ = sequence;
+            return true;
+        } catch (...) {
+            if (releaseNeeded) mutex_->ReleaseSync(0);
+            throw;
         }
-
-        ComPtr<IDXGIKeyedMutex> mutex;
-        const HRESULT mutexHr = texture.As(&mutex);
-        if (FAILED(mutexHr) || !mutex) {
-            Log("Query IDXGIKeyedMutex failed HRESULT=" +
-                std::to_string(static_cast<long long>(mutexHr)));
-            return false;
-        }
-
-        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-        srvDesc.Format = desc.Format;
-        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MostDetailedMip = 0;
-        srvDesc.Texture2D.MipLevels = 1;
-
-        ComPtr<ID3D11ShaderResourceView> srv;
-        const HRESULT srvHr = device->CreateShaderResourceView(
-            texture.Get(), &srvDesc, &srv);
-        if (FAILED(srvHr) || !srv) {
-            Log("CreateShaderResourceView(shared GPU) failed HRESULT=" +
-                std::to_string(static_cast<long long>(srvHr)));
-            return false;
-        }
-
-        texture_ = texture;
-        mutex_ = mutex;
-        srv_ = srv;
-        sharedHandle_ = sharedHandle;
-        width_ = width;
-        height_ = height;
-        format_ = format;
-        return true;
-    }
-
-    bool Acquire() {
-        if (!mutex_ || !srv_ || locked_) return false;
-        const HRESULT hr = mutex_->AcquireSync(1, 0);
-        if (hr == WAIT_TIMEOUT) return false;
-        if (FAILED(hr)) {
-            Log("AcquireSync(shared GPU,key=1) failed HRESULT=" +
-                std::to_string(static_cast<long long>(hr)));
-            return false;
-        }
-        locked_ = true;
-        return true;
-    }
-
-    void Release() {
-        if (!locked_ || !mutex_) return;
-        const HRESULT hr = mutex_->ReleaseSync(0);
-        if (FAILED(hr)) {
-            Log("ReleaseSync(shared GPU,key=0) failed HRESULT=" +
-                std::to_string(static_cast<long long>(hr)));
-        }
-        locked_ = false;
     }
 
     bool Valid() const { return srv_ != nullptr; }
     ID3D11ShaderResourceView* Srv() const { return srv_.Get(); }
     int Width() const { return width_; }
     int Height() const { return height_; }
+    std::int64_t CopiedSequence() const { return copiedSequence_; }
 
 private:
-    ComPtr<ID3D11Texture2D> texture_;
+    ComPtr<ID3D11Texture2D> sharedTexture_;
     ComPtr<IDXGIKeyedMutex> mutex_;
+    ComPtr<ID3D11Texture2D> localTexture_;
     ComPtr<ID3D11ShaderResourceView> srv_;
     HANDLE sharedHandle_{};
     int width_{};
     int height_{};
     DXGI_FORMAT format_{DXGI_FORMAT_UNKNOWN};
-    bool locked_{};
+    std::int64_t copiedSequence_{-1};
+
+    bool OpenResource(
+        ID3D11Device* device,
+        HANDLE sharedHandle,
+        int width,
+        int height,
+        DXGI_FORMAT format) {
+
+        Reset();
+
+        ComPtr<ID3D11Texture2D> shared;
+        const HRESULT open = device->OpenSharedResource(
+            sharedHandle,
+            __uuidof(ID3D11Texture2D),
+            reinterpret_cast<void**>(shared.GetAddressOf()));
+        if (FAILED(open) || !shared) {
+            Log("OpenSharedResource(GPU cache) failed HRESULT=" +
+                std::to_string(static_cast<long long>(open)));
+            return false;
+        }
+
+        D3D11_TEXTURE2D_DESC sharedDesc{};
+        shared->GetDesc(&sharedDesc);
+        if (static_cast<int>(sharedDesc.Width) != width ||
+            static_cast<int>(sharedDesc.Height) != height ||
+            sharedDesc.Format != format) {
+            Log("Shared GPU texture metadata mismatch");
+            return false;
+        }
+
+        ComPtr<IDXGIKeyedMutex> mutex;
+        const HRESULT mutexHr = shared.As(&mutex);
+        if (FAILED(mutexHr) || !mutex) {
+            Log("Query IDXGIKeyedMutex failed HRESULT=" +
+                std::to_string(static_cast<long long>(mutexHr)));
+            return false;
+        }
+
+        D3D11_TEXTURE2D_DESC localDesc{};
+        localDesc.Width = sharedDesc.Width;
+        localDesc.Height = sharedDesc.Height;
+        localDesc.MipLevels = 1;
+        localDesc.ArraySize = 1;
+        localDesc.Format = sharedDesc.Format;
+        localDesc.SampleDesc.Count = 1;
+        localDesc.SampleDesc.Quality = 0;
+        localDesc.Usage = D3D11_USAGE_DEFAULT;
+        localDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        localDesc.CPUAccessFlags = 0;
+        localDesc.MiscFlags = 0;
+
+        ComPtr<ID3D11Texture2D> local;
+        const HRESULT localHr = device->CreateTexture2D(
+            &localDesc, nullptr, &local);
+        if (FAILED(localHr) || !local) {
+            Log("CreateTexture2D(GPU cache) failed HRESULT=" +
+                std::to_string(static_cast<long long>(localHr)));
+            return false;
+        }
+
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+        srvDesc.Format = localDesc.Format;
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MostDetailedMip = 0;
+        srvDesc.Texture2D.MipLevels = 1;
+
+        ComPtr<ID3D11ShaderResourceView> srv;
+        const HRESULT srvHr = device->CreateShaderResourceView(
+            local.Get(), &srvDesc, &srv);
+        if (FAILED(srvHr) || !srv) {
+            Log("CreateShaderResourceView(GPU cache) failed HRESULT=" +
+                std::to_string(static_cast<long long>(srvHr)));
+            return false;
+        }
+
+        sharedTexture_ = shared;
+        mutex_ = mutex;
+        localTexture_ = local;
+        srv_ = srv;
+        sharedHandle_ = sharedHandle;
+        width_ = width;
+        height_ = height;
+        format_ = format;
+        copiedSequence_ = -1;
+        return true;
+    }
 };
 
 } // namespace ggqv13
