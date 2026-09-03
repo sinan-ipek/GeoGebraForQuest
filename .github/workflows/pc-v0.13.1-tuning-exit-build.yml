@@ -51,7 +51,7 @@ jobs:
           if ($render -notmatch "kScreenDistanceMeters \+ 0.006f") { throw "6mm stereo depth missing" }
           if ($render -notmatch "overscanX") { throw "Stereo overscan missing" }
           if ($xr -notmatch "XR STOPPING -> companion exit requested") { throw "XR shutdown fix missing" }
-          if ($project -notmatch "<Version>0.13.1</Version>") { throw "v0.13.1 version missing" }
+          if ($project -notmatch "<Version>0\.13\.1</Version>") { throw "v0.13.1 version missing" }
       - name: Build Windows EXE package
         shell: powershell
         run: .\pc\build.ps1
