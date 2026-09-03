@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Drawing.Imaging;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
@@ -8,7 +9,7 @@ internal sealed class StereoSharedFrameWriter : IDisposable
 {
     public const string MappingName = @"Local\GeoGebraForQuestPC_SBS_v2";
 
-    private const int Magic = 0x47515342; // "BSQG" little-endian validation marker.
+    private const int Magic = 0x47515342;
     private const int ProtocolVersion = 2;
     private const long HeaderSize = 128;
     private const int MaxEyeWidth = 2048;
@@ -57,19 +58,26 @@ internal sealed class StereoSharedFrameWriter : IDisposable
 
         lock (_sync)
         {
-            using var leftPrepared = PrepareBitmap(leftSource);
-            using var rightPrepared = PrepareBitmap(
-                rightSource,
-                leftPrepared.Width,
-                leftPrepared.Height);
-
-            Bitmap finalLeft = leftPrepared;
-            Bitmap finalRight = rightPrepared;
-            Bitmap? resizedLeft = null;
-            Bitmap? resizedRight = null;
+            Bitmap finalLeft = leftSource;
+            Bitmap finalRight = rightSource;
+            var owned = new List<Bitmap>(4);
 
             try
             {
+                if (finalLeft.PixelFormat != PixelFormat.Format32bppArgb)
+                {
+                    finalLeft = ConvertBitmap(finalLeft, finalLeft.Width, finalLeft.Height);
+                    owned.Add(finalLeft);
+                }
+
+                if (finalRight.Width != finalLeft.Width ||
+                    finalRight.Height != finalLeft.Height ||
+                    finalRight.PixelFormat != PixelFormat.Format32bppArgb)
+                {
+                    finalRight = ConvertBitmap(finalRight, finalLeft.Width, finalLeft.Height);
+                    owned.Add(finalRight);
+                }
+
                 if (finalLeft.Width > MaxEyeWidth || finalLeft.Height > MaxEyeHeight)
                 {
                     var scale = Math.Min(
@@ -78,8 +86,10 @@ internal sealed class StereoSharedFrameWriter : IDisposable
                     var width = Math.Max(2, (int)Math.Round(finalLeft.Width * scale));
                     var height = Math.Max(2, (int)Math.Round(finalLeft.Height * scale));
 
-                    resizedLeft = ResizeBitmap(finalLeft, width, height);
-                    resizedRight = ResizeBitmap(finalRight, width, height);
+                    var resizedLeft = ResizeBitmap(finalLeft, width, height);
+                    var resizedRight = ResizeBitmap(finalRight, width, height);
+                    owned.Add(resizedLeft);
+                    owned.Add(resizedRight);
                     finalLeft = resizedLeft;
                     finalRight = resizedRight;
                 }
@@ -92,10 +102,8 @@ internal sealed class StereoSharedFrameWriter : IDisposable
                 var evenSequence = Interlocked.Add(ref _sequence, 2);
                 var oddSequence = evenSequence - 1;
 
-                // Seqlock: odd while the SBS image is being replaced,
-                // even only after header + complete [L|R] bitmap are ready.
                 _view.Write(8, oddSequence);
-                _view.Write(16, 1); // active
+                _view.Write(16, 1);
                 _view.Write(20, applicationClientSize.Width);
                 _view.Write(24, applicationClientSize.Height);
                 _view.Write(28, stereoPanelClientBounds.Left);
@@ -112,12 +120,17 @@ internal sealed class StereoSharedFrameWriter : IDisposable
 
                 Thread.MemoryBarrier();
                 _view.Write(8, evenSequence);
-                _view.Flush();
+
+                // MemoryMappedFile views are coherent between processes. Flush() forces
+                // dirty pages toward backing storage and was extremely expensive at 20-30 fps.
+                // The seqlock + memory barrier is sufficient for the live IPC path.
             }
             finally
             {
-                resizedLeft?.Dispose();
-                resizedRight?.Dispose();
+                foreach (var bitmap in owned)
+                {
+                    bitmap.Dispose();
+                }
             }
         }
     }
@@ -146,7 +159,6 @@ internal sealed class StereoSharedFrameWriter : IDisposable
 
             Thread.MemoryBarrier();
             _view.Write(8, evenSequence);
-            _view.Flush();
         }
     }
 
@@ -169,10 +181,11 @@ internal sealed class StereoSharedFrameWriter : IDisposable
             ImageLockMode.ReadOnly,
             PixelFormat.Format32bppArgb);
 
+        var totalBytes = checked(sbsStride * left.Height);
+        var buffer = ArrayPool<byte>.Shared.Rent(totalBytes);
+
         try
         {
-            var row = new byte[sbsStride];
-
             for (var y = 0; y < left.Height; y++)
             {
                 var leftY = leftData.Stride >= 0 ? y : left.Height - 1 - y;
@@ -185,39 +198,35 @@ internal sealed class StereoSharedFrameWriter : IDisposable
                     rightData.Scan0,
                     rightY * Math.Abs(rightData.Stride));
 
-                Marshal.Copy(leftPtr, row, 0, eyeStride);
-                Marshal.Copy(rightPtr, row, eyeStride, eyeStride);
-
-                _view.WriteArray(
-                    destinationOffset + (long)y * sbsStride,
-                    row,
-                    0,
-                    sbsStride);
+                var rowOffset = y * sbsStride;
+                Marshal.Copy(leftPtr, buffer, rowOffset, eyeStride);
+                Marshal.Copy(rightPtr, buffer, rowOffset + eyeStride, eyeStride);
             }
+
+            // One mapped-memory write per stereo frame instead of ~2000 writes.
+            _view.WriteArray(destinationOffset, buffer, 0, totalBytes);
         }
         finally
         {
+            ArrayPool<byte>.Shared.Return(buffer);
             left.UnlockBits(leftData);
             right.UnlockBits(rightData);
         }
     }
 
-    private static Bitmap PrepareBitmap(
-        Bitmap source,
-        int? targetWidth = null,
-        int? targetHeight = null)
+    private static Bitmap ConvertBitmap(Image source, int width, int height)
     {
-        var width = targetWidth ?? source.Width;
-        var height = targetHeight ?? source.Height;
-
-        if (source.Width != width || source.Height != height)
-        {
-            return ResizeBitmap(source, width, height);
-        }
-
         var result = new Bitmap(width, height, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(result);
-        graphics.DrawImageUnscaled(source, 0, 0);
+        graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+        if (source.Width == width && source.Height == height)
+        {
+            graphics.DrawImageUnscaled(source, 0, 0);
+        }
+        else
+        {
+            graphics.DrawImage(source, new Rectangle(0, 0, width, height));
+        }
         return result;
     }
 
