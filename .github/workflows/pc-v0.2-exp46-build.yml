@@ -1,9 +1,9 @@
-name: GeoGebraForQuest PC v0.11.2 CEF GPU Direct
+name: GeoGebraForQuest PC v0.12 Performance
 
 on:
   push:
     branches:
-      - pc-v0.11-cef-gpu-direct
+      - pc-v0.12-performance
     paths:
       - "pc/**"
       - "pc-xr/**"
@@ -64,73 +64,40 @@ jobs:
           New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
           Copy-Item $source "app/src/main/assets/web" -Recurse -Force
 
-      - name: Verify GPU-direct architecture
+      - name: Verify v0.12 performance architecture
         shell: powershell
         run: |
-          $main = Get-Content "pc-xr/main-v11.cpp" -Raw
-          $shared = Get-Content "pc-xr/v11-shared.hpp" -Raw
           $graphics = Get-Content "pc/MainFormV11.Graphics.cs" -Raw
-          $cef = Get-Content "pc/D3DChromiumWebBrowser.cs" -Raw
-          $form = Get-Content "pc/MainFormV11.cs" -Raw
-          $build = Get-Content "pc/build.ps1" -Raw
-          $all = $main + "`n" + $shared + "`n" + $graphics + "`n" + $cef + "`n" + $form
+          $runtime = Get-Content "pc/pc-stereo-layout.js" -Raw
+          $writer = Get-Content "pc/StereoSharedFrameWriter.cs" -Raw
+          $input = Get-Content "pc/MainFormV11.InputStereo.cs" -Raw
+          $all = $graphics + "`n" + $runtime + "`n" + $writer + "`n" + $input
 
           if ($all -match "BitBlt\s*\(" -or
               $all -match "PrintWindow\s*\(" -or
               $all -match "Windows\.Graphics\.Capture") {
-            throw "Screen-capture code found in v0.11.2 GPU-direct path"
+            throw "Screen-capture code found in v0.12"
           }
-          if ($cef -notmatch "SharedTextureEnabled = true") {
-            throw "CEF shared-texture mode missing"
+          if ($graphics -match "WaitForGpuLocked") {
+            throw "Blocking GPU query path still exists"
           }
-          if ($cef -match 'base\("about:blank"') {
-            throw "CEF still starts from about:blank"
+          if ($graphics -match 'Present\(1,') {
+            throw "Blocking VSync Present(1) path still exists"
           }
-          if ($cef -notmatch 'base\(initialAddress') {
-            throw "CEF initialAddress is not used by ChromiumWebBrowser"
+          if ($graphics -notmatch 'Present\(0,') {
+            throw "Present(0) performance path missing"
           }
-          if ($form -match '_browser\.Load\(LocalAppUrl\)') {
-            throw "Old early Load(LocalAppUrl) path still exists"
+          if ($runtime -notmatch "canvas\.toBlob") {
+            throw "Async stereo JPEG encoding missing"
           }
-          if ($form -notmatch '_browser\.CreateGpuBrowser\(\)') {
-            throw "Deferred native browser creation missing"
+          if ($runtime -notmatch "CAPTURE_MAX_EYE_WIDTH = 2048") {
+            throw "2K-per-eye stereo quality cap missing"
           }
-          if ($cef -match "ExternalBeginFrameEnabled = true") {
-            throw "Old external CEF frame scheduling still enabled"
+          if ($writer -notmatch "ArrayPool<byte>") {
+            throw "Pooled SBS buffer path missing"
           }
-          if ($cef -notmatch "windowInfo.Width" -or $cef -notmatch "windowInfo.Height") {
-            throw "CEF initial dimensions missing"
-          }
-          if ($graphics -notmatch "OnAcceleratedPaint") {
-            throw "CEF accelerated-paint callback missing"
-          }
-          if ($graphics -match "SendExternalBeginFrame") {
-            throw "Manual CEF external begin-frame call still exists"
-          }
-          if ($graphics -notmatch 'new InputElement\("POSITION"') {
-            throw "Standard PC POSITION shader input missing"
-          }
-          if ($graphics -notmatch "CullMode = CullMode.None") {
-            throw "PC rasterizer culling fix missing"
-          }
-          if ($graphics -notmatch "CopyResource\(cefTexture, _xrSharedTexture\)") {
-            throw "CEF-to-owned D3D11 texture path missing"
-          }
-          if ($shared -notmatch "OpenSharedResource") {
-            throw "XR shared D3D11 consumer missing"
-          }
-          if ($main -notmatch "XrCompositionLayerProjection") {
-            throw "OpenXR stereo projection missing"
-          }
-          if ($main -notmatch "/interaction_profiles/oculus/touch_controller") {
-            throw "Meta Touch interaction profile missing"
-          }
-          if ($main -notmatch "/user/hand/right/input/aim/pose" -or
-              $main -notmatch "/user/hand/right/input/trigger/value") {
-            throw "Right Touch aim/trigger bindings missing"
-          }
-          if ($build -match "Compress-Archive") {
-            throw "Nested ZIP regression: build.ps1 must not create an inner ZIP"
+          if ($input -notmatch "Math\.Clamp\(scale, 0\.5f, BrowserSupersample\)") {
+            throw "4K browser-size cap fix missing"
           }
 
       - name: Build Windows app and OpenXR companion
@@ -140,7 +107,7 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.11.2-cef-gpu-direct-win-x64"
+          $dir = "dist/GeoGebraForQuest-PC-v0.12.0-performance-win-x64"
           if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) {
             throw "Main EXE missing"
           }
@@ -165,7 +132,7 @@ jobs:
       - name: Upload single-layer Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.11.2-cef-gpu-direct-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.11.2-cef-gpu-direct-win-x64/**
+          name: GeoGebraForQuest-PC-v0.12.0-performance-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.12.0-performance-win-x64/**
           if-no-files-found: error
           compression-level: 6
