@@ -1,0 +1,124 @@
+name: GeoGebraForQuest PC v0.12.3 XR Behind Native
+
+on:
+  push:
+    branches:
+      - pc-v0.12.3-xr-behind-native
+    paths:
+      - "pc/**"
+      - "pc-xr/**"
+      - ".github/workflows/pc-v0.12.3-xr-behind-native-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download exact published Quest Exp46 APK
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" `
+            --repo "sinan-ipek/GeoGebraForQuest" `
+            --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" `
+            --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          if (-not $apk) { throw "Published Exp46 APK could not be downloaded." }
+
+      - name: Extract exact Exp46 web assets from APK
+        shell: powershell
+        run: |
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          $zip = ".exp46/exp46.zip"
+          $extract = ".exp46/unpacked"
+          Copy-Item $apk.FullName $zip -Force
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+          $source = Join-Path $extract "assets/web"
+          if (-not (Test-Path "$source/GeoGebra/web3d/web3d.nocache.js")) {
+            throw "Published Exp46 APK does not contain expected Web3D assets."
+          }
+          if (-not (Test-Path "$source/GeoGebra/GGQ_SOURCE_BUILD.txt")) {
+            throw "Published Exp46 APK source metadata missing."
+          }
+          if (Test-Path "app/src/main/assets/web") {
+            Remove-Item "app/src/main/assets/web" -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+
+      - name: Verify XR-behind native architecture
+        shell: powershell
+        run: |
+          $wrapper = Get-Content "pc-xr/main-v123.cpp" -Raw
+          $cmake = Get-Content "pc-xr/CMakeLists.txt" -Raw
+          $render = Get-Content "pc-xr/v11-render.hpp" -Raw
+          $mouseXr = Get-Content "pc-xr/v123-mouse.hpp" -Raw
+          $cef = Get-Content "pc/D3DChromiumWebBrowser.cs" -Raw
+          $graphics = Get-Content "pc/MainFormV11.Graphics.cs" -Raw
+          $input = Get-Content "pc/MainFormV11.InputStereo.cs" -Raw
+          $mouseWriter = Get-Content "pc/XrMouseSharedWriter.cs" -Raw
+          $runtime = Get-Content "pc/pc-stereo-layout.js" -Raw
+          $main = Get-Content "pc/MainFormV11.cs" -Raw
+          $project = Get-Content "pc/GeoGebraForQuest.PC.csproj" -Raw
+
+          if ($cmake -notmatch "main-v123.cpp") { throw "v0.12.3 Quest wrapper is not built" }
+          if ($cmake -match "main-v121.cpp") { throw "Old +25 percent supersampling wrapper leaked in" }
+          if ($wrapper -notmatch "2064" -or $wrapper -notmatch "2208") { throw "Quest 3 physical eye target missing" }
+          if ($wrapper -notmatch "maxImageRectWidth" -or $wrapper -notmatch "maxImageRectHeight") { throw "OpenXR max clamp missing" }
+          if ($cef -notmatch "WindowlessFrameRate = 60") { throw "CEF 60 fps cap missing" }
+          if ($graphics -notmatch "DeviceScaleFactor = GetBrowserDeviceScaleFactor") { throw "CEF native DPI missing" }
+          if ($input -notmatch "clientW / dpiScale") { throw "Native DIP viewport sizing missing" }
+          if ($input -notmatch "PublishMousePointerToXr") { throw "Physical mouse XR publication missing" }
+          if ($mouseWriter -notmatch "GeoGebraForQuestPC_Mouse_v1") { throw "Mouse writer protocol missing" }
+          if ($mouseXr -notmatch "GeoGebraForQuestPC_Mouse_v1") { throw "Mouse XR reader protocol missing" }
+          if ($render -notmatch "behindDistance = kScreenDistanceMeters \+ 0\.02f") { throw "B-behind geometry missing" }
+          if ($render -notmatch "DrawBaseWithHole") { throw "XR transparent 3D hole missing" }
+          if ($render -notmatch "footprint <= 1\.12") { throw "Quest minification quality shader missing" }
+          if ($render -notmatch "MousePointerSharedReader") { throw "Quest mouse cursor missing" }
+          if ($runtime -notmatch "QUEST3_PPD = 25\.0") { throw "Quest angular-density sizing missing" }
+          if ($runtime -notmatch "CAPTURE_MAX_EYE_WIDTH = 1536") { throw "Quest B source cap missing" }
+          if ($runtime -notmatch "CAPTURE_JPEG_QUALITY = 0\.99") { throw "Stereo source quality missing" }
+          if ($runtime -notmatch "knownBlockingMenu" -or $runtime -notmatch "denseGridBlocked") { throw "Menu occlusion detector missing" }
+          if ($runtime -notmatch "reportInactive\('ui-overlay'\)") { throw "Menu must disable B" }
+          if ($runtime -notmatch "clipAgainstPersistentEdgePanels") { throw "3D visible-area clipping missing" }
+          if ($main -notmatch "0\.12\.3-xr-behind-native") { throw "Runtime cache busting missing" }
+          if ($project -notmatch "<Version>0\.12\.3</Version>") { throw "v0.12.3 assembly version missing" }
+          if ($render -match "kStereoDistanceMeters.*DrawQuad" -and $render -notmatch "behindDistance") { throw "Old front-only B renderer leaked in" }
+
+      - name: Build Windows app and OpenXR companion
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = "dist/GeoGebraForQuest-PC-v0.12.3-xr-behind-native-win-x64"
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
+          if (-not (Test-Path "$dir/assets/web/GeoGebra/web3d/web3d.nocache.js")) { throw "Web3D missing" }
+          if (-not (Test-Path "$dir/libcef.dll")) { throw "CEF libcef.dll missing" }
+          $innerZip = Get-ChildItem $dir -Filter "*.zip" -Recurse | Select-Object -First 1
+          if ($innerZip) { throw "Nested ZIP regression" }
+
+      - name: Upload single-layer Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.12.3-xr-behind-native-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.12.3-xr-behind-native-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
