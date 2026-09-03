@@ -19,15 +19,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.11 removes Windows-screen capture completely.
-# A: CEF OnAcceleratedPaint D3D11 texture -> application-owned shared D3D11 texture
-#    -> GPU-to-GPU OpenXR texture. No BitBlt, screenshot, JPEG, CPU readback or desktop capture.
-# B: existing Exp46 [L|R] stereo source, sampled separately by the two projection views.
-# Input: right Meta Touch aim pose + trigger -> normalized A-panel UV -> CEF browser input.
+# v0.13: no screen capture and no JPEG/base64 stereo transport.
+# A: CEF accelerated D3D11 surface -> app-owned shared GPU texture -> XR GPU cache.
+# B: Exp46 L/R -> temporary CEF GPU compositor phase -> cropped D3D11 SBS texture
+#    -> app-owned shared GPU texture -> XR GPU cache.
+# Both copies remain on the GPU; the CPU never carries image pixels.
 add_executable(GeoGebraForQuestPC.XR
-  main-v11.cpp
+  main-v13.cpp
   v11-shared.hpp
   v11-render.hpp
+  v13-gpu-stereo.hpp
 )
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
