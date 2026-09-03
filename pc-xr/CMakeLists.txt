@@ -19,21 +19,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.12.1 is deliberately based on the known-working v0.12 renderer.
-# A: CEF OnAcceleratedPaint D3D11 texture -> application-owned shared D3D11 texture
-#    -> GPU-to-GPU OpenXR texture. No Windows screen capture.
+# v0.12.2 keeps the proven v0.12 projection/stereo/input implementation.
+# Important quality rule: use the OpenXR runtime's recommendedImageRectWidth/Height
+# exactly. Do not supersample the final Quest projection above the runtime recommendation.
+# A: CEF accelerated D3D11 GPU texture -> shared D3D11 texture -> OpenXR.
 # B: proven Exp46 [L|R] stereo path from v0.12.
-# Input/file handling/panel geometry: unchanged v0.12 behavior.
-# Only final OpenXR per-eye projection raster is increased by main-v121.cpp.
 add_executable(GeoGebraForQuestPC.XR
-  main-v121.cpp
   main-v11.cpp
   v11-shared.hpp
   v11-render.hpp
 )
-
-# main-v11.cpp is included by main-v121.cpp; do not compile it as a second translation unit.
-set_source_files_properties(main-v11.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
