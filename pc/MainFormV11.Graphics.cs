@@ -171,6 +171,9 @@ internal sealed partial class MainForm
 
         while (!_closing)
         {
+            _presentEvent.WaitOne(100);
+            if (_closing) break;
+
             try
             {
                 var currentFrame = Interlocked.Read(ref _gpuFrameNumber);
@@ -178,18 +181,12 @@ internal sealed partial class MainForm
                 lock (_d3dLock) resizePending = _swapChainResizePending;
 
                 if (currentFrame == lastPresentedFrame && !resizePending)
-                {
-                    Thread.Sleep(1);
                     continue;
-                }
 
                 lock (_d3dLock)
                 {
                     if (_device is null || _swapChain is null || _renderTarget is null)
-                    {
-                        Thread.Sleep(2);
                         continue;
-                    }
 
                     if (_swapChainResizePending) ResizeSwapChainLocked();
 
@@ -220,11 +217,9 @@ internal sealed partial class MainForm
                         context.PixelShader.SetShaderResource(0, null);
                     }
 
-                    // v0.11 held the global D3D lock while waiting for Present(1)/VSync.
-                    // That stalled CEF accelerated-paint callbacks and made all input laggy.
-                    // Present(0) only when a new CEF frame exists; DWM still composites normally.
                     _swapChain.Present(0, PresentFlags.None);
                     lastPresentedFrame = currentFrame;
+                    _presentStatus = string.Empty;
                 }
             }
             catch (Exception ex)
@@ -233,7 +228,6 @@ internal sealed partial class MainForm
                 {
                     _presentStatus = "Present: " + ShortError(ex);
                     BeginInvokeSafe(UpdateWindowTitle);
-                    Thread.Sleep(25);
                 }
             }
         }
@@ -249,52 +243,107 @@ internal sealed partial class MainForm
 
         try
         {
+            string? ackEye = null;
+            long ackSerial = 0;
+            bool cancelTransport = false;
+            bool updateBase = true;
+
             lock (_d3dLock)
             {
                 using var cefTexture = _device1.OpenSharedResource1<Texture2D>(
                     acceleratedPaintInfo.SharedTextureHandle);
 
-                EnsurePcTextureLocked(cefTexture.Description);
-                var next = _currentPcTexture ^ 1;
-                var target = _pcTextures[next];
-                if (target is null) return;
-
-                // PC A copy is always allowed to succeed independently of Quest sharing.
-                _device.ImmediateContext.CopyResource(cefTexture, target);
-                _currentPcTexture = next;
-
-                try
+                StereoGpuPhase phase;
+                long phaseSerial;
+                bool suppressBase;
+                lock (_stereoGpuLock)
                 {
-                    if (TryQueueGpuPublishLocked(cefTexture))
+                    phase = _stereoGpuPhase;
+                    phaseSerial = _stereoGpuPhaseSerial;
+                    suppressBase = _suppressBasePresentation;
+                }
+
+                if (phase != StereoGpuPhase.None)
+                {
+                    var captured = CaptureStereoGpuPhaseLocked(
+                        cefTexture,
+                        phase,
+                        phaseSerial);
+
+                    if (phase == StereoGpuPhase.Left)
                     {
-                        // No CPU query/spin-wait. Keyed mutex synchronization is enough;
-                        // Flush only submits the GPU copy before handing key=1 to XR.
-                        _device.ImmediateContext.Flush();
-                        CompleteGpuPublishLocked(cefTexture.Description);
-                        if (_gpuShareStatus != "A-share GPU")
+                        updateBase = false;
+                        if (captured)
                         {
-                            _gpuShareStatus = "A-share GPU";
-                            BeginInvokeSafe(UpdateWindowTitle);
+                            lock (_stereoGpuLock)
+                            {
+                                if (_stereoGpuPhase == StereoGpuPhase.Left &&
+                                    _stereoGpuPhaseSerial == phaseSerial)
+                                {
+                                    _stereoLeftCaptured = true;
+                                    _stereoGpuPhase = StereoGpuPhase.None;
+                                }
+                            }
+                            ackEye = "left";
+                            ackSerial = phaseSerial;
+                        }
+                        else
+                        {
+                            lock (_stereoGpuLock)
+                            {
+                                _stereoGpuPhase = StereoGpuPhase.None;
+                                _stereoLeftCaptured = false;
+                                _suppressBasePresentation = false;
+                            }
+                            cancelTransport = true;
+                        }
+                    }
+                    else
+                    {
+                        if (captured)
+                        {
+                            lock (_stereoGpuLock)
+                            {
+                                if (_stereoGpuPhase == StereoGpuPhase.Right &&
+                                    _stereoGpuPhaseSerial == phaseSerial)
+                                {
+                                    _stereoGpuPhase = StereoGpuPhase.None;
+                                    _stereoLeftCaptured = false;
+                                    _suppressBasePresentation = false;
+                                }
+                            }
+                            ackEye = "right";
+                            ackSerial = phaseSerial;
+                            updateBase = true;
+                        }
+                        else
+                        {
+                            lock (_stereoGpuLock)
+                            {
+                                _stereoGpuPhase = StereoGpuPhase.None;
+                                _stereoLeftCaptured = false;
+                                _suppressBasePresentation = false;
+                            }
+                            cancelTransport = true;
+                            updateBase = true;
                         }
                     }
                 }
-                catch (Exception shareError)
+                else if (suppressBase)
                 {
-                    try { _xrSharedMutex?.Release(0); } catch { }
-                    var status = "A-share: " + ShortError(shareError);
-                    if (!string.Equals(_gpuShareStatus, status, StringComparison.Ordinal))
-                    {
-                        _gpuShareStatus = status;
-                        BeginInvokeSafe(UpdateWindowTitle);
-                    }
+                    updateBase = false;
                 }
 
-                var frame = Interlocked.Increment(ref _gpuFrameNumber);
-                if ((frame % 120) == 0)
+                if (updateBase)
                 {
-                    BeginInvokeSafe(UpdateWindowTitle);
+                    UpdateBaseTexturesLocked(cefTexture);
                 }
             }
+
+            if (ackEye is not null)
+                _ = AckStereoGpuPhaseAsync(ackEye, ackSerial);
+            if (cancelTransport)
+                _ = CancelStereoGpuTransportAsync();
         }
         catch (Exception ex)
         {
@@ -304,6 +353,200 @@ internal sealed partial class MainForm
                 BeginInvokeSafe(UpdateWindowTitle);
             }
         }
+    }
+
+    private void UpdateBaseTexturesLocked(Texture2D cefTexture)
+    {
+        if (_device is null) return;
+
+        EnsurePcTextureLocked(cefTexture.Description);
+        var next = _currentPcTexture ^ 1;
+        var target = _pcTextures[next];
+        if (target is null) return;
+
+        CopyWholeTextureLocked(cefTexture, target);
+        _currentPcTexture = next;
+
+        try
+        {
+            if (TryQueueGpuPublishLocked(cefTexture))
+            {
+                _device.ImmediateContext.Flush();
+                CompleteGpuPublishLocked(cefTexture.Description);
+                _gpuShareStatus = "A-share GPU";
+            }
+        }
+        catch (Exception shareError)
+        {
+            try { _xrSharedMutex?.Release(0); } catch { }
+            _gpuShareStatus = "A-share: " + ShortError(shareError);
+        }
+
+        var frame = Interlocked.Increment(ref _gpuFrameNumber);
+        _gpuPaintStatus = string.Empty;
+        _presentEvent.Set();
+        if ((frame % 120) == 0) BeginInvokeSafe(UpdateWindowTitle);
+    }
+
+    private void CopyWholeTextureLocked(Texture2D source, Texture2D destination)
+    {
+        if (_device is null) return;
+        var desc = source.Description;
+        var region = new ResourceRegion(0, 0, 0, desc.Width, desc.Height, 1);
+        _device.ImmediateContext.CopySubresourceRegion(
+            source, 0, region, destination, 0, 0, 0, 0);
+    }
+
+    private bool CaptureStereoGpuPhaseLocked(
+        Texture2D cefTexture,
+        StereoGpuPhase phase,
+        long serial)
+    {
+        if (_device is null) return false;
+
+        bool active;
+        Rectangle rect;
+        Size clientSize;
+        lock (_geometryLock)
+        {
+            active = _stereo3DActive;
+            rect = _stereo3DRenderBounds;
+            clientSize = _browserSize;
+        }
+        if (!active || rect.Width < 2 || rect.Height < 2) return false;
+
+        var source = cefTexture.Description;
+        var left = Math.Clamp(rect.Left, 0, source.Width - 1);
+        var top = Math.Clamp(rect.Top, 0, source.Height - 1);
+        var right = Math.Clamp(rect.Right, left + 1, source.Width);
+        var bottom = Math.Clamp(rect.Bottom, top + 1, source.Height);
+        var eyeWidth = right - left;
+        var eyeHeight = bottom - top;
+        if (eyeWidth < 2 || eyeHeight < 2) return false;
+
+        EnsureStereoGpuTexturesLocked(eyeWidth, eyeHeight, source.Format);
+        if (_stereoStagingTexture is null) return false;
+
+        var sourceRegion = new ResourceRegion(left, top, 0, right, bottom, 1);
+        var destinationX = phase == StereoGpuPhase.Left ? 0 : eyeWidth;
+
+        _device.ImmediateContext.CopySubresourceRegion(
+            cefTexture,
+            0,
+            sourceRegion,
+            _stereoStagingTexture,
+            0,
+            destinationX,
+            0,
+            0);
+
+        if (phase == StereoGpuPhase.Left)
+        {
+            _gpuStereoStatus = $"B-GPU L {eyeWidth}×{eyeHeight}";
+            return true;
+        }
+
+        bool leftReady;
+        lock (_stereoGpuLock)
+        {
+            leftReady = _stereoLeftCaptured && _stereoGpuPhaseSerial == serial;
+        }
+        if (!leftReady ||
+            _xrStereoSharedTexture is null ||
+            _xrStereoSharedMutex is null ||
+            _xrStereoSharedHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            _xrStereoSharedMutex.Acquire(0, 0);
+        }
+        catch
+        {
+            return false;
+        }
+
+        try
+        {
+            _device.ImmediateContext.CopyResource(
+                _stereoStagingTexture,
+                _xrStereoSharedTexture);
+            _device.ImmediateContext.Flush();
+            _xrStereoSharedMutex.Release(1);
+        }
+        catch
+        {
+            try { _xrStereoSharedMutex.Release(0); } catch { }
+            throw;
+        }
+
+        var frame = Interlocked.Increment(ref _stereoFrameNumber);
+        _gpuStereoPublisher.Publish(
+            _xrStereoSharedHandle,
+            clientSize.Width,
+            clientSize.Height,
+            new Rectangle(left, top, eyeWidth, eyeHeight),
+            eyeWidth,
+            eyeHeight,
+            source.Format,
+            frame);
+        _gpuStereoStatus = $"B-GPU {eyeWidth}×{eyeHeight}";
+        if ((frame % 60) == 0) BeginInvokeSafe(UpdateWindowTitle);
+        return true;
+    }
+
+    private void EnsureStereoGpuTexturesLocked(int eyeWidth, int eyeHeight, Format format)
+    {
+        if (_device is null) return;
+        if (_stereoStagingTexture is not null &&
+            _xrStereoSharedTexture is not null &&
+            _stereoEyeWidth == eyeWidth &&
+            _stereoEyeHeight == eyeHeight &&
+            _stereoTextureFormat == format)
+        {
+            return;
+        }
+
+        _stereoStagingTexture?.Dispose();
+        _stereoStagingTexture = null;
+
+        if (_xrStereoSharedMutex is not null)
+            _retiredSharedResources.Add(_xrStereoSharedMutex);
+        if (_xrStereoSharedTexture is not null)
+            _retiredSharedResources.Add(_xrStereoSharedTexture);
+        _xrStereoSharedMutex = null;
+        _xrStereoSharedTexture = null;
+        _xrStereoSharedHandle = IntPtr.Zero;
+
+        var width = checked(eyeWidth * 2);
+        var common = new Texture2DDescription
+        {
+            Width = width,
+            Height = eyeHeight,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = format,
+            SampleDescription = new SampleDescription(1, 0),
+            Usage = ResourceUsage.Default,
+            BindFlags = BindFlags.ShaderResource,
+            CpuAccessFlags = CpuAccessFlags.None,
+            OptionFlags = ResourceOptionFlags.None
+        };
+
+        _stereoStagingTexture = new Texture2D(_device, common);
+
+        common.OptionFlags = ResourceOptionFlags.SharedKeyedmutex;
+        _xrStereoSharedTexture = new Texture2D(_device, common);
+        _xrStereoSharedMutex = _xrStereoSharedTexture.QueryInterface<KeyedMutex>();
+        using var dxgiResource =
+            _xrStereoSharedTexture.QueryInterface<SharpDX.DXGI.Resource>();
+        _xrStereoSharedHandle = dxgiResource.SharedHandle;
+
+        _stereoEyeWidth = eyeWidth;
+        _stereoEyeHeight = eyeHeight;
+        _stereoTextureFormat = format;
     }
 
     private void EnsurePcTextureLocked(Texture2DDescription source)
@@ -383,13 +626,12 @@ internal sealed partial class MainForm
         }
         catch
         {
-            // XR still owns the previous frame. Drop this A update instead of blocking CEF.
             return false;
         }
 
         try
         {
-            _device.ImmediateContext.CopyResource(cefTexture, _xrSharedTexture);
+            CopyWholeTextureLocked(cefTexture, _xrSharedTexture);
             return true;
         }
         catch
