@@ -10,10 +10,12 @@ namespace GeoGebraForQuest.PC;
 
 internal sealed partial class MainForm
 {
+    private volatile bool _stereoUiSuspended;
+
     private void QueueStereoFrames(string left, string right)
     {
-        // Always keep only the newest completed pair. If JPEG decode falls behind,
-        // stale stereo frames are discarded instead of building latency.
+        if (_stereoUiSuspended) return;
+
         lock (_pendingFrameLock) _pendingFrames = (left, right);
         if (Interlocked.CompareExchange(ref _decodeWorkerActive, 1, 0) == 0)
         {
@@ -34,14 +36,12 @@ internal sealed partial class MainForm
                     _pendingFrames = null;
                 }
                 if (pair is null) break;
+                if (_stereoUiSuspended) continue;
 
                 Bitmap? left = null;
                 Bitmap? right = null;
                 try
                 {
-                    // The two eye JPEGs are independent. v0.12 decoded them serially on
-                    // one worker core; decode both at the same time without changing the
-                    // proven stereo transport or frame ordering.
                     Parallel.Invoke(
                         () => left = DecodeDataUrl(pair.Value.Left),
                         () => right = DecodeDataUrl(pair.Value.Right));
@@ -61,7 +61,8 @@ internal sealed partial class MainForm
                         size = _browserSize;
                     }
 
-                    if (active && rect.Width > 1 && rect.Height > 1 &&
+                    if (!_stereoUiSuspended &&
+                        active && rect.Width > 1 && rect.Height > 1 &&
                         size.Width > 1 && size.Height > 1)
                     {
                         _sharedStereoFrames.WriteFrames(left, right, rect, size, frame);
@@ -108,8 +109,6 @@ internal sealed partial class MainForm
         using var stream = new MemoryStream(bytes, writable: false);
         using var source = Image.FromStream(stream, false, false);
 
-        // Produce the exact BGRA-friendly format required by the SBS writer once here.
-        // v0.11 created another full-size 32-bit copy inside WriteFrames on every eye/frame.
         var result = new Bitmap(source.Width, source.Height, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(result);
         graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
@@ -130,6 +129,26 @@ internal sealed partial class MainForm
         _sharedStereoFrames.SetInactive(rect, size);
     }
 
+    private void SetStereoUiSuspended(bool suspended)
+    {
+        _stereoUiSuspended = suspended;
+        if (!suspended) return;
+
+        Rectangle rect;
+        Size size;
+        lock (_geometryLock)
+        {
+            rect = _stereo3DRenderBounds;
+            size = _browserSize;
+        }
+        _sharedStereoFrames.SetInactive(rect, size);
+
+        lock (_pendingFrameLock)
+        {
+            _pendingFrames = null;
+        }
+    }
+
     private void RequestResize()
     {
         if (_closing || !IsHandleCreated) return;
@@ -141,19 +160,14 @@ internal sealed partial class MainForm
     {
         var clientW = Math.Max(320, ClientSize.Width);
         var clientH = Math.Max(240, ClientSize.Height);
+        var dpiScale = GetBrowserDeviceScaleFactor();
 
-        var capScale = Math.Min(
-            MaxBrowserWidth / (float)clientW,
-            MaxBrowserHeight / (float)clientH);
-        var scale = Math.Min(BrowserSupersample, capScale);
-
-        // Do not let huge desktop resolutions create a 4K+ CEF surface just because
-        // the window is 4K. Conversely, never shrink below half-resolution.
-        scale = Math.Clamp(scale, 0.5f, BrowserSupersample);
-
+        // WinForms/Direct3D client pixels are physical pixels. CEF's view rectangle is
+        // expressed in DIP. Respect the current Windows per-monitor DPI so a 4K monitor
+        // at 150/175/200% scaling has the same native GeoGebra sizing as Chrome.
         var size = new Size(
-            Math.Max(320, (int)Math.Round(clientW * scale)),
-            Math.Max(240, (int)Math.Round(clientH * scale)));
+            Math.Max(320, (int)Math.Round(clientW / dpiScale)),
+            Math.Max(240, (int)Math.Round(clientH / dpiScale)));
 
         lock (_geometryLock) _browserSize = size;
         try { _ = _browser?.ResizeAsync(size.Width, size.Height); } catch { }
@@ -371,7 +385,18 @@ internal sealed partial class MainForm
             Filter = "GeoGebra dosyası (*.ggb)|*.ggb|Tüm dosyalar (*.*)|*.*",
             CheckFileExists = true
         };
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        DialogResult dialogResult;
+        SetStereoUiSuspended(true);
+        try
+        {
+            dialogResult = dialog.ShowDialog(this);
+        }
+        finally
+        {
+            SetStereoUiSuspended(false);
+        }
+        if (dialogResult != DialogResult.OK) return;
 
         try
         {
@@ -407,7 +432,18 @@ internal sealed partial class MainForm
             AddExtension = true,
             FileName = "GeoGebra.ggb"
         };
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        DialogResult dialogResult;
+        SetStereoUiSuspended(true);
+        try
+        {
+            dialogResult = dialog.ShowDialog(this);
+        }
+        finally
+        {
+            SetStereoUiSuspended(false);
+        }
+        if (dialogResult != DialogResult.OK) return;
 
         try
         {
