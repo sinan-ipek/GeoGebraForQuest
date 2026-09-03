@@ -11,7 +11,7 @@ $xrBuild = Join-Path $root ".pc-xr-build"
 $boot = Join-Path $root "app\src\main\assets\web\GeoGebra\web3d\web3d.nocache.js"
 $project = Join-Path $pcDir "GeoGebraForQuest.PC.csproj"
 $distRoot = Join-Path $root "dist"
-$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.13.0-gpu-stereo-win-x64"
+$publishDir = Join-Path $distRoot "GeoGebraForQuest-PC-v0.13.1-gpu-stereo-fix-win-x64"
 $appPublish = Join-Path $root ".pc-app-publish"
 
 $xrMain = Join-Path $xrSource "main-v13.cpp"
@@ -24,6 +24,7 @@ $inputStereo = Join-Path $pcDir "MainFormV11.InputStereo.cs"
 $cefBrowser = Join-Path $pcDir "D3DChromiumWebBrowser.cs"
 $stereoRuntime = Join-Path $pcDir "pc-stereo-layout.js"
 $gpuStereoPublisher = Join-Path $pcDir "GpuStereoTexturePublisher.cs"
+$xrManager = Join-Path $pcDir "XrCompanionManager.cs"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET 8 SDK bulunamadı."
@@ -38,9 +39,9 @@ if (-not (Test-Path $boot)) {
 foreach ($required in @(
     $xrMain, $xrShared, $xrRender, $xrStereo,
     $mainForm, $graphics, $inputStereo, $cefBrowser,
-    $stereoRuntime, $gpuStereoPublisher)) {
+    $stereoRuntime, $gpuStereoPublisher, $xrManager)) {
     if (-not (Test-Path $required)) {
-        throw "v0.13 kaynak dosyası eksik: $required"
+        throw "v0.13.1 kaynak dosyası eksik: $required"
     }
 }
 
@@ -52,62 +53,75 @@ $mainFormText = Get-Content $mainForm -Raw
 $inputText = Get-Content $inputStereo -Raw
 $runtimeText = Get-Content $stereoRuntime -Raw
 $gpuStereoPublisherText = Get-Content $gpuStereoPublisher -Raw
+$xrManagerText = Get-Content $xrManager -Raw
 $allV13 = $xrText + "`n" + $xrStereoText + "`n" + $graphicsText + "`n" +
           $browserText + "`n" + $mainFormText + "`n" + $inputText + "`n" +
-          $runtimeText + "`n" + $gpuStereoPublisherText
+          $runtimeText + "`n" + $gpuStereoPublisherText + "`n" + $xrManagerText
 
 if ($allV13 -match "BitBlt\s*\(" -or
     $allV13 -match "Windows\.Graphics\.Capture|GraphicsCaptureItem|PrintWindow\s*\(") {
-    throw "v0.13 doğrulaması başarısız: ekran yakalama kodu bulundu."
+    throw "v0.13.1 doğrulaması başarısız: ekran yakalama kodu bulundu."
 }
 if ($browserText -notmatch "SharedTextureEnabled = true") {
-    throw "v0.13 doğrulaması başarısız: CEF shared GPU texture etkin değil."
+    throw "v0.13.1 doğrulaması başarısız: CEF shared GPU texture etkin değil."
 }
 if ($runtimeText -match "toDataURL|toBlob|image/jpeg|FileReader") {
-    throw "v0.13 doğrulaması başarısız: JPEG/base64 stereo taşıma kodu hâlâ var."
+    throw "v0.13.1 doğrulaması başarısız: JPEG/base64 stereo taşıma kodu hâlâ var."
 }
 if ($inputText -match "DecodeDataUrl|Convert\.FromBase64String\(dataUrl|QueueStereoFrames") {
-    throw "v0.13 doğrulaması başarısız: CPU stereo decode yolu hâlâ aktif."
+    throw "v0.13.1 doğrulaması başarısız: CPU stereo decode yolu hâlâ aktif."
+}
+if ($runtimeText -notmatch "STEREO_INTERVAL_MS = 33") {
+    throw "v0.13.1 doğrulaması başarısız: 30 Hz B GPU taşıma sınırı eksik."
 }
 if ($runtimeText -notmatch "stereoGpuPhase" -or
     $runtimeText -notmatch "ggq-pc-gpu-left-eye-overlay") {
-    throw "v0.13 doğrulaması başarısız: GPU stereo compositor phase yolu eksik."
+    throw "v0.13.1 doğrulaması başarısız: GPU stereo compositor phase yolu eksik."
 }
 if ($graphicsText -notmatch "CaptureStereoGpuPhaseLocked" -or
     $graphicsText -notmatch "CopySubresourceRegion") {
-    throw "v0.13 doğrulaması başarısız: CEF 3D bölgesinin GPU crop yolu eksik."
+    throw "v0.13.1 doğrulaması başarısız: CEF 3D bölgesinin GPU crop yolu eksik."
 }
 if ($graphicsText -notmatch "GpuStereoTexturePublisher" -and
     $mainFormText -notmatch "GpuStereoTexturePublisher") {
-    throw "v0.13 doğrulaması başarısız: B GPU metadata publisher kullanılmıyor."
+    throw "v0.13.1 doğrulaması başarısız: B GPU metadata publisher kullanılmıyor."
 }
 if ($graphicsText -match "WaitForGpuLocked") {
-    throw "v0.13 performans regresyonu: CPU GPU-query bekleme yolu bulundu."
+    throw "v0.13.1 performans regresyonu: GeoGebra/CEF tarafında CPU GPU-query bekleme yolu bulundu."
 }
 if ($graphicsText -match 'Present\(1,') {
-    throw "v0.13 performans regresyonu: Present(1) VSync bekleme yolu bulundu."
+    throw "v0.13.1 performans regresyonu: Present(1) VSync bekleme yolu bulundu."
 }
 if ($graphicsText -notmatch "_presentEvent\.WaitOne") {
-    throw "v0.13 doğrulaması başarısız: event-driven PC present yolu eksik."
+    throw "v0.13.1 doğrulaması başarısız: event-driven PC present yolu eksik."
 }
 if ($xrStereoText -notmatch "SharedGpuTextureCache" -or
-    $xrStereoText -match "GetData\(") {
-    throw "v0.13 doğrulaması başarısız: XR GPU cache CPU beklemesiz değil."
+    $xrStereoText -notmatch "D3D11_QUERY_EVENT" -or
+    $xrStereoText -notmatch "GetData\(") {
+    throw "v0.13.1 doğrulaması başarısız: XR-only güvenli GPU cache senkronizasyonu eksik."
+}
+if ($inputText -notmatch "questBalancedMaxWidth = 2880" -or
+    $inputText -notmatch "questBalancedMaxHeight = 1800") {
+    throw "v0.13.1 doğrulaması başarısız: dengeli CEF viewport sınırı eksik."
+}
+if ($xrManagerText -notmatch "WmClose" -or
+    $xrManagerText -notmatch "owner\.Stop\(\)") {
+    throw "v0.13.1 doğrulaması başarısız: ana pencere kapanışında XR stop güvenliği eksik."
 }
 if ($xrText -notmatch "kProjectionResolutionScale = 1\.30f") {
-    throw "v0.13 doğrulaması başarısız: yüksek çözünürlüklü Quest projection ayarı eksik."
+    throw "v0.13.1 doğrulaması başarısız: yüksek çözünürlüklü Quest projection ayarı eksik."
 }
 if ($xrText -notmatch "StereoGpuFrameInfoReader" -or
     $xrText -notmatch "stereoTexture_\.Srv\(\)") {
-    throw "v0.13 doğrulaması başarısız: B GPU texture OpenXR'a bağlanmamış."
+    throw "v0.13.1 doğrulaması başarısız: B GPU texture OpenXR'a bağlanmamış."
 }
 if ($xrText -notmatch "XR_ACTION_TYPE_POSE_INPUT" -or
     $xrText -notmatch "XR_ACTION_TYPE_FLOAT_INPUT" -or
     $xrText -notmatch "/interaction_profiles/oculus/touch_controller") {
-    throw "v0.13 doğrulaması başarısız: Meta Touch OpenXR input yolu eksik."
+    throw "v0.13.1 doğrulaması başarısız: Meta Touch OpenXR input yolu eksik."
 }
 if ($xrText -notmatch "XrCompositionLayerProjection") {
-    throw "v0.13 doğrulaması başarısız: projection layer bulunamadı."
+    throw "v0.13.1 doğrulaması başarısız: projection layer bulunamadı."
 }
 
 foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
@@ -116,17 +130,17 @@ foreach ($dir in @($publishDir, $appPublish, $xrBuild)) {
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-Write-Host "[GGQ-PC v0.13] OpenXR configure..."
+Write-Host "[GGQ-PC v0.13.1] OpenXR configure..."
 & cmake -S $xrSource -B $xrBuild -A x64
 if ($LASTEXITCODE -ne 0) { throw "OpenXR CMake configure başarısız." }
 
-Write-Host "[GGQ-PC v0.13] OpenXR build..."
+Write-Host "[GGQ-PC v0.13.1] OpenXR build..."
 & cmake --build $xrBuild --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "OpenXR companion build başarısız." }
 
 $selfContained = if ($FrameworkDependent) { "false" } else { "true" }
 
-Write-Host "[GGQ-PC v0.13] CEF/Windows x64 app publish..."
+Write-Host "[GGQ-PC v0.13.1] CEF/Windows x64 app publish..."
 & dotnet publish $project `
     -c Release `
     -r win-x64 `
@@ -162,14 +176,15 @@ if (-not (Test-Path (Join-Path $xrOut "GeoGebraForQuestPC.XR.exe"))) {
 }
 
 Write-Host ""
-Write-Host "[GGQ-PC v0.13] BUILD TAMAM"
+Write-Host "[GGQ-PC v0.13.1] BUILD TAMAM"
 Write-Host "Klasör: $publishDir"
 Write-Host "APP:    $(Join-Path $publishDir 'GeoGebraForQuestPC.exe')"
 Write-Host "XR:     $(Join-Path $xrOut 'GeoGebraForQuestPC.XR.exe')"
-Write-Host "A:      CEF D3D11 GPU -> shared GPU -> XR GPU cache"
-Write-Host "B:      Exp46 L/R -> CEF GPU phase -> D3D11 crop -> shared GPU -> XR GPU cache"
+Write-Host "A:      CEF D3D11 GPU -> shared GPU -> synchronized XR GPU cache"
+Write-Host "B:      Exp46 L/R -> CEF GPU phase @30 Hz -> shared GPU -> synchronized XR cache"
 Write-Host "PIXELS: JPEG/base64/Bitmap/CPU stereo transport yok"
 Write-Host "QUEST:  recommended projection x1.30, runtime max/cap sınırında"
-Write-Host "PC:     event-driven Present(0); yalnız yeni CEF frame"
+Write-Host "CEF:    2880x1800 balanced viewport ceiling"
+Write-Host "CLOSE:  main WM_CLOSE -> XR child immediate Stop()"
 Write-Host "INPUT:  mevcut sağ Touch aim/trigger yolu korunuyor"
 Write-Host "PAKET:  Tek ZIP katmanı"
