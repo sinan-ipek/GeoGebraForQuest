@@ -1,0 +1,66 @@
+name: GeoGebraForQuest PC v0.13 Fixed XR Surface
+
+on:
+  push:
+    branches:
+      - pc-v0.13-fixed-xr-surface
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Download Exp46 assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" --repo "sinan-ipek/GeoGebraForQuest" --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          Copy-Item $apk.FullName ".exp46/exp46.zip" -Force
+          Expand-Archive ".exp46/exp46.zip" ".exp46/unpacked" -Force
+          $source = ".exp46/unpacked/assets/web"
+          if (Test-Path "app/src/main/assets/web") { Remove-Item "app/src/main/assets/web" -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+      - name: Apply v0.13 architecture patch
+        shell: powershell
+        run: python tools/patch-pc-v013.py
+      - name: Verify fixed-surface architecture
+        shell: powershell
+        run: |
+          $shared = Get-Content "pc-xr/v11-shared.hpp" -Raw
+          $xr = Get-Content "pc-xr/main-v11.cpp" -Raw
+          $gfx = Get-Content "pc/MainFormV11.Graphics.cs" -Raw
+          $input = Get-Content "pc/MainFormV11.InputStereo.cs" -Raw
+          $cmake = Get-Content "pc-xr/CMakeLists.txt" -Raw
+          if ($shared -notmatch "kScreenHeightMeters = 1.10f") { throw "Fixed XR height missing" }
+          if ($xr -notmatch "Physical XR geometry is invariant") { throw "Fixed MakeBaseRect missing" }
+          if ($input -notmatch "xrSourceWidth = 2560") { throw "Frozen high-res CEF source missing" }
+          if ($gfx -notmatch "PaintElementType.Popup") { throw "CEF popup accelerated paint missing" }
+          if ($gfx -notmatch "CompositePopupLocked") { throw "Popup compositor missing" }
+          if ($cmake -notmatch "main-v13fixed.cpp") { throw "v0.13 wrapper missing" }
+      - name: Build Windows EXE package
+        shell: powershell
+        run: .\pc\build.ps1
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = "dist/GeoGebraForQuest-PC-v0.13-fixed-xr-surface-win-x64"
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.13-fixed-xr-surface-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.13-fixed-xr-surface-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
