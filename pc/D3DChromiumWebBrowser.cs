@@ -38,7 +38,9 @@ internal sealed class D3DChromiumWebBrowser : ChromiumWebBrowser
             windowInfo,
             new BrowserSettings
             {
-                WindowlessFrameRate = 90,
+                // v0.12 asked CEF for 90 full-resolution off-screen frames per second.
+                // GeoGebra UI and Quest Link do not need that extra third of GPU work.
+                WindowlessFrameRate = 60,
                 DefaultEncoding = "UTF-8",
                 Javascript = CefState.Enabled,
                 WebGl = CefState.Enabled,
