@@ -34,7 +34,9 @@ jobs:
           Copy-Item $source "app/src/main/assets/web" -Recurse -Force
       - name: Apply v0.13 architecture patch
         shell: powershell
-        run: python tools/patch-pc-v013.py
+        run: |
+          python tools/patch-pc-v013.py
+          python tools/patch-pc-v013-buildfix.py
       - name: Verify fixed-surface architecture
         shell: powershell
         run: |
