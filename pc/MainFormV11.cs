@@ -16,9 +16,12 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private const string LocalHost = "appassets.androidplatform.net";
     private const string LocalAppUrl = "https://appassets.androidplatform.net/assets/web/index.html";
     private const string PcStereoRuntimeUrl =
-        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.11.2-cef-gpu-direct";
+        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.12.0-performance";
 
-    private const float BrowserSupersample = 1.35f;
+    // Render A at native scale up to a sensible GPU ceiling. v0.11 accidentally forced
+    // scale >= 1.0 after computing the cap, so a 4K desktop always rendered the full
+    // 3840-wide CEF surface and then duplicated it for Quest. v0.12 allows the cap to work.
+    private const float BrowserSupersample = 1.0f;
     private const int MaxBrowserWidth = 3072;
     private const int MaxBrowserHeight = 2048;
 
@@ -40,7 +43,6 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private Factory2? _factory;
     private SwapChain1? _swapChain;
     private RenderTargetView? _renderTarget;
-    private Query? _copyQuery;
     private VertexShader? _vertexShader;
     private PixelShader? _pixelShader;
     private InputLayout? _inputLayout;
@@ -69,12 +71,15 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private long _gpuFrameNumber;
     private string _xrStatusText = "Quest hazırlanıyor";
     private string _cefPageText = "CEF başlatılıyor";
+    private string _gpuShareStatus = "A-share bekleniyor";
+    private string _gpuPaintStatus = "";
+    private string _presentStatus = "";
     private bool _xrTriggerDown;
     private bool _xrPointerWasValid;
 
     public MainForm()
     {
-        Text = "GeoGebraForQuest PC · v0.11.2 · CEF GPU Direct";
+        Text = "GeoGebraForQuest PC · v0.12.0 · Performance";
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
         MinimumSize = new Size(1000, 650);
@@ -115,7 +120,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
             MessageBox.Show(
                 this,
                 ex.ToString(),
-                "GeoGebraForQuest PC v0.11.2 başlatma hatası",
+                "GeoGebraForQuest PC v0.12.0 başlatma hatası",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -168,9 +173,6 @@ internal sealed partial class MainForm : Form, IRenderHandler
             BeginInvokeSafe(UpdateWindowTitle);
         };
 
-        // Important: events are attached before the native CEF browser is created.
-        // The desired GeoGebra URL is already the ChromiumWebBrowser initial address;
-        // there is deliberately no early Load() call against about:blank.
         _browser.CreateGpuBrowser();
     }
 
@@ -196,7 +198,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
               }
 
               window.QuestBridge = {
-                __pcCefGpuV11: true,
+                __pcCefGpuV12: true,
                 updateStereoLayout: function (json) {
                   post({ type: 'stereoLayout', payload: String(json || '') });
                 },
@@ -204,13 +206,16 @@ internal sealed partial class MainForm : Form, IRenderHandler
                   post({ type: 'stereoEyes', left: String(left || ''), right: String(right || '') });
                 },
                 stereoInactive: function () { post({ type: 'stereoInactive' }); },
+                runtimeError: function (message) {
+                  post({ type: 'runtimeError', message: String(message || '') });
+                },
                 setDepthPointerActive: function () {},
                 panelReady: function () { post({ type: 'panelReady' }); },
                 getStereoDebugStatus: function () {
                   return JSON.stringify({
                     platform: 'GeoGebraForQuest PC',
-                    version: '0.11.2-cef-gpu-direct',
-                    presentation: 'CEF D3D11 shared texture -> PC + OpenXR; B=Exp46 L/R'
+                    version: '0.12.0-performance',
+                    presentation: 'CEF D3D11 GPU A + async Exp46 2K stereo B'
                   });
                 }
               };
@@ -229,10 +234,10 @@ internal sealed partial class MainForm : Form, IRenderHandler
               setTimeout(resizeGeoGebra, 250);
               setTimeout(resizeGeoGebra, 1200);
 
-              var old = document.getElementById('ggq-pc-stereo-v11');
+              var old = document.getElementById('ggq-pc-stereo-v12');
               if (old) old.remove();
               var tag = document.createElement('script');
-              tag.id = 'ggq-pc-stereo-v11';
+              tag.id = 'ggq-pc-stereo-v12';
               tag.src = {{runtimeUrl}};
               tag.async = false;
               tag.onerror = function () {
@@ -379,12 +384,16 @@ internal sealed partial class MainForm : Form, IRenderHandler
             render = _browserSize;
         }
 
-        Text = $"GeoGebraForQuest PC v0.11.2 · CEF GPU Direct · " +
+        var extra = string.Empty;
+        if (!string.IsNullOrWhiteSpace(_gpuPaintStatus)) extra += " · " + _gpuPaintStatus;
+        if (!string.IsNullOrWhiteSpace(_presentStatus)) extra += " · " + _presentStatus;
+
+        Text = $"GeoGebraForQuest PC v0.12.0 · Performance · " +
                $"A {render.Width}×{render.Height} GPU#{_gpuFrameNumber} · " +
                (stereo
                    ? $"B {rect.Width}×{rect.Height} stereo#{_stereoFrameNumber}"
                    : "B bekleniyor") +
-               $" · {_cefPageText} · Quest: {_xrStatusText}";
+               $" · {_cefPageText} · {_gpuShareStatus} · Quest: {_xrStatusText}{extra}";
     }
 
     private void Shutdown()
@@ -417,7 +426,6 @@ internal sealed partial class MainForm : Form, IRenderHandler
             _xrSharedMutex?.Dispose();
             _xrSharedTexture?.Dispose();
             foreach (var retired in _retiredSharedResources) retired.Dispose();
-            _copyQuery?.Dispose();
             _rasterizer?.Dispose();
             _sampler?.Dispose();
             _vertexBuffer?.Dispose();
