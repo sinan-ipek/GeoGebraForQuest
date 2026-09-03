@@ -19,16 +19,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.12.2 keeps the proven v0.12 projection/stereo/input implementation.
-# Important quality rule: use the OpenXR runtime's recommendedImageRectWidth/Height
-# exactly. Do not supersample the final Quest projection above the runtime recommendation.
-# A: CEF accelerated D3D11 GPU texture -> shared D3D11 texture -> OpenXR.
-# B: proven Exp46 [L|R] stereo path from v0.12.
+# v0.12.3 keeps the proven v0.12 OpenXR session/input/stereo loop.
+# A: native-DPI CEF GPU texture -> XR, with high-quality Quest minification.
+# B: proven Exp46 [L|R] stereo, rendered 2 cm behind an XR-only transparent 3D hole.
+# Quest target: 2064x2208 physical pixels per eye, clamped to runtime maxImageRect.
+# Mouse: Windows pointer is mirrored into XR while Touch ray input continues to work.
 add_executable(GeoGebraForQuestPC.XR
+  main-v123.cpp
   main-v11.cpp
   v11-shared.hpp
   v11-render.hpp
+  v123-mouse.hpp
 )
+
+# main-v11.cpp is included by main-v123.cpp so the proven implementation is not
+# compiled as a second translation unit.
+set_source_files_properties(main-v11.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
 
 target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
   XR_USE_PLATFORM_WIN32
