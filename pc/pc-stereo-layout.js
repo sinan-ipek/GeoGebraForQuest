@@ -1,12 +1,12 @@
 (function () {
   'use strict';
 
-  // GeoGebraForQuest PC v0.12 Performance runtime.
-  // A stays as CEF's native GPU surface. Exp46 still generates the true LEFT/RIGHT
-  // cameras, but JPEG encoding is asynchronous so GeoGebra's UI thread is not blocked
-  // by two synchronous 2K canvas.toDataURL() calls every frame.
-  if (window.__ggqPcStereoRuntimeInstalledV12) return;
-  window.__ggqPcStereoRuntimeInstalledV12 = true;
+  // GeoGebraForQuest PC v0.12.2 Native Quality runtime.
+  // A stays on the proven CEF D3D11 GPU path. B keeps the proven Exp46 LEFT/RIGHT
+  // path, but its source resolution is matched to the actual angular size of the
+  // 3D panel instead of blindly encoding 2048 px per eye.
+  if (window.__ggqPcStereoRuntimeInstalledV122) return;
+  window.__ggqPcStereoRuntimeInstalledV122 = true;
 
   var lastPayload = '';
   var lastCanvas = null;
@@ -14,9 +14,12 @@
   var inactiveReported = false;
 
   var CAPTURE_INTERVAL_MS = 33;
-  var CAPTURE_MAX_EYE_WIDTH = 2048;
-  var CAPTURE_MAX_EYE_HEIGHT = 2048;
-  var CAPTURE_JPEG_QUALITY = 0.96;
+  var QUEST_PANEL_TARGET_WIDTH = 1680;
+  var QUEST_PANEL_HARD_MAX_WIDTH = 1920;
+  var CAPTURE_MIN_EYE_WIDTH = 720;
+  var CAPTURE_MAX_EYE_WIDTH = 1600;
+  var CAPTURE_MAX_EYE_HEIGHT = 1600;
+  var CAPTURE_JPEG_QUALITY = 0.98;
 
   var pendingStereoSerial = null;
   var pendingStereoRequestedAt = 0;
@@ -66,7 +69,22 @@
     bridge('runtimeError', String(message || 'Stereo runtime error'));
   }
 
-  function rectOf(element) {
+  function intersectRect(a, b) {
+    if (!a || !b) return null;
+    var left = Math.max(a.left, b.left);
+    var top = Math.max(a.top, b.top);
+    var right = Math.min(a.left + a.width, b.left + b.width);
+    var bottom = Math.min(a.top + a.height, b.top + b.height);
+    if (right - left < 2 || bottom - top < 2) return null;
+    return {
+      left: left,
+      top: top,
+      width: right - left,
+      height: bottom - top
+    };
+  }
+
+  function rawRectOf(element) {
     if (!element || !element.isConnected) return null;
 
     var style;
@@ -77,20 +95,55 @@
     var r;
     try { r = element.getBoundingClientRect(); } catch (_) { return null; }
     if (!r || r.width < 2 || r.height < 2) return null;
-    if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) return null;
-
-    var left = Math.max(0, r.left);
-    var top = Math.max(0, r.top);
-    var right = Math.min(innerWidth, r.right);
-    var bottom = Math.min(innerHeight, r.bottom);
-    if (right - left < 2 || bottom - top < 2) return null;
 
     return {
-      left: left,
-      top: top,
-      width: right - left,
-      height: bottom - top
+      left: r.left,
+      top: r.top,
+      width: r.width,
+      height: r.height
     };
+  }
+
+  function clippedRectOf(element) {
+    var rect = rawRectOf(element);
+    if (!rect) return null;
+
+    rect = intersectRect(rect, {
+      left: 0,
+      top: 0,
+      width: innerWidth,
+      height: innerHeight
+    });
+    if (!rect) return null;
+
+    var parent = element.parentElement;
+    while (parent && parent !== document.documentElement) {
+      var style;
+      try { style = getComputedStyle(parent); } catch (_) { style = null; }
+      if (style) {
+        var overflowX = String(style.overflowX || style.overflow || 'visible');
+        var overflowY = String(style.overflowY || style.overflow || 'visible');
+        var clipX = overflowX !== 'visible';
+        var clipY = overflowY !== 'visible';
+
+        if (clipX || clipY) {
+          var pr = rawRectOf(parent);
+          if (pr) {
+            var clipRect = {
+              left: clipX ? pr.left : 0,
+              top: clipY ? pr.top : 0,
+              width: clipX ? pr.width : innerWidth,
+              height: clipY ? pr.height : innerHeight
+            };
+            rect = intersectRect(rect, clipRect);
+            if (!rect) return null;
+          }
+        }
+      }
+      parent = parent.parentElement;
+    }
+
+    return rect;
   }
 
   function isWebGLCanvas(canvas) {
@@ -106,9 +159,99 @@
     }
   }
 
+  function elementIsVisible(element) {
+    if (!element || !element.isConnected) return false;
+    var style;
+    try { style = getComputedStyle(element); } catch (_) { return false; }
+    if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
+    if (Number(style.opacity) === 0) return false;
+    var rect = rawRectOf(element);
+    return !!rect && rect.width >= 2 && rect.height >= 2;
+  }
+
+  function rectsOverlap(a, b) {
+    return !!intersectRect(a, b);
+  }
+
+  function knownBlockingOverlay(canvas, stereoRect) {
+    var selectors = [
+      '[role="dialog"]',
+      '[aria-modal="true"]',
+      '[role="menu"]',
+      '[role="listbox"]',
+      '.gwt-PopupPanel',
+      '.gwt-DialogBox',
+      '.mat-menu-panel',
+      '.mat-mdc-menu-panel',
+      '.dropdown-menu',
+      '.context-menu',
+      '.modal',
+      '.dialog',
+      '.popup'
+    ].join(',');
+
+    var candidates;
+    try { candidates = document.querySelectorAll(selectors); } catch (_) { return false; }
+
+    for (var i = 0; i < candidates.length; i++) {
+      var element = candidates[i];
+      if (!elementIsVisible(element)) continue;
+      if (element === canvas || element.contains(canvas) || canvas.contains(element)) continue;
+      var rect = rawRectOf(element);
+      if (rect && rectsOverlap(rect, stereoRect)) return true;
+    }
+    return false;
+  }
+
+  function pointHasBlockingOverlay(x, y, canvas) {
+    var stack;
+    try { stack = document.elementsFromPoint(x, y); } catch (_) { return false; }
+    if (!stack || !stack.length) return false;
+
+    for (var i = 0; i < stack.length; i++) {
+      var element = stack[i];
+      if (element === canvas || canvas.contains(element)) return false;
+      if (!element || !elementIsVisible(element)) continue;
+      if (element.id === 'ggq-renderer-left-eye' ||
+          element.id === 'ggq-renderer-right-eye') continue;
+
+      var role = String(element.getAttribute && element.getAttribute('role') || '').toLowerCase();
+      var ariaModal = String(element.getAttribute && element.getAttribute('aria-modal') || '').toLowerCase();
+      if (role === 'dialog' || role === 'menu' || role === 'listbox' || ariaModal === 'true') {
+        return true;
+      }
+
+      var style;
+      try { style = getComputedStyle(element); } catch (_) { style = null; }
+      if (!style) continue;
+      var z = parseInt(style.zIndex, 10);
+      if ((style.position === 'fixed' || style.position === 'absolute') &&
+          isFinite(z) && z >= 100) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function stereoUiOccluded(canvas, rect) {
+    if (!canvas || !rect) return true;
+    if (knownBlockingOverlay(canvas, rect)) return true;
+
+    var xs = [0.2, 0.5, 0.8];
+    var ys = [0.2, 0.5, 0.8];
+    for (var yi = 0; yi < ys.length; yi++) {
+      for (var xi = 0; xi < xs.length; xi++) {
+        var x = rect.left + rect.width * xs[xi];
+        var y = rect.top + rect.height * ys[yi];
+        if (pointHasBlockingOverlay(x, y, canvas)) return true;
+      }
+    }
+    return false;
+  }
+
   function findVisible3DCanvas() {
     var rightEyeMain = document.getElementById('ggq-renderer-right-eye');
-    if (rightEyeMain && rectOf(rightEyeMain) && isWebGLCanvas(rightEyeMain)) {
+    if (rightEyeMain && clippedRectOf(rightEyeMain) && isWebGLCanvas(rightEyeMain)) {
       lastCanvas = rightEyeMain;
       return rightEyeMain;
     }
@@ -121,7 +264,7 @@
     canvases.forEach(function (canvas) {
       if (canvas.id === 'ggq-renderer-left-eye') return;
 
-      var r = rectOf(canvas);
+      var r = clippedRectOf(canvas);
       if (!r || !isWebGLCanvas(canvas)) return;
 
       var area = r.width * r.height;
@@ -149,10 +292,9 @@
     pendingStereoRequestedAt = 0;
     lastDeliveredStereoSerial = -1;
     nextStereoRequestAt = 0;
-    encodingInFlight = false;
   }
 
-  function reportInactive() {
+  function reportInactive(reason) {
     resetStereoRequestState();
     if (inactiveReported) return;
     inactiveReported = true;
@@ -160,22 +302,36 @@
     bridge('stereoInactive', '');
     bridge('updateStereoLayout', JSON.stringify({
       active: false,
+      reason: String(reason || 'inactive'),
       viewWidth: innerWidth,
       viewHeight: innerHeight
     }));
   }
 
   function reportActive() {
+    if (inactiveReported) {
+      inactiveReported = false;
+      lastPayload = '';
+      schedule();
+      return;
+    }
     inactiveReported = false;
+  }
+
+  function currentStereoGeometry() {
+    var canvas = find3DCanvas();
+    var rect = clippedRectOf(canvas);
+    if (!canvas || !rect) return null;
+    if (stereoUiOccluded(canvas, rect)) return null;
+    return { canvas: canvas, rect: rect };
   }
 
   function sendLayout() {
     scheduled = false;
 
-    var canvas = find3DCanvas();
-    var rect = rectOf(canvas);
-    if (!canvas || !rect) {
-      reportInactive();
+    var geometry = currentStereoGeometry();
+    if (!geometry) {
+      reportInactive('ui-or-no-3d');
       return;
     }
 
@@ -183,7 +339,7 @@
 
     var payload = JSON.stringify({
       active: true,
-      stereo: rect,
+      stereo: geometry.rect,
       viewWidth: innerWidth,
       viewHeight: innerHeight
     });
@@ -241,10 +397,17 @@
     }
   }
 
-  function computeCaptureSize(sourceWidth, sourceHeight) {
+  function computeCaptureSize(sourceWidth, sourceHeight, stereoRect) {
+    var viewWidth = Math.max(1, innerWidth);
+    var panelFraction = Math.max(0.05, Math.min(1, stereoRect.width / viewWidth));
+    var desiredWidth = Math.round(QUEST_PANEL_TARGET_WIDTH * panelFraction);
+    desiredWidth = Math.min(QUEST_PANEL_HARD_MAX_WIDTH, desiredWidth);
+    desiredWidth = Math.max(CAPTURE_MIN_EYE_WIDTH, desiredWidth);
+    desiredWidth = Math.min(CAPTURE_MAX_EYE_WIDTH, desiredWidth);
+
     var scale = Math.min(
       1,
-      CAPTURE_MAX_EYE_WIDTH / sourceWidth,
+      desiredWidth / sourceWidth,
       CAPTURE_MAX_EYE_HEIGHT / sourceHeight
     );
 
@@ -283,10 +446,9 @@
     if (!leftCaptureContext || !rightCaptureContext || encodingInFlight) return false;
     if (serial === lastDeliveredStereoSerial) return true;
 
-    var canvas = find3DCanvas();
-    var rect = rectOf(canvas);
-    if (!canvas || !rect) {
-      reportInactive();
+    var geometry = currentStereoGeometry();
+    if (!geometry) {
+      reportInactive('ui-or-no-3d');
       return false;
     }
 
@@ -298,7 +460,11 @@
       var sourceHeight = Math.min(eyes.left.height, eyes.right.height);
       if (sourceWidth < 2 || sourceHeight < 2) return false;
 
-      var captureSize = computeCaptureSize(sourceWidth, sourceHeight);
+      var captureSize = computeCaptureSize(
+        sourceWidth,
+        sourceHeight,
+        geometry.rect
+      );
       var eyeWidth = captureSize.width;
       var eyeHeight = captureSize.height;
       ensureCaptureCanvasSize(eyeWidth, eyeHeight);
@@ -380,6 +546,16 @@
       return;
     }
 
+    var geometry = currentStereoGeometry();
+    if (!geometry) {
+      reportInactive('ui-or-no-3d');
+      nextStereoRequestAt = now + CAPTURE_INTERVAL_MS;
+      requestAnimationFrame(captureLoop);
+      return;
+    }
+
+    reportActive();
+
     if (pendingStereoSerial !== null) {
       pollRequestedStereoPair(now);
       requestAnimationFrame(captureLoop);
@@ -390,17 +566,6 @@
       requestAnimationFrame(captureLoop);
       return;
     }
-
-    var canvas = find3DCanvas();
-    var rect = rectOf(canvas);
-    if (!canvas || !rect) {
-      reportInactive();
-      nextStereoRequestAt = now + CAPTURE_INTERVAL_MS;
-      requestAnimationFrame(captureLoop);
-      return;
-    }
-
-    reportActive();
 
     if (!requestStereoPair(now)) {
       nextStereoRequestAt = now + CAPTURE_INTERVAL_MS;
@@ -420,12 +585,12 @@
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ['class', 'hidden', 'aria-hidden']
+    attributeFilter: ['class', 'style', 'hidden', 'aria-hidden', 'aria-modal']
   });
 
   addEventListener('resize', schedule, { passive: true });
   addEventListener('scroll', schedule, true);
-  setInterval(schedule, 500);
+  setInterval(schedule, 250);
 
   schedule();
   requestAnimationFrame(captureLoop);
