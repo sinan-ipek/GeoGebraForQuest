@@ -1,3 +1,4 @@
+using System.Drawing.Imaging;
 using System.Text.Json;
 using CefSharp;
 using CefSharp.Enums;
@@ -11,6 +12,8 @@ internal sealed partial class MainForm
 {
     private void QueueStereoFrames(string left, string right)
     {
+        // Always keep only the newest completed pair. If JPEG decode falls behind,
+        // stale stereo frames are discarded instead of building latency.
         lock (_pendingFrameLock) _pendingFrames = (left, right);
         if (Interlocked.CompareExchange(ref _decodeWorkerActive, 1, 0) == 0)
         {
@@ -51,12 +54,17 @@ internal sealed partial class MainForm
                 {
                     _sharedStereoFrames.WriteFrames(left, right, rect, size, frame);
                 }
+
+                if ((frame % 30) == 0)
+                {
+                    BeginInvokeSafe(UpdateWindowTitle);
+                }
             }
         }
         catch (Exception ex)
         {
-            BeginInvokeSafe(() =>
-                Text = "GeoGebraForQuest PC v0.11 · Stereo: " + ex.Message);
+            _cefPageText = "Stereo decode: " + ex.Message;
+            BeginInvokeSafe(UpdateWindowTitle);
         }
         finally
         {
@@ -81,7 +89,14 @@ internal sealed partial class MainForm
         var bytes = Convert.FromBase64String(dataUrl[(comma + 1)..]);
         using var stream = new MemoryStream(bytes, writable: false);
         using var source = Image.FromStream(stream, false, false);
-        return new Bitmap(source);
+
+        // Produce the exact BGRA-friendly format required by the SBS writer once here.
+        // v0.11 created another full-size 32-bit copy inside WriteFrames on every eye/frame.
+        var result = new Bitmap(source.Width, source.Height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(result);
+        graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+        graphics.DrawImageUnscaled(source, 0, 0);
+        return result;
     }
 
     private void SetStereoInactive()
@@ -108,12 +123,15 @@ internal sealed partial class MainForm
     {
         var clientW = Math.Max(320, ClientSize.Width);
         var clientH = Math.Max(240, ClientSize.Height);
-        var scale = Math.Min(
-            BrowserSupersample,
-            Math.Min(
-                MaxBrowserWidth / (float)clientW,
-                MaxBrowserHeight / (float)clientH));
-        scale = Math.Max(1.0f, scale);
+
+        var capScale = Math.Min(
+            MaxBrowserWidth / (float)clientW,
+            MaxBrowserHeight / (float)clientH);
+        var scale = Math.Min(BrowserSupersample, capScale);
+
+        // Do not let huge desktop resolutions create a 4K+ CEF surface just because
+        // the window is 4K. Conversely, never shrink below half-resolution.
+        scale = Math.Clamp(scale, 0.5f, BrowserSupersample);
 
         var size = new Size(
             Math.Max(320, (int)Math.Round(clientW * scale)),
