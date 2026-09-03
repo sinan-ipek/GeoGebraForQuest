@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 def rep(path, old, new, count=None):
@@ -44,7 +45,8 @@ if old not in t:
 t = t.replace(old, new, 1)
 p.write_text(t, encoding='utf-8')
 
-# Version/package labels after the v0.13 base patch has run.
+# Version/package labels after the v0.13 base patch has run. Normalize whatever
+# exact 0.13.x spelling the base script produced.
 for file in ('pc/MainFormV11.cs', 'pc/GeoGebraForQuest.PC.csproj', 'pc/build.ps1'):
     p = Path(file)
     t = p.read_text(encoding='utf-8')
@@ -52,9 +54,10 @@ for file in ('pc/MainFormV11.cs', 'pc/GeoGebraForQuest.PC.csproj', 'pc/build.ps1
     t = t.replace(r'0\.13-fixed-xr-surface', r'0\.13\.1-tuning-exit')
     t = t.replace('v0.13 ·', 'v0.13.1 ·')
     t = t.replace('[GGQ-PC v0.13]', '[GGQ-PC v0.13.1]')
-    t = t.replace('<Version>0.13</Version>', '<Version>0.13.1</Version>')
-    t = t.replace('<AssemblyVersion>0.13.0.0</AssemblyVersion>', '<AssemblyVersion>0.13.1.0</AssemblyVersion>')
-    t = t.replace('<FileVersion>0.13.0.0</FileVersion>', '<FileVersion>0.13.1.0</FileVersion>')
+    if file.endswith('.csproj'):
+        t = re.sub(r'<Version>[^<]+</Version>', '<Version>0.13.1</Version>', t, count=1)
+        t = re.sub(r'<FileVersion>[^<]+</FileVersion>', '<FileVersion>0.13.1.0</FileVersion>', t, count=1)
+        t = re.sub(r'<AssemblyVersion>[^<]+</AssemblyVersion>', '<AssemblyVersion>0.13.1.0</AssemblyVersion>', t, count=1)
     p.write_text(t, encoding='utf-8')
 
 print('GeoGebraForQuest PC v0.13.1 tuning applied')
