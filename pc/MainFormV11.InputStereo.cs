@@ -1,4 +1,3 @@
-using System.Drawing.Imaging;
 using System.Text.Json;
 using CefSharp;
 using CefSharp.Enums;
@@ -10,95 +9,6 @@ namespace GeoGebraForQuest.PC;
 
 internal sealed partial class MainForm
 {
-    private void QueueStereoFrames(string left, string right)
-    {
-        // Always keep only the newest completed pair. If JPEG decode falls behind,
-        // stale stereo frames are discarded instead of building latency.
-        lock (_pendingFrameLock) _pendingFrames = (left, right);
-        if (Interlocked.CompareExchange(ref _decodeWorkerActive, 1, 0) == 0)
-        {
-            _ = Task.Run(DecodeStereoLoop);
-        }
-    }
-
-    private void DecodeStereoLoop()
-    {
-        try
-        {
-            while (!_closing)
-            {
-                (string Left, string Right)? pair;
-                lock (_pendingFrameLock)
-                {
-                    pair = _pendingFrames;
-                    _pendingFrames = null;
-                }
-                if (pair is null) break;
-
-                using var left = DecodeDataUrl(pair.Value.Left);
-                using var right = DecodeDataUrl(pair.Value.Right);
-                var frame = Interlocked.Increment(ref _stereoFrameNumber);
-
-                bool active;
-                Rectangle rect;
-                Size size;
-                lock (_geometryLock)
-                {
-                    active = _stereo3DActive;
-                    rect = _stereo3DRenderBounds;
-                    size = _browserSize;
-                }
-
-                if (active && rect.Width > 1 && rect.Height > 1 &&
-                    size.Width > 1 && size.Height > 1)
-                {
-                    _sharedStereoFrames.WriteFrames(left, right, rect, size, frame);
-                }
-
-                if ((frame % 30) == 0)
-                {
-                    BeginInvokeSafe(UpdateWindowTitle);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _cefPageText = "Stereo decode: " + ex.Message;
-            BeginInvokeSafe(UpdateWindowTitle);
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _decodeWorkerActive, 0);
-            lock (_pendingFrameLock)
-            {
-                if (!_closing && _pendingFrames is not null &&
-                    Interlocked.CompareExchange(ref _decodeWorkerActive, 1, 0) == 0)
-                {
-                    _ = Task.Run(DecodeStereoLoop);
-                }
-            }
-        }
-    }
-
-    private static Bitmap DecodeDataUrl(string dataUrl)
-    {
-        var comma = dataUrl.IndexOf(',');
-        if (comma < 0 || comma >= dataUrl.Length - 1)
-            throw new InvalidDataException("Geçersiz stereo image data URL");
-
-        var bytes = Convert.FromBase64String(dataUrl[(comma + 1)..]);
-        using var stream = new MemoryStream(bytes, writable: false);
-        using var source = Image.FromStream(stream, false, false);
-
-        // Produce the exact BGRA-friendly format required by the SBS writer once here.
-        // v0.11 created another full-size 32-bit copy inside WriteFrames on every eye/frame.
-        var result = new Bitmap(source.Width, source.Height, PixelFormat.Format32bppArgb);
-        using var graphics = Graphics.FromImage(result);
-        graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
-        graphics.DrawImageUnscaled(source, 0, 0);
-        return result;
-    }
-
     private void SetStereoInactive()
     {
         Rectangle rect;
@@ -109,7 +19,57 @@ internal sealed partial class MainForm
             size = _browserSize;
             _stereo3DActive = false;
         }
-        _sharedStereoFrames.SetInactive(rect, size);
+
+        lock (_stereoGpuLock)
+        {
+            _stereoGpuPhase = StereoGpuPhase.None;
+            _stereoGpuPhaseSerial = 0;
+            _stereoLeftCaptured = false;
+            _suppressBasePresentation = false;
+        }
+
+        _gpuStereoPublisher.SetInactive(rect, size);
+        _gpuStereoStatus = "B-GPU bekleniyor";
+        _ = CancelStereoGpuTransportAsync();
+    }
+
+    private async Task AckStereoGpuPhaseAsync(string eye, long serial)
+    {
+        var browser = _browser;
+        if (browser is null || _closing) return;
+
+        try
+        {
+            var eyeJson = JsonSerializer.Serialize(eye);
+            await browser.EvaluateScriptAsync($$"""
+                (function(){
+                  if (!window.ggqPcGpuTransport || typeof window.ggqPcGpuTransport.ack !== 'function') return false;
+                  return window.ggqPcGpuTransport.ack({{eyeJson}}, {{serial}});
+                })();
+                """);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task CancelStereoGpuTransportAsync()
+    {
+        var browser = _browser;
+        if (browser is null || _closing) return;
+
+        try
+        {
+            await browser.EvaluateScriptAsync("""
+                (function(){
+                  if (!window.ggqPcGpuTransport || typeof window.ggqPcGpuTransport.cancel !== 'function') return false;
+                  return window.ggqPcGpuTransport.cancel();
+                })();
+                """);
+        }
+        catch
+        {
+        }
     }
 
     private void RequestResize()
@@ -117,6 +77,7 @@ internal sealed partial class MainForm
         if (_closing || !IsHandleCreated) return;
         UpdateBrowserSize();
         lock (_d3dLock) _swapChainResizePending = true;
+        _presentEvent.Set();
     }
 
     private void UpdateBrowserSize()
@@ -129,8 +90,9 @@ internal sealed partial class MainForm
             MaxBrowserHeight / (float)clientH);
         var scale = Math.Min(BrowserSupersample, capScale);
 
-        // Do not let huge desktop resolutions create a 4K+ CEF surface just because
-        // the window is 4K. Conversely, never shrink below half-resolution.
+        // A full 4K CEF page costs a great deal while the Quest panel cannot display
+        // all those pixels. Keep enough source resolution for a sharp headset image,
+        // but never reduce a very large desktop below half scale.
         scale = Math.Clamp(scale, 0.5f, BrowserSupersample);
 
         var size = new Size(
