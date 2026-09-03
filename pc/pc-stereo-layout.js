@@ -1,14 +1,22 @@
 (function () {
   'use strict';
 
-  // GeoGebraForQuest PC v0.13 GPU stereo transport.
-  // No JPEG, no base64, no CPU image decode. The Exp46 left-eye image is
-  // temporarily composited over the native 3D rectangle; the host copies that
-  // rectangle directly from CEF's shared D3D11 texture. The right phase uses the
-  // normal visible GeoGebra canvas. Transient left-eye frames are never presented
-  // as A on the PC or in Quest.
-  if (window.__ggqPcStereoRuntimeInstalledV13) return;
-  window.__ggqPcStereoRuntimeInstalledV13 = true;
+  // GeoGebraForQuest PC v0.13.1 GPU stereo transport.
+  // No JPEG, no base64, no CPU image decode. Exp46 produces the true LEFT/RIGHT
+  // eye canvases. The left eye is temporarily composited over the native 3D rectangle
+  // only long enough for the host to copy that rectangle from CEF's shared D3D11
+  // texture. The right phase uses the normal visible GeoGebra canvas. Transient
+  // left-eye frames are never presented as A on the PC or in Quest.
+  //
+  // Important performance rule: B is sampled at 30 Hz. v0.13.0 immediately requested
+  // another pair after ~2 ms, which forced CEF to repaint continuously and starved the
+  // normal GeoGebra UI. A remains event-driven and is not capped by this interval.
+  if (window.__ggqPcStereoRuntimeInstalledV131) return;
+  window.__ggqPcStereoRuntimeInstalledV131 = true;
+
+  var STEREO_INTERVAL_MS = 33;
+  var PHASE_TIMEOUT_MS = 350;
+  var SERIAL_TIMEOUT_MS = 250;
 
   var lastPayload = '';
   var lastCanvas = null;
@@ -50,28 +58,44 @@
 
   function rectOf(element) {
     if (!element || !element.isConnected) return null;
+
     var style;
     try { style = getComputedStyle(element); } catch (_) { return null; }
     if (!style || style.display === 'none' || style.visibility === 'hidden') return null;
     if (Number(style.opacity) === 0) return null;
+
     var r;
     try { r = element.getBoundingClientRect(); } catch (_) { return null; }
     if (!r || r.width < 2 || r.height < 2) return null;
-    if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) return null;
+    if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) {
+      return null;
+    }
+
     var left = Math.max(0, r.left);
     var top = Math.max(0, r.top);
     var right = Math.min(innerWidth, r.right);
     var bottom = Math.min(innerHeight, r.bottom);
     if (right - left < 2 || bottom - top < 2) return null;
-    return { left: left, top: top, width: right - left, height: bottom - top };
+
+    return {
+      left: left,
+      top: top,
+      width: right - left,
+      height: bottom - top
+    };
   }
 
   function isWebGLCanvas(canvas) {
     if (!canvas) return false;
     try {
-      return !!(canvas.getContext('webgl2') || canvas.getContext('webgl') ||
-        canvas.getContext('experimental-webgl'));
-    } catch (_) { return false; }
+      return !!(
+        canvas.getContext('webgl2') ||
+        canvas.getContext('webgl') ||
+        canvas.getContext('experimental-webgl')
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   function findVisible3DCanvas() {
@@ -80,38 +104,49 @@
       lastCanvas = rightEyeMain;
       return rightEyeMain;
     }
+
     var root = document.getElementById('ggb-element') || document;
     var canvases = Array.prototype.slice.call(root.querySelectorAll('canvas'));
     var best = null;
     var bestScore = 0;
+
     canvases.forEach(function (canvas) {
       if (canvas.id === 'ggq-renderer-left-eye') return;
       var r = rectOf(canvas);
       if (!r || !isWebGLCanvas(canvas)) return;
+
       var area = r.width * r.height;
       var dpr = window.devicePixelRatio || 1;
       var largeBacking = canvas.width >= Math.floor(r.width * dpr * 0.9);
       var score = area * (largeBacking ? 2 : 1);
-      if (score > bestScore) { bestScore = score; best = canvas; }
+      if (score > bestScore) {
+        bestScore = score;
+        best = canvas;
+      }
     });
+
     if (best) lastCanvas = best;
     return best;
   }
 
   function find3DCanvas() {
-    return findVisible3DCanvas() || (lastCanvas && lastCanvas.isConnected ? lastCanvas : null);
+    return findVisible3DCanvas() ||
+      (lastCanvas && lastCanvas.isConnected ? lastCanvas : null);
   }
 
   function getRendererEyeCanvases() {
     var left = document.getElementById('ggq-renderer-left-eye');
     var right = document.getElementById('ggq-renderer-right-eye');
     if (!left || !right) return null;
-    if (left.width < 2 || left.height < 2 || right.width < 2 || right.height < 2) return null;
+    if (left.width < 2 || left.height < 2 || right.width < 2 || right.height < 2) {
+      return null;
+    }
     return { left: left, right: right };
   }
 
   function ensureOverlay() {
     if (overlay && overlay.isConnected && overlayContext) return true;
+
     overlay = document.createElement('canvas');
     overlay.id = 'ggq-pc-gpu-left-eye-overlay';
     overlay.setAttribute('aria-hidden', 'true');
@@ -124,8 +159,16 @@
     overlay.style.display = 'none';
     overlay.style.background = 'transparent';
     overlay.style.transform = 'translateZ(0)';
-    overlayContext = overlay.getContext('2d', { alpha: false, desynchronized: true });
-    if (!overlayContext) { overlay = null; return false; }
+
+    overlayContext = overlay.getContext('2d', {
+      alpha: true,
+      desynchronized: true
+    });
+    if (!overlayContext) {
+      overlay = null;
+      return false;
+    }
+
     overlayContext.imageSmoothingEnabled = true;
     overlayContext.imageSmoothingQuality = 'high';
     (document.body || document.documentElement).appendChild(overlay);
@@ -141,32 +184,49 @@
     var rect = rectOf(visible);
     var eyes = getRendererEyeCanvases();
     if (!visible || !rect || !eyes || !ensureOverlay()) return false;
+
     var sourceWidth = Math.min(eyes.left.width, eyes.right.width);
     var sourceHeight = Math.min(eyes.left.height, eyes.right.height);
     if (sourceWidth < 2 || sourceHeight < 2) return false;
+
     if (overlay.width !== sourceWidth) overlay.width = sourceWidth;
     if (overlay.height !== sourceHeight) overlay.height = sourceHeight;
+
     overlay.style.left = rect.left + 'px';
     overlay.style.top = rect.top + 'px';
     overlay.style.width = rect.width + 'px';
     overlay.style.height = rect.height + 'px';
+
     overlayContext.imageSmoothingEnabled = true;
     overlayContext.imageSmoothingQuality = 'high';
     overlayContext.clearRect(0, 0, sourceWidth, sourceHeight);
-    overlayContext.drawImage(eyes.left, 0, 0, sourceWidth, sourceHeight,
-      0, 0, sourceWidth, sourceHeight);
+    overlayContext.drawImage(
+      eyes.left,
+      0, 0, sourceWidth, sourceHeight,
+      0, 0, sourceWidth, sourceHeight
+    );
     overlay.style.display = 'block';
     return true;
   }
 
   function sendLayout() {
     scheduled = false;
+
     var canvas = find3DCanvas();
     var rect = rectOf(canvas);
-    if (!canvas || !rect) { reportInactive(); return; }
+    if (!canvas || !rect) {
+      reportInactive();
+      return;
+    }
+
     inactiveReported = false;
-    var payload = JSON.stringify({ active: true, stereo: rect,
-      viewWidth: innerWidth, viewHeight: innerHeight });
+    var payload = JSON.stringify({
+      active: true,
+      stereo: rect,
+      viewWidth: innerWidth,
+      viewHeight: innerHeight
+    });
+
     if (payload === lastPayload) return;
     lastPayload = payload;
     bridge('updateStereoLayout', payload);
@@ -178,23 +238,29 @@
     requestAnimationFrame(sendLayout);
   }
 
-  function resetTransport() {
+  function resetTransport(delayMs) {
     hideOverlay();
     transportState = 'idle';
     transportBaseline = -1;
     transportSerial = -1;
     transportStartedAt = 0;
-    nextRequestAt = performance.now() + 30;
+    nextRequestAt = performance.now() + (typeof delayMs === 'number'
+      ? delayMs
+      : STEREO_INTERVAL_MS);
   }
 
   function reportInactive() {
-    resetTransport();
+    resetTransport(STEREO_INTERVAL_MS);
     if (inactiveReported) return;
+
     inactiveReported = true;
     lastPayload = '';
     bridge('stereoInactive', '');
-    bridge('updateStereoLayout', JSON.stringify({ active: false,
-      viewWidth: innerWidth, viewHeight: innerHeight }));
+    bridge('updateStereoLayout', JSON.stringify({
+      active: false,
+      viewWidth: innerWidth,
+      viewHeight: innerHeight
+    }));
   }
 
   function readStereoFrameSerial() {
@@ -202,7 +268,9 @@
       if (typeof window.ggqGetStereoFrameSerial !== 'function') return -1;
       var serial = Number(window.ggqGetStereoFrameSerial());
       return isFinite(serial) ? serial : -1;
-    } catch (_) { return -1; }
+    } catch (_) {
+      return -1;
+    }
   }
 
   function requestStereoPair(now) {
@@ -210,11 +278,14 @@
       if (typeof window.ggqRequestStereoFrame !== 'function') return false;
       var baseline = Number(window.ggqRequestStereoFrame());
       if (!isFinite(baseline) || baseline < 0) return false;
+
       transportBaseline = baseline;
       transportStartedAt = now;
       transportState = 'wait-serial';
       return true;
-    } catch (_) { return false; }
+    } catch (_) {
+      return false;
+    }
   }
 
   function postPhase(eye, serial) {
@@ -225,24 +296,36 @@
     ack: function (eye, serial) {
       serial = Number(serial);
       if (!isFinite(serial) || serial !== transportSerial) return false;
+
       lastAckAt = performance.now();
+
       if (eye === 'left' && transportState === 'left-wait-ack') {
         hideOverlay();
         transportState = 'right-wait-ack';
-        requestAnimationFrame(function () { postPhase('right', transportSerial); });
+        requestAnimationFrame(function () {
+          postPhase('right', transportSerial);
+        });
         return true;
       }
+
       if (eye === 'right' && transportState === 'right-wait-ack') {
+        var completedAt = performance.now();
         transportState = 'idle';
         transportBaseline = -1;
         transportSerial = -1;
         transportStartedAt = 0;
-        nextRequestAt = performance.now() + 2;
+        // 30 Hz is measured from completion, deliberately giving the UI breathing room.
+        nextRequestAt = completedAt + STEREO_INTERVAL_MS;
         return true;
       }
+
       return false;
     },
-    cancel: function () { resetTransport(); return true; }
+
+    cancel: function () {
+      resetTransport(STEREO_INTERVAL_MS);
+      return true;
+    }
   };
 
   function transportLoop(now) {
@@ -253,27 +336,35 @@
       requestAnimationFrame(transportLoop);
       return;
     }
+
     inactiveReported = false;
+
     if ((transportState === 'left-wait-ack' || transportState === 'right-wait-ack') &&
-        now - lastAckAt > 350) {
-      resetTransport();
+        now - lastAckAt > PHASE_TIMEOUT_MS) {
+      resetTransport(STEREO_INTERVAL_MS);
     }
+
     if (transportState === 'wait-serial') {
       var serial = readStereoFrameSerial();
       if (serial > transportBaseline) {
         transportSerial = serial;
         if (showLeftOverlay()) {
           transportState = 'left-wait-ack';
-          requestAnimationFrame(function () { postPhase('left', transportSerial); });
+          requestAnimationFrame(function () {
+            postPhase('left', transportSerial);
+          });
         } else {
-          resetTransport();
+          resetTransport(STEREO_INTERVAL_MS);
         }
-      } else if (now - transportStartedAt > 250) {
-        resetTransport();
+      } else if (now - transportStartedAt > SERIAL_TIMEOUT_MS) {
+        resetTransport(STEREO_INTERVAL_MS);
       }
     } else if (transportState === 'idle' && now >= nextRequestAt) {
-      if (!requestStereoPair(now)) nextRequestAt = now + 16;
+      if (!requestStereoPair(now)) {
+        nextRequestAt = now + STEREO_INTERVAL_MS;
+      }
     }
+
     requestAnimationFrame(transportLoop);
   }
 
@@ -282,11 +373,15 @@
     resizeObserver.observe(document.documentElement);
     if (document.body) resizeObserver.observe(document.body);
   }
+
   var mutationObserver = new MutationObserver(schedule);
   mutationObserver.observe(document.documentElement, {
-    subtree: true, childList: true, attributes: true,
+    subtree: true,
+    childList: true,
+    attributes: true,
     attributeFilter: ['class', 'hidden', 'aria-hidden']
   });
+
   addEventListener('resize', schedule, { passive: true });
   addEventListener('scroll', schedule, true);
   setInterval(schedule, 500);
