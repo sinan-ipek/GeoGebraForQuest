@@ -1,0 +1,92 @@
+name: GeoGebraForQuest PC v0.12.4 Input Panel Quality
+
+on:
+  push:
+    branches:
+      - pc-v0.12.4-input-panel-quality
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download exact published Quest Exp46 APK
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" `
+            --repo "sinan-ipek/GeoGebraForQuest" `
+            --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" `
+            --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          if (-not $apk) { throw "Published Exp46 APK could not be downloaded." }
+
+      - name: Extract exact Exp46 web assets from APK
+        shell: powershell
+        run: |
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          Copy-Item $apk.FullName ".exp46/exp46.zip" -Force
+          Expand-Archive -Path ".exp46/exp46.zip" -DestinationPath ".exp46/unpacked" -Force
+          $source = ".exp46/unpacked/assets/web"
+          if (-not (Test-Path "$source/GeoGebra/web3d/web3d.nocache.js")) { throw "Web3D assets missing." }
+          if (Test-Path "app/src/main/assets/web") { Remove-Item "app/src/main/assets/web" -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+
+      - name: Apply v0.12.4 input panel quality patch
+        shell: powershell
+        run: python tools/patch-pc-v0124.py
+
+      - name: Verify v0.12.4 architecture
+        shell: powershell
+        run: |
+          $wrapper = Get-Content "pc-xr/main-v124.cpp" -Raw
+          $shared = Get-Content "pc-xr/v11-shared.hpp" -Raw
+          $xr = Get-Content "pc-xr/main-v11.cpp" -Raw
+          $input = Get-Content "pc/MainFormV11.InputStereo.cs" -Raw
+          $pointer = Get-Content "pc/MainFormV124.Pointer.cs" -Raw
+          $cmake = Get-Content "pc-xr/CMakeLists.txt" -Raw
+          $project = Get-Content "pc/GeoGebraForQuest.PC.csproj" -Raw
+          if ($cmake -notmatch "main-v124.cpp") { throw "v0.12.4 wrapper not selected" }
+          if ($wrapper -notmatch "kRenderQualityScale = 1.12f") { throw "Balanced render scale missing" }
+          if ($shared -notmatch "kScreenWidthMeters = 1.95f") { throw "Larger XR panel missing" }
+          if ($shared -notmatch "kScreenDistanceMeters = 1.50f") { throw "XR panel distance missing" }
+          if ($xr -notmatch "filteredU" -or $xr -notmatch "alpha = 0.44f") { throw "Unified filtered XR pointer missing" }
+          if ($input -notmatch "ShouldRouteXrPointer" -or $input -notmatch "MarkPhysicalMouseActivity") { throw "Pointer arbitration calls missing" }
+          if ($pointer -notmatch "physicalMouseOwnsUntilMs" -or $pointer -notmatch "240") { throw "Pointer ownership implementation missing" }
+          if ($project -notmatch "<Version>0.12.4</Version>") { throw "v0.12.4 project version missing" }
+
+      - name: Build Windows app and OpenXR companion
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = "dist/GeoGebraForQuest-PC-v0.12.4-input-panel-quality-win-x64"
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
+          if (-not (Test-Path "$dir/libcef.dll")) { throw "CEF libcef.dll missing" }
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.12.4-input-panel-quality-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.12.4-input-panel-quality-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
