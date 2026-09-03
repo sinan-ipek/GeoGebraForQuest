@@ -1,29 +1,28 @@
 (function () {
   'use strict';
 
-  // GeoGebraForQuest PC v0.5 High-Res SBS runtime.
-  // The Windows monitor keeps GeoGebra's normal visible 3D WebGL canvas untouched.
-  // Quest/OpenXR receives a synchronized LEFT/RIGHT pair for exactly that same rectangle.
-  if (window.__ggqPcStereoRuntimeInstalledV5) return;
-  window.__ggqPcStereoRuntimeInstalledV5 = true;
+  // GeoGebraForQuest PC v0.12 Performance runtime.
+  // A stays as CEF's native GPU surface. Exp46 still generates the true LEFT/RIGHT
+  // cameras, but JPEG encoding is asynchronous so GeoGebra's UI thread is not blocked
+  // by two synchronous 2K canvas.toDataURL() calls every frame.
+  if (window.__ggqPcStereoRuntimeInstalledV12) return;
+  window.__ggqPcStereoRuntimeInstalledV12 = true;
 
   var lastPayload = '';
   var lastCanvas = null;
   var scheduled = false;
   var inactiveReported = false;
 
-  // Exp46 stereo renderer is still demand-driven. Unlike the standalone Quest build,
-  // this PC path does not use the old 720 px transport limit. Each eye is captured
-  // at the renderer's native backing resolution up to 2048x2048.
-  var CAPTURE_INTERVAL_MS = 42;
+  var CAPTURE_INTERVAL_MS = 33;
   var CAPTURE_MAX_EYE_WIDTH = 2048;
   var CAPTURE_MAX_EYE_HEIGHT = 2048;
-  var CAPTURE_JPEG_QUALITY = 0.95;
+  var CAPTURE_JPEG_QUALITY = 0.96;
 
   var pendingStereoSerial = null;
   var pendingStereoRequestedAt = 0;
   var lastDeliveredStereoSerial = -1;
   var nextStereoRequestAt = 0;
+  var encodingInFlight = false;
   var identicalWarningSent = false;
 
   var leftCaptureCanvas = document.createElement('canvas');
@@ -37,14 +36,14 @@
     desynchronized: true
   });
 
-  if (leftCaptureContext) {
-    leftCaptureContext.imageSmoothingEnabled = true;
-    leftCaptureContext.imageSmoothingQuality = 'high';
+  function configureCaptureContext(context) {
+    if (!context) return;
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
   }
-  if (rightCaptureContext) {
-    rightCaptureContext.imageSmoothingEnabled = true;
-    rightCaptureContext.imageSmoothingQuality = 'high';
-  }
+
+  configureCaptureContext(leftCaptureContext);
+  configureCaptureContext(rightCaptureContext);
 
   function bridge(name, value) {
     try {
@@ -64,12 +63,7 @@
   }
 
   function reportRuntimeError(message) {
-    try {
-      window.chrome.webview.postMessage({
-        type: 'runtimeError',
-        message: String(message || 'Stereo runtime error')
-      });
-    } catch (_) {}
+    bridge('runtimeError', String(message || 'Stereo runtime error'));
   }
 
   function rectOf(element) {
@@ -113,14 +107,12 @@
   }
 
   function findVisible3DCanvas() {
-    // Exp46 aliases ggq-renderer-right-eye to the actual visible GeoGebra WebGL canvas.
     var rightEyeMain = document.getElementById('ggq-renderer-right-eye');
     if (rightEyeMain && rectOf(rightEyeMain) && isWebGLCanvas(rightEyeMain)) {
       lastCanvas = rightEyeMain;
       return rightEyeMain;
     }
 
-    // Fallback during renderer startup/recreation.
     var root = document.getElementById('ggb-element') || document;
     var canvases = Array.prototype.slice.call(root.querySelectorAll('canvas'));
     var best = null;
@@ -157,6 +149,7 @@
     pendingStereoRequestedAt = 0;
     lastDeliveredStereoSerial = -1;
     nextStereoRequestAt = 0;
+    encodingInFlight = false;
   }
 
   function reportInactive() {
@@ -221,15 +214,8 @@
     if (leftCaptureCanvas.height !== height) leftCaptureCanvas.height = height;
     if (rightCaptureCanvas.width !== width) rightCaptureCanvas.width = width;
     if (rightCaptureCanvas.height !== height) rightCaptureCanvas.height = height;
-
-    if (leftCaptureContext) {
-      leftCaptureContext.imageSmoothingEnabled = true;
-      leftCaptureContext.imageSmoothingQuality = 'high';
-    }
-    if (rightCaptureContext) {
-      rightCaptureContext.imageSmoothingEnabled = true;
-      rightCaptureContext.imageSmoothingQuality = 'high';
-    }
+    configureCaptureContext(leftCaptureContext);
+    configureCaptureContext(rightCaptureContext);
   }
 
   function readStereoFrameSerial() {
@@ -268,8 +254,33 @@
     };
   }
 
-  function captureStereoEyes(serial) {
-    if (!leftCaptureContext || !rightCaptureContext) return false;
+  function canvasToDataUrlAsync(canvas) {
+    return new Promise(function (resolve, reject) {
+      if (!canvas || typeof canvas.toBlob !== 'function') {
+        try {
+          resolve(canvas.toDataURL('image/jpeg', CAPTURE_JPEG_QUALITY));
+        } catch (fallbackError) {
+          reject(fallbackError);
+        }
+        return;
+      }
+
+      canvas.toBlob(function (blob) {
+        if (!blob) {
+          reject(new Error('canvas.toBlob JPEG boş döndü'));
+          return;
+        }
+
+        var reader = new FileReader();
+        reader.onload = function () { resolve(String(reader.result || '')); };
+        reader.onerror = function () { reject(reader.error || new Error('FileReader hatası')); };
+        reader.readAsDataURL(blob);
+      }, 'image/jpeg', CAPTURE_JPEG_QUALITY);
+    });
+  }
+
+  function beginAsyncStereoCapture(serial, requestedAt) {
+    if (!leftCaptureContext || !rightCaptureContext || encodingInFlight) return false;
     if (serial === lastDeliveredStereoSerial) return true;
 
     var canvas = find3DCanvas();
@@ -292,9 +303,6 @@
       var eyeHeight = captureSize.height;
       ensureCaptureCanvasSize(eyeWidth, eyeHeight);
 
-      leftCaptureContext.clearRect(0, 0, eyeWidth, eyeHeight);
-      rightCaptureContext.clearRect(0, 0, eyeWidth, eyeHeight);
-
       leftCaptureContext.drawImage(
         eyes.left,
         0, 0, sourceWidth, sourceHeight,
@@ -306,29 +314,50 @@
         0, 0, eyeWidth, eyeHeight
       );
 
-      var leftDataUrl = leftCaptureCanvas.toDataURL(
-        'image/jpeg', CAPTURE_JPEG_QUALITY
-      );
-      var rightDataUrl = rightCaptureCanvas.toDataURL(
-        'image/jpeg', CAPTURE_JPEG_QUALITY
-      );
+      encodingInFlight = true;
+      pendingStereoSerial = null;
+      pendingStereoRequestedAt = 0;
 
-      if (!leftDataUrl || leftDataUrl.length <= 64 ||
-          !rightDataUrl || rightDataUrl.length <= 64) {
-        return false;
-      }
+      Promise.all([
+        canvasToDataUrlAsync(leftCaptureCanvas),
+        canvasToDataUrlAsync(rightCaptureCanvas)
+      ]).then(function (urls) {
+        var leftDataUrl = urls[0];
+        var rightDataUrl = urls[1];
 
-      if (!identicalWarningSent && leftDataUrl === rightDataUrl) {
-        identicalWarningSent = true;
-        reportRuntimeError('STEREO HATA: Exp46 sol ve sağ göz kareleri birebir aynı');
-      }
+        if (!leftDataUrl || leftDataUrl.length <= 64 ||
+            !rightDataUrl || rightDataUrl.length <= 64) {
+          throw new Error('JPEG stereo kare boş');
+        }
 
-      bridgeStereoEyes(leftDataUrl, rightDataUrl);
-      lastDeliveredStereoSerial = serial;
+        if (!identicalWarningSent && leftDataUrl === rightDataUrl) {
+          identicalWarningSent = true;
+          reportRuntimeError('STEREO HATA: Exp46 sol ve sağ göz kareleri birebir aynı');
+        }
+
+        bridgeStereoEyes(leftDataUrl, rightDataUrl);
+        lastDeliveredStereoSerial = serial;
+
+        var now = performance.now();
+        var renderLatency = Math.max(0, now - requestedAt);
+        nextStereoRequestAt = renderLatency >= CAPTURE_INTERVAL_MS
+          ? now + 1
+          : requestedAt + CAPTURE_INTERVAL_MS;
+      }).catch(function (error) {
+        reportRuntimeError(
+          'Async stereo JPEG hatası: ' +
+          (error && error.message ? error.message : String(error || 'bilinmeyen hata'))
+        );
+        nextStereoRequestAt = performance.now() + CAPTURE_INTERVAL_MS;
+      }).finally(function () {
+        encodingInFlight = false;
+      });
+
       return true;
     } catch (error) {
+      encodingInFlight = false;
       reportRuntimeError(
-        'High-Res stereo capture hatası: ' +
+        'Stereo capture hatası: ' +
         (error && error.message ? error.message : String(error || 'bilinmeyen hata'))
       );
       return false;
@@ -336,24 +365,21 @@
   }
 
   function pollRequestedStereoPair(now) {
-    if (pendingStereoSerial === null) return false;
+    if (pendingStereoSerial === null || encodingInFlight) return false;
 
     var serial = readStereoFrameSerial();
     if (serial <= pendingStereoSerial) return false;
-    if (!captureStereoEyes(serial)) return false;
 
     var requestedAt = pendingStereoRequestedAt;
-    var renderLatency = Math.max(0, now - requestedAt);
-    pendingStereoSerial = null;
-    pendingStereoRequestedAt = 0;
-
-    nextStereoRequestAt = renderLatency >= CAPTURE_INTERVAL_MS
-      ? now + 8
-      : requestedAt + CAPTURE_INTERVAL_MS;
-    return true;
+    return beginAsyncStereoCapture(serial, requestedAt);
   }
 
   function captureLoop(now) {
+    if (encodingInFlight) {
+      requestAnimationFrame(captureLoop);
+      return;
+    }
+
     if (pendingStereoSerial !== null) {
       pollRequestedStereoPair(now);
       requestAnimationFrame(captureLoop);
