@@ -16,7 +16,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private const string LocalHost = "appassets.androidplatform.net";
     private const string LocalAppUrl = "https://appassets.androidplatform.net/assets/web/index.html";
     private const string PcStereoRuntimeUrl =
-        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.12.2-native-quality";
+        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.12.3-xr-behind-native";
 
     private readonly object _d3dLock = new();
     private readonly object _pendingFrameLock = new();
@@ -72,7 +72,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
 
     public MainForm()
     {
-        Text = "GeoGebraForQuest PC · v0.12.2 · Native Quality";
+        Text = "GeoGebraForQuest PC · v0.12.3 · XR Behind Native";
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
         MinimumSize = new Size(1000, 650);
@@ -113,7 +113,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
             MessageBox.Show(
                 this,
                 ex.ToString(),
-                "GeoGebraForQuest PC v0.12.2 başlatma hatası",
+                "GeoGebraForQuest PC v0.12.3 başlatma hatası",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -191,7 +191,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
               }
 
               window.QuestBridge = {
-                __pcCefGpuV122: true,
+                __pcCefGpuV123: true,
                 updateStereoLayout: function (json) {
                   post({ type: 'stereoLayout', payload: String(json || '') });
                 },
@@ -207,8 +207,8 @@ internal sealed partial class MainForm : Form, IRenderHandler
                 getStereoDebugStatus: function () {
                   return JSON.stringify({
                     platform: 'GeoGebraForQuest PC',
-                    version: '0.12.2-native-quality',
-                    presentation: 'Native-DPI CEF A + dynamically sized Exp46 stereo B'
+                    version: '0.12.3-xr-behind-native',
+                    presentation: 'Quest-physical XR + B behind transparent 3D hole + mouse/Touch pointers'
                   });
                 }
               };
@@ -227,12 +227,12 @@ internal sealed partial class MainForm : Form, IRenderHandler
               setTimeout(resizeGeoGebra, 250);
               setTimeout(resizeGeoGebra, 1200);
 
-              ['ggq-pc-stereo-v12', 'ggq-pc-stereo-v122'].forEach(function (id) {
+              ['ggq-pc-stereo-v12', 'ggq-pc-stereo-v122', 'ggq-pc-stereo-v123'].forEach(function (id) {
                 var old = document.getElementById(id);
                 if (old) old.remove();
               });
               var tag = document.createElement('script');
-              tag.id = 'ggq-pc-stereo-v122';
+              tag.id = 'ggq-pc-stereo-v123';
               tag.src = {{runtimeUrl}};
               tag.async = false;
               tag.onerror = function () {
@@ -383,7 +383,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
         if (!string.IsNullOrWhiteSpace(_gpuPaintStatus)) extra += " · " + _gpuPaintStatus;
         if (!string.IsNullOrWhiteSpace(_presentStatus)) extra += " · " + _presentStatus;
 
-        Text = $"GeoGebraForQuest PC v0.12.2 · Native Quality · " +
+        Text = $"GeoGebraForQuest PC v0.12.3 · XR Behind Native · " +
                $"A {render.Width}×{render.Height} DIP GPU#{_gpuFrameNumber} · " +
                (stereo
                    ? $"B {rect.Width}×{rect.Height} DIP stereo#{_stereoFrameNumber}"
@@ -395,6 +395,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
     {
         _closing = true;
         _inputTimer.Stop();
+        _xrMousePointer.Dispose();
         _xrCompanion.Dispose();
         _gpuPublisher.SetInactive();
         _sharedStereoFrames.Dispose();
