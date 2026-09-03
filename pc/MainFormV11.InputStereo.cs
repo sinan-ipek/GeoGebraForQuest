@@ -85,14 +85,18 @@ internal sealed partial class MainForm
         var clientW = Math.Max(320, ClientSize.Width);
         var clientH = Math.Max(240, ClientSize.Height);
 
-        var capScale = Math.Min(
-            MaxBrowserWidth / (float)clientW,
-            MaxBrowserHeight / (float)clientH);
-        var scale = Math.Min(BrowserSupersample, capScale);
+        // Keep the CSS/UI viewport comfortable on a 4K monitor while still feeding
+        // Quest a high-detail GPU surface. v0.13.0 allowed 3456x2304, which made the
+        // desktop UI unnecessarily tiny and increased every CEF repaint. A 2880x1800
+        // ceiling is enough source detail for the 1.30x OpenXR projection while
+        // materially reducing browser/WebGL work.
+        const int questBalancedMaxWidth = 2880;
+        const int questBalancedMaxHeight = 1800;
 
-        // A full 4K CEF page costs a great deal while the Quest panel cannot display
-        // all those pixels. Keep enough source resolution for a sharp headset image,
-        // but never reduce a very large desktop below half scale.
+        var capScale = Math.Min(
+            questBalancedMaxWidth / (float)clientW,
+            questBalancedMaxHeight / (float)clientH);
+        var scale = Math.Min(BrowserSupersample, capScale);
         scale = Math.Clamp(scale, 0.5f, BrowserSupersample);
 
         var size = new Size(
