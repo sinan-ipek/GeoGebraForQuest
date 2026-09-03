@@ -16,14 +16,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private const string LocalHost = "appassets.androidplatform.net";
     private const string LocalAppUrl = "https://appassets.androidplatform.net/assets/web/index.html";
     private const string PcStereoRuntimeUrl =
-        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.12.0-performance";
-
-    // Render A at native scale up to a sensible GPU ceiling. v0.11 accidentally forced
-    // scale >= 1.0 after computing the cap, so a 4K desktop always rendered the full
-    // 3840-wide CEF surface and then duplicated it for Quest. v0.12 allows the cap to work.
-    private const float BrowserSupersample = 1.0f;
-    private const int MaxBrowserWidth = 3072;
-    private const int MaxBrowserHeight = 2048;
+        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.12.2-native-quality";
 
     private readonly object _d3dLock = new();
     private readonly object _pendingFrameLock = new();
@@ -79,7 +72,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
 
     public MainForm()
     {
-        Text = "GeoGebraForQuest PC · v0.12.0 · Performance";
+        Text = "GeoGebraForQuest PC · v0.12.2 · Native Quality";
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
         MinimumSize = new Size(1000, 650);
@@ -120,7 +113,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
             MessageBox.Show(
                 this,
                 ex.ToString(),
-                "GeoGebraForQuest PC v0.12.0 başlatma hatası",
+                "GeoGebraForQuest PC v0.12.2 başlatma hatası",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -198,7 +191,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
               }
 
               window.QuestBridge = {
-                __pcCefGpuV12: true,
+                __pcCefGpuV122: true,
                 updateStereoLayout: function (json) {
                   post({ type: 'stereoLayout', payload: String(json || '') });
                 },
@@ -214,8 +207,8 @@ internal sealed partial class MainForm : Form, IRenderHandler
                 getStereoDebugStatus: function () {
                   return JSON.stringify({
                     platform: 'GeoGebraForQuest PC',
-                    version: '0.12.0-performance',
-                    presentation: 'CEF D3D11 GPU A + async Exp46 2K stereo B'
+                    version: '0.12.2-native-quality',
+                    presentation: 'Native-DPI CEF A + dynamically sized Exp46 stereo B'
                   });
                 }
               };
@@ -234,10 +227,12 @@ internal sealed partial class MainForm : Form, IRenderHandler
               setTimeout(resizeGeoGebra, 250);
               setTimeout(resizeGeoGebra, 1200);
 
-              var old = document.getElementById('ggq-pc-stereo-v12');
-              if (old) old.remove();
+              ['ggq-pc-stereo-v12', 'ggq-pc-stereo-v122'].forEach(function (id) {
+                var old = document.getElementById(id);
+                if (old) old.remove();
+              });
               var tag = document.createElement('script');
-              tag.id = 'ggq-pc-stereo-v12';
+              tag.id = 'ggq-pc-stereo-v122';
               tag.src = {{runtimeUrl}};
               tag.async = false;
               tag.onerror = function () {
@@ -388,10 +383,10 @@ internal sealed partial class MainForm : Form, IRenderHandler
         if (!string.IsNullOrWhiteSpace(_gpuPaintStatus)) extra += " · " + _gpuPaintStatus;
         if (!string.IsNullOrWhiteSpace(_presentStatus)) extra += " · " + _presentStatus;
 
-        Text = $"GeoGebraForQuest PC v0.12.0 · Performance · " +
-               $"A {render.Width}×{render.Height} GPU#{_gpuFrameNumber} · " +
+        Text = $"GeoGebraForQuest PC v0.12.2 · Native Quality · " +
+               $"A {render.Width}×{render.Height} DIP GPU#{_gpuFrameNumber} · " +
                (stereo
-                   ? $"B {rect.Width}×{rect.Height} stereo#{_stereoFrameNumber}"
+                   ? $"B {rect.Width}×{rect.Height} DIP stereo#{_stereoFrameNumber}"
                    : "B bekleniyor") +
                $" · {_cefPageText} · {_gpuShareStatus} · Quest: {_xrStatusText}{extra}";
     }
