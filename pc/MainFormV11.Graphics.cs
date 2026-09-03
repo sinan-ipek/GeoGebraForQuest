@@ -12,6 +12,8 @@ using D3D11Device = SharpDX.Direct3D11.Device;
 using D3D11Device1 = SharpDX.Direct3D11.Device1;
 using D3D11Resource = SharpDX.Direct3D11.Resource;
 using CefRange = CefSharp.Structs.Range;
+using Rectangle = System.Drawing.Rectangle;
+using Size = System.Drawing.Size;
 
 namespace GeoGebraForQuest.PC;
 
@@ -670,7 +672,7 @@ internal sealed partial class MainForm
 
     public Rect GetViewRect()
     {
-        System.Drawing.Size size;
+        Size size;
         lock (_geometryLock) size = _browserSize;
         return new Rect(0, 0, Math.Max(2, size.Width), Math.Max(2, size.Height));
     }
