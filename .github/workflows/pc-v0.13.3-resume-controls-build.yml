@@ -45,7 +45,10 @@ jobs:
         run: python tools/patch-pc-v0132.py
       - name: Apply v0.13.3 resume and controls
         shell: powershell
-        run: python tools/patch-pc-v0133.py
+        run: |
+          python tools/patch-pc-v0133-adapter.py
+          python tools/patch-pc-v0133.py
+          python tools/patch-pc-v0133-adapter.py
       - name: Verify v0.13.3 changes
         shell: powershell
         run: |
@@ -60,7 +63,7 @@ jobs:
           if ($wrapper -notmatch "kRenderQualityScale = 1.00f") { throw "1.00 XR scale missing" }
           if ($shared -notmatch "kScreenWidthMeters = 2.15f" -or $shared -notmatch "Input_v2" -or $shared -notmatch "ResetSharedResources") { throw "v0.13.3 XR shared changes missing" }
           if ($xr -notmatch "right_thumbstick" -or $xr -notmatch "right_a" -or $xr -notmatch "right_grip") { throw "controller actions missing" }
-          if ($xr -notmatch "A texture consumer reset") { throw "resume reset missing" }
+          if ($xr -notmatch "A texture consumer reset" -or $xr -notmatch "filteredU, filteredV, triggerDown_, aDown_") { throw "resume or filtered pointer path missing" }
           if ($input -notmatch "MouseButtonType.Right" -or $input -notmatch "StickY" -or $input -notmatch "xrSourceWidth = 1856") { throw "PC controller mapping missing" }
           if ($reader -notmatch "ProtocolVersion = 2" -or $reader -notmatch "GripDown") { throw "input protocol v2 reader missing" }
           if ($graphics -notmatch "return 1.20F") { throw "1.20 DPR missing" }
