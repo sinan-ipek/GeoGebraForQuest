@@ -59,12 +59,15 @@ for file in ('pc/MainFormV11.cs', 'pc/GeoGebraForQuest.PC.csproj', 'pc/build.ps1
         t = re.sub(r'<FileVersion>[^<]+</FileVersion>', '<FileVersion>0.13.1.0</FileVersion>', t, count=1)
         t = re.sub(r'<AssemblyVersion>[^<]+</AssemblyVersion>', '<AssemblyVersion>0.13.1.0</AssemblyVersion>', t, count=1)
     if file.endswith('build.ps1'):
-        # The v0.13 build guard intentionally checked x1.25. v0.13.1 lowers the
-        # final eye target to x1.15, so update both escaped regex and plain text.
+        # Update v0.13 architecture guards for the deliberate v0.13.1 tuning.
         t = t.replace('kRenderQualityScale = 1\\.25f', 'kRenderQualityScale = 1\\.15f')
         t = t.replace('kRenderQualityScale = 1.25f', 'kRenderQualityScale = 1.15f')
         t = t.replace('x1\\.25', 'x1\\.15')
         t = t.replace('x1.25', 'x1.15')
+        t = t.replace('kScreenDistanceMeters \\+ 0\\.02f', 'kScreenDistanceMeters \\+ 0\\.006f')
+        t = t.replace('kScreenDistanceMeters + 0.02f', 'kScreenDistanceMeters + 0.006f')
+        t = t.replace('behindDistance = kScreenDistanceMeters \\+ 0\\.02f', 'behindDistance = kScreenDistanceMeters \\+ 0\\.006f')
+        t = t.replace('behindDistance = kScreenDistanceMeters + 0.02f', 'behindDistance = kScreenDistanceMeters + 0.006f')
     p.write_text(t, encoding='utf-8')
 
 print('GeoGebraForQuest PC v0.13.1 tuning applied')
