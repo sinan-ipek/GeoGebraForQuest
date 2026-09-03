@@ -1,5 +1,6 @@
 #pragma once
 #include "v11-shared.hpp"
+#include "v123-mouse.hpp"
 
 namespace ggqv11 {
 
@@ -48,7 +49,8 @@ public:
     std::uint32_t Acquire() {
         std::uint32_t index = 0;
         XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-        CheckXr(xrAcquireSwapchainImage(handle_, &acquire, &index), "xrAcquireSwapchainImage");
+        CheckXr(xrAcquireSwapchainImage(handle_, &acquire, &index),
+            "xrAcquireSwapchainImage");
         XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
         wait.timeout = XR_INFINITE_DURATION;
         CheckXr(xrWaitSwapchainImage(handle_, &wait), "xrWaitSwapchainImage");
@@ -57,10 +59,13 @@ public:
 
     void Release() {
         XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-        CheckXr(xrReleaseSwapchainImage(handle_, &release), "xrReleaseSwapchainImage");
+        CheckXr(xrReleaseSwapchainImage(handle_, &release),
+            "xrReleaseSwapchainImage");
     }
 
-    ID3D11Texture2D* Texture(std::uint32_t index) const { return images_.at(index).texture; }
+    ID3D11Texture2D* Texture(std::uint32_t index) const {
+        return images_.at(index).texture;
+    }
     XrSwapchain Handle() const { return handle_; }
     int Width() const { return width_; }
     int Height() const { return height_; }
@@ -155,44 +160,89 @@ public:
         static const char* shaderSource = R"(
 Texture2D tex0 : register(t0);
 SamplerState samp0 : register(s0);
+cbuffer SampleParams : register(b0) {
+    float4 uvBounds;
+    float4 flags;
+};
 struct VSIn { float4 pos : POSITION; float2 uv : TEXCOORD0; };
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
-VSOut VSMain(VSIn i) { VSOut o; o.pos=i.pos; o.uv=i.uv; return o; }
-float4 PSMain(VSOut i) : SV_TARGET { return tex0.Sample(samp0, i.uv); }
+VSOut VSMain(VSIn i) {
+    VSOut o;
+    o.pos = i.pos;
+    o.uv = i.uv;
+    return o;
+}
+float2 boundedUv(float2 uv) {
+    return clamp(uv, uvBounds.xy, uvBounds.zw);
+}
+float4 PSMain(VSOut i) : SV_TARGET {
+    float4 center = tex0.Sample(samp0, boundedUv(i.uv));
+    if (flags.x < 0.5) return center;
+
+    uint texW = 1;
+    uint texH = 1;
+    tex0.GetDimensions(texW, texH);
+    float2 dx = ddx(i.uv);
+    float2 dy = ddy(i.uv);
+    float2 sourceDx = dx * float2(texW, texH);
+    float2 sourceDy = dy * float2(texW, texH);
+    float footprint = max(length(sourceDx), length(sourceDy));
+
+    // If one destination pixel maps to about one source texel, ordinary bilinear
+    // filtering is already optimal. When the CEF/WebGL source is much denser than
+    // the Quest eye buffer, integrate four sub-samples over the pixel footprint.
+    // This preserves one-pixel GeoGebra lines instead of letting them disappear or
+    // break into dotted segments during minification.
+    if (footprint <= 1.12) return center;
+
+    float2 ox = dx * 0.25;
+    float2 oy = dy * 0.25;
+    float4 c0 = tex0.Sample(samp0, boundedUv(i.uv - ox - oy));
+    float4 c1 = tex0.Sample(samp0, boundedUv(i.uv + ox - oy));
+    float4 c2 = tex0.Sample(samp0, boundedUv(i.uv - ox + oy));
+    float4 c3 = tex0.Sample(samp0, boundedUv(i.uv + ox + oy));
+    return (c0 + c1 + c2 + c3) * 0.25;
+}
 )";
 
         ComPtr<ID3DBlob> vsBlob;
         ComPtr<ID3DBlob> psBlob;
         ComPtr<ID3DBlob> errors;
         HRESULT hr = D3DCompile(
-            shaderSource, std::strlen(shaderSource), "GGQ-v0.11",
+            shaderSource, std::strlen(shaderSource), "GGQ-v0.12.3",
             nullptr, nullptr, "VSMain", "vs_5_0",
             D3DCOMPILE_ENABLE_STRICTNESS, 0,
             &vsBlob, &errors);
         if (FAILED(hr)) {
             const std::string detail = errors
-                ? std::string(static_cast<const char*>(errors->GetBufferPointer()), errors->GetBufferSize())
+                ? std::string(
+                    static_cast<const char*>(errors->GetBufferPointer()),
+                    errors->GetBufferSize())
                 : "vertex shader compile error";
             throw std::runtime_error(detail);
         }
         errors.Reset();
         hr = D3DCompile(
-            shaderSource, std::strlen(shaderSource), "GGQ-v0.11",
+            shaderSource, std::strlen(shaderSource), "GGQ-v0.12.3",
             nullptr, nullptr, "PSMain", "ps_5_0",
             D3DCOMPILE_ENABLE_STRICTNESS, 0,
             &psBlob, &errors);
         if (FAILED(hr)) {
             const std::string detail = errors
-                ? std::string(static_cast<const char*>(errors->GetBufferPointer()), errors->GetBufferSize())
+                ? std::string(
+                    static_cast<const char*>(errors->GetBufferPointer()),
+                    errors->GetBufferSize())
                 : "pixel shader compile error";
             throw std::runtime_error(detail);
         }
 
         CheckHr(device->CreateVertexShader(
-            vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader_),
+            vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
+            nullptr, &vertexShader_),
             "CreateVertexShader");
         CheckHr(device->CreatePixelShader(
-            psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader_),
+            psBlob->GetBufferPointer(), psBlob->GetBufferSize(),
+            nullptr, &pixelShader_),
             "CreatePixelShader");
 
         const D3D11_INPUT_ELEMENT_DESC elements[] = {
@@ -202,8 +252,11 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex0.Sample(samp0, i.uv); }
              D3D11_INPUT_PER_VERTEX_DATA, 0},
         };
         CheckHr(device->CreateInputLayout(
-            elements, static_cast<UINT>(std::size(elements)),
-            vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout_),
+            elements,
+            static_cast<UINT>(std::size(elements)),
+            vsBlob->GetBufferPointer(),
+            vsBlob->GetBufferSize(),
+            &inputLayout_),
             "CreateInputLayout");
 
         D3D11_BUFFER_DESC vb{};
@@ -211,7 +264,15 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex0.Sample(samp0, i.uv); }
         vb.Usage = D3D11_USAGE_DYNAMIC;
         vb.BindFlags = D3D11_BIND_VERTEX_BUFFER;
         vb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        CheckHr(device->CreateBuffer(&vb, nullptr, &vertexBuffer_), "CreateBuffer(vertex)");
+        CheckHr(device->CreateBuffer(&vb, nullptr, &vertexBuffer_),
+            "CreateBuffer(vertex)");
+
+        D3D11_BUFFER_DESC cb{};
+        cb.ByteWidth = sizeof(SampleParamsData);
+        cb.Usage = D3D11_USAGE_DEFAULT;
+        cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        CheckHr(device->CreateBuffer(&cb, nullptr, &sampleParamsBuffer_),
+            "CreateBuffer(sample params)");
 
         D3D11_SAMPLER_DESC sampler{};
         sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
@@ -220,21 +281,28 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex0.Sample(samp0, i.uv); }
         sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
         sampler.MinLOD = 0.0f;
         sampler.MaxLOD = D3D11_FLOAT32_MAX;
-        CheckHr(device->CreateSamplerState(&sampler, &sampler_), "CreateSamplerState");
+        CheckHr(device->CreateSamplerState(&sampler, &sampler_),
+            "CreateSamplerState");
 
         D3D11_RASTERIZER_DESC raster{};
         raster.FillMode = D3D11_FILL_SOLID;
         raster.CullMode = D3D11_CULL_NONE;
         raster.DepthClipEnable = TRUE;
-        CheckHr(device->CreateRasterizerState(&raster, &rasterizer_), "CreateRasterizerState");
-
+        CheckHr(device->CreateRasterizerState(&raster, &rasterizer_),
+            "CreateRasterizerState");
     }
 
     void InitializeCursor(ID3D11Device* device, ID3D11DeviceContext* context) {
-        const std::uint32_t cursorPixel = 0xFF00FFFFu;
+        const std::uint32_t controllerPixel = 0xFF00FFFFu;
+        const std::uint32_t mousePixel = 0xFFFFFFFFu;
         cursorTexture_.Upload(
             device, context,
-            reinterpret_cast<const std::uint8_t*>(&cursorPixel), 1, 1, 4);
+            reinterpret_cast<const std::uint8_t*>(&controllerPixel),
+            1, 1, 4);
+        mouseCursorTexture_.Upload(
+            device, context,
+            reinterpret_cast<const std::uint8_t*>(&mousePixel),
+            1, 1, 4);
     }
 
     void RenderEye(
@@ -287,17 +355,63 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex0.Sample(samp0, i.uv); }
         context->PSSetShader(pixelShader_.Get(), nullptr, 0);
         ID3D11SamplerState* samplers[] = {sampler_.Get()};
         context->PSSetSamplers(0, 1, samplers);
+        ID3D11Buffer* sampleBuffers[] = {sampleParamsBuffer_.Get()};
+        context->PSSetConstantBuffers(0, 1, sampleBuffers);
 
-        if (baseSrv) {
-            DrawQuad(context, view, baseRect, -kScreenDistanceMeters,
-                baseSrv, 0.0f, 0.0f, 1.0f, 1.0f);
-        }
+        const bool stereoVisible = sbsSrv != nullptr && stereoRect != nullptr;
+        if (stereoVisible) {
+            // The old v0.12 geometry was calculated for a panel 2 cm IN FRONT of A.
+            // Convert it back to A's exact 3D viewport, then place B 2 cm BEHIND A
+            // while preserving the same angular boundary in the headset.
+            const float frontToBase =
+                kScreenDistanceMeters / kStereoDistanceMeters;
+            PanelRect baseHole = ScalePanelRect(*stereoRect, frontToBase);
+            baseHole = ClampPanelRect(baseHole, baseRect);
 
-        if (sbsSrv && stereoRect) {
+            constexpr float behindDistance = kScreenDistanceMeters + 0.02f;
+            const float baseToBehind = behindDistance / kScreenDistanceMeters;
+            const PanelRect behindStereo =
+                ScalePanelRect(baseHole, baseToBehind);
+
             const float u0 = rightEye ? 0.5f : 0.0f;
             const float u1 = rightEye ? 1.0f : 0.5f;
-            DrawQuad(context, view, *stereoRect, -kStereoDistanceMeters,
-                sbsSrv, u0, 0.0f, u1, 1.0f);
+
+            // B first. It is geometrically behind A.
+            DrawQuad(
+                context, view, behindStereo, -behindDistance,
+                sbsSrv, u0, 0.0f, u1, 1.0f, true);
+
+            // A second, but with the exact 3D viewport omitted. This is the XR-only
+            // transparent 3D window: PC still receives the untouched full CEF image.
+            if (baseSrv) {
+                DrawBaseWithHole(
+                    context, view, baseRect, baseHole, baseSrv);
+            }
+        } else if (baseSrv) {
+            // When a GeoGebra menu/dialog covers 3D, JS marks B inactive. Then A is
+            // completely opaque again, so menus can never be hidden behind B.
+            DrawQuad(
+                context, view, baseRect, -kScreenDistanceMeters,
+                baseSrv, 0.0f, 0.0f, 1.0f, 1.0f, true);
+        }
+
+        const MousePointerState mouse = mouseReader_.ReadLatest();
+        if (mouse.valid && mouseCursorTexture_.Valid()) {
+            const float baseWidth = baseRect.right - baseRect.left;
+            const float baseHeight = baseRect.top - baseRect.bottom;
+            const float hitX = baseRect.left + baseWidth * mouse.u;
+            const float hitY = baseRect.top - baseHeight * mouse.v;
+            const float scale = kCursorDistanceMeters / kScreenDistanceMeters;
+            const float mouseX = hitX * scale;
+            const float mouseY = hitY * scale;
+            PanelRect mouseCursor{
+                mouseX - kCursorSizeMeters * 0.42f,
+                mouseX + kCursorSizeMeters * 0.42f,
+                mouseY + kCursorSizeMeters * 0.42f,
+                mouseY - kCursorSizeMeters * 0.42f};
+            DrawQuad(
+                context, view, mouseCursor, -kCursorDistanceMeters,
+                mouseCursorTexture_.Srv(), 0.0f, 0.0f, 1.0f, 1.0f, false);
         }
 
         if (cursorValid && cursorTexture_.Valid()) {
@@ -306,8 +420,9 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex0.Sample(samp0, i.uv); }
                 cursorX + kCursorSizeMeters * 0.5f,
                 cursorY + kCursorSizeMeters * 0.5f,
                 cursorY - kCursorSizeMeters * 0.5f};
-            DrawQuad(context, view, cursor, -kCursorDistanceMeters,
-                cursorTexture_.Srv(), 0.0f, 0.0f, 1.0f, 1.0f);
+            DrawQuad(
+                context, view, cursor, -kCursorDistanceMeters,
+                cursorTexture_.Srv(), 0.0f, 0.0f, 1.0f, 1.0f, false);
         }
 
         ID3D11ShaderResourceView* nullSrv[] = {nullptr};
@@ -316,13 +431,90 @@ float4 PSMain(VSOut i) : SV_TARGET { return tex0.Sample(samp0, i.uv); }
     }
 
 private:
+    struct SampleParamsData {
+        float uvBounds[4];
+        float flags[4];
+    };
+
     ComPtr<ID3D11VertexShader> vertexShader_;
     ComPtr<ID3D11PixelShader> pixelShader_;
     ComPtr<ID3D11InputLayout> inputLayout_;
     ComPtr<ID3D11Buffer> vertexBuffer_;
+    ComPtr<ID3D11Buffer> sampleParamsBuffer_;
     ComPtr<ID3D11SamplerState> sampler_;
     ComPtr<ID3D11RasterizerState> rasterizer_;
     SourceTexture cursorTexture_;
+    SourceTexture mouseCursorTexture_;
+    MousePointerSharedReader mouseReader_;
+
+    static PanelRect ScalePanelRect(const PanelRect& rect, float scale) {
+        return {
+            rect.left * scale,
+            rect.right * scale,
+            rect.top * scale,
+            rect.bottom * scale
+        };
+    }
+
+    static PanelRect ClampPanelRect(
+        const PanelRect& rect,
+        const PanelRect& bounds) {
+        PanelRect result{
+            std::max(rect.left, bounds.left),
+            std::min(rect.right, bounds.right),
+            std::min(rect.top, bounds.top),
+            std::max(rect.bottom, bounds.bottom)
+        };
+        if (result.right < result.left) result.right = result.left;
+        if (result.top < result.bottom) result.top = result.bottom;
+        return result;
+    }
+
+    void DrawBaseWithHole(
+        ID3D11DeviceContext* context,
+        const XrView& view,
+        const PanelRect& base,
+        const PanelRect& hole,
+        ID3D11ShaderResourceView* texture) {
+
+        const float width = std::max(0.0001f, base.right - base.left);
+        const float height = std::max(0.0001f, base.top - base.bottom);
+        const float uLeft = std::clamp((hole.left - base.left) / width, 0.0f, 1.0f);
+        const float uRight = std::clamp((hole.right - base.left) / width, 0.0f, 1.0f);
+        const float vTop = std::clamp((base.top - hole.top) / height, 0.0f, 1.0f);
+        const float vBottom = std::clamp((base.top - hole.bottom) / height, 0.0f, 1.0f);
+
+        constexpr float epsilon = 0.0001f;
+
+        if (base.top - hole.top > epsilon) {
+            DrawQuad(
+                context, view,
+                {base.left, base.right, base.top, hole.top},
+                -kScreenDistanceMeters,
+                texture, 0.0f, 0.0f, 1.0f, vTop, true);
+        }
+        if (hole.bottom - base.bottom > epsilon) {
+            DrawQuad(
+                context, view,
+                {base.left, base.right, hole.bottom, base.bottom},
+                -kScreenDistanceMeters,
+                texture, 0.0f, vBottom, 1.0f, 1.0f, true);
+        }
+        if (hole.left - base.left > epsilon && hole.top - hole.bottom > epsilon) {
+            DrawQuad(
+                context, view,
+                {base.left, hole.left, hole.top, hole.bottom},
+                -kScreenDistanceMeters,
+                texture, 0.0f, vTop, uLeft, vBottom, true);
+        }
+        if (base.right - hole.right > epsilon && hole.top - hole.bottom > epsilon) {
+            DrawQuad(
+                context, view,
+                {hole.right, base.right, hole.top, hole.bottom},
+                -kScreenDistanceMeters,
+                texture, uRight, vTop, 1.0f, vBottom, true);
+        }
+    }
 
     void DrawQuad(
         ID3D11DeviceContext* context,
@@ -330,7 +522,13 @@ private:
         const PanelRect& rect,
         float z,
         ID3D11ShaderResourceView* texture,
-        float u0, float v0, float u1, float v1) {
+        float u0,
+        float v0,
+        float u1,
+        float v1,
+        bool highQuality) {
+
+        if (!texture || rect.right <= rect.left || rect.top <= rect.bottom) return;
 
         const Vec3 tl{rect.left, rect.top, z};
         const Vec3 tr{rect.right, rect.top, z};
@@ -346,16 +544,25 @@ private:
         };
 
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        CheckHr(context->Map(vertexBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped),
+        CheckHr(context->Map(
+            vertexBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped),
             "Map(vertex)");
         std::memcpy(mapped.pData, vertices.data(), sizeof(vertices));
         context->Unmap(vertexBuffer_.Get(), 0);
+
+        SampleParamsData params{};
+        params.uvBounds[0] = std::min(u0, u1);
+        params.uvBounds[1] = std::min(v0, v1);
+        params.uvBounds[2] = std::max(u0, u1);
+        params.uvBounds[3] = std::max(v0, v1);
+        params.flags[0] = highQuality ? 1.0f : 0.0f;
+        context->UpdateSubresource(
+            sampleParamsBuffer_.Get(), 0, nullptr, &params, 0, 0);
 
         ID3D11ShaderResourceView* srvs[] = {texture};
         context->PSSetShaderResources(0, 1, srvs);
         context->Draw(6, 0);
     }
 };
-
 
 } // namespace ggqv11
