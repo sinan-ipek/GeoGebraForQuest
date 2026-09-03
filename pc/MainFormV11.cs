@@ -16,7 +16,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private const string LocalHost = "appassets.androidplatform.net";
     private const string LocalAppUrl = "https://appassets.androidplatform.net/assets/web/index.html";
     private const string PcStereoRuntimeUrl =
-        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.11.1-cef-gpu-direct";
+        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.11.2-cef-gpu-direct";
 
     private const float BrowserSupersample = 1.35f;
     private const int MaxBrowserWidth = 3072;
@@ -68,12 +68,13 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private long _stereoFrameNumber;
     private long _gpuFrameNumber;
     private string _xrStatusText = "Quest hazırlanıyor";
+    private string _cefPageText = "CEF başlatılıyor";
     private bool _xrTriggerDown;
     private bool _xrPointerWasValid;
 
     public MainForm()
     {
-        Text = "GeoGebraForQuest PC · v0.11.1 · CEF GPU Direct";
+        Text = "GeoGebraForQuest PC · v0.11.2 · CEF GPU Direct";
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
         MinimumSize = new Size(1000, 650);
@@ -114,7 +115,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
             MessageBox.Show(
                 this,
                 ex.ToString(),
-                "GeoGebraForQuest PC v0.11.1 başlatma hatası",
+                "GeoGebraForQuest PC v0.11.2 başlatma hatası",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -151,26 +152,34 @@ internal sealed partial class MainForm : Form, IRenderHandler
         lock (_geometryLock) initialSize = _browserSize;
 
         _browser = new D3DChromiumWebBrowser(
+            LocalAppUrl,
             _requestContext,
             this,
             initialSize.Width,
             initialSize.Height);
+
         _browser.JavascriptMessageReceived += BrowserJavascriptMessageReceived;
         _browser.FrameLoadEnd += BrowserFrameLoadEnd;
         _browser.LoadError += (_, args) =>
         {
-            if (!_closing && args.ErrorCode != CefErrorCode.Aborted)
-            {
-                BeginInvokeSafe(() =>
-                    Text = $"GeoGebraForQuest PC v0.11.1 · CEF load error: {args.ErrorText}");
-            }
+            if (_closing || args.ErrorCode == CefErrorCode.Aborted) return;
+
+            _cefPageText = $"CEF HATA {args.ErrorCode}: {args.ErrorText}";
+            BeginInvokeSafe(UpdateWindowTitle);
         };
-        _browser.Load(LocalAppUrl);
+
+        // Important: events are attached before the native CEF browser is created.
+        // The desired GeoGebra URL is already the ChromiumWebBrowser initial address;
+        // there is deliberately no early Load() call against about:blank.
+        _browser.CreateGpuBrowser();
     }
 
     private void BrowserFrameLoadEnd(object? sender, FrameLoadEndEventArgs e)
     {
         if (!e.Frame.IsMain || _closing) return;
+
+        _cefPageText = ShortPageText(e.Url);
+        BeginInvokeSafe(UpdateWindowTitle);
 
         var runtimeUrl = JsonSerializer.Serialize(PcStereoRuntimeUrl);
         var script = $$"""
@@ -200,7 +209,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
                 getStereoDebugStatus: function () {
                   return JSON.stringify({
                     platform: 'GeoGebraForQuest PC',
-                    version: '0.11.1-cef-gpu-direct',
+                    version: '0.11.2-cef-gpu-direct',
                     presentation: 'CEF D3D11 shared texture -> PC + OpenXR; B=Exp46 L/R'
                   });
                 }
@@ -234,6 +243,24 @@ internal sealed partial class MainForm : Form, IRenderHandler
             """;
 
         e.Frame.ExecuteJavaScriptAsync(script);
+    }
+
+    private static string ShortPageText(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return "CEF adres yok";
+        if (url.Equals(LocalAppUrl, StringComparison.OrdinalIgnoreCase)) return "CEF GeoGebra";
+        if (url.Equals("about:blank", StringComparison.OrdinalIgnoreCase)) return "CEF about:blank";
+
+        try
+        {
+            var uri = new Uri(url);
+            var text = uri.Host + uri.AbsolutePath;
+            return text.Length <= 48 ? "CEF " + text : "CEF …" + text[^44..];
+        }
+        catch
+        {
+            return url.Length <= 52 ? "CEF " + url : "CEF …" + url[^48..];
+        }
     }
 
     private void BrowserJavascriptMessageReceived(
@@ -271,16 +298,16 @@ internal sealed partial class MainForm : Form, IRenderHandler
                 case "runtimeError":
                     if (root.TryGetProperty("message", out var message))
                     {
-                        BeginInvokeSafe(() =>
-                            Text = "GeoGebraForQuest PC v0.11.1 · " + message.GetString());
+                        _cefPageText = "CEF runtime: " + message.GetString();
+                        BeginInvokeSafe(UpdateWindowTitle);
                     }
                     break;
             }
         }
         catch (Exception ex)
         {
-            BeginInvokeSafe(() =>
-                Text = "GeoGebraForQuest PC v0.11.1 · JS bridge: " + ex.Message);
+            _cefPageText = "CEF JS: " + ex.Message;
+            BeginInvokeSafe(UpdateWindowTitle);
         }
     }
 
@@ -328,8 +355,8 @@ internal sealed partial class MainForm : Form, IRenderHandler
         }
         catch (Exception ex)
         {
-            BeginInvokeSafe(() =>
-                Text = "GeoGebraForQuest PC v0.11.1 · 3D rect: " + ex.Message);
+            _cefPageText = "CEF 3D rect: " + ex.Message;
+            BeginInvokeSafe(UpdateWindowTitle);
         }
     }
 
@@ -352,12 +379,12 @@ internal sealed partial class MainForm : Form, IRenderHandler
             render = _browserSize;
         }
 
-        Text = $"GeoGebraForQuest PC v0.11.1 · CEF GPU Direct · " +
+        Text = $"GeoGebraForQuest PC v0.11.2 · CEF GPU Direct · " +
                $"A {render.Width}×{render.Height} GPU#{_gpuFrameNumber} · " +
                (stereo
                    ? $"B {rect.Width}×{rect.Height} stereo#{_stereoFrameNumber}"
                    : "B bekleniyor") +
-               $" · Quest: {_xrStatusText}";
+               $" · {_cefPageText} · Quest: {_xrStatusText}";
     }
 
     private void Shutdown()
