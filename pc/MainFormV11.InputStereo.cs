@@ -35,29 +35,47 @@ internal sealed partial class MainForm
                 }
                 if (pair is null) break;
 
-                using var left = DecodeDataUrl(pair.Value.Left);
-                using var right = DecodeDataUrl(pair.Value.Right);
-                var frame = Interlocked.Increment(ref _stereoFrameNumber);
-
-                bool active;
-                Rectangle rect;
-                Size size;
-                lock (_geometryLock)
+                Bitmap? left = null;
+                Bitmap? right = null;
+                try
                 {
-                    active = _stereo3DActive;
-                    rect = _stereo3DRenderBounds;
-                    size = _browserSize;
+                    // The two eye JPEGs are independent. v0.12 decoded them serially on
+                    // one worker core; decode both at the same time without changing the
+                    // proven stereo transport or frame ordering.
+                    Parallel.Invoke(
+                        () => left = DecodeDataUrl(pair.Value.Left),
+                        () => right = DecodeDataUrl(pair.Value.Right));
+
+                    if (left is null || right is null)
+                        throw new InvalidDataException("Stereo göz karelerinden biri decode edilemedi.");
+
+                    var frame = Interlocked.Increment(ref _stereoFrameNumber);
+
+                    bool active;
+                    Rectangle rect;
+                    Size size;
+                    lock (_geometryLock)
+                    {
+                        active = _stereo3DActive;
+                        rect = _stereo3DRenderBounds;
+                        size = _browserSize;
+                    }
+
+                    if (active && rect.Width > 1 && rect.Height > 1 &&
+                        size.Width > 1 && size.Height > 1)
+                    {
+                        _sharedStereoFrames.WriteFrames(left, right, rect, size, frame);
+                    }
+
+                    if ((frame % 30) == 0)
+                    {
+                        BeginInvokeSafe(UpdateWindowTitle);
+                    }
                 }
-
-                if (active && rect.Width > 1 && rect.Height > 1 &&
-                    size.Width > 1 && size.Height > 1)
+                finally
                 {
-                    _sharedStereoFrames.WriteFrames(left, right, rect, size, frame);
-                }
-
-                if ((frame % 30) == 0)
-                {
-                    BeginInvokeSafe(UpdateWindowTitle);
+                    left?.Dispose();
+                    right?.Dispose();
                 }
             }
         }
