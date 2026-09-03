@@ -19,7 +19,7 @@ internal static class Program
             Directory.CreateDirectory(LogDirectory);
             File.WriteAllText(
                 LogPath,
-                $"GeoGebraForQuest PC v0.11.2 CEF GPU Direct startup\r\n" +
+                $"GeoGebraForQuest PC v0.12.0 Performance startup\r\n" +
                 $"Time: {DateTimeOffset.Now:O}\r\n" +
                 $"OS: {Environment.OSVersion}\r\n" +
                 $"64-bit process: {Environment.Is64BitProcess}\r\n" +
@@ -74,7 +74,7 @@ internal static class Program
             {
                 MessageBox.Show(
                     ex.ToString(),
-                    "GeoGebraForQuest PC v0.11.2 - Başlatma Hatası",
+                    "GeoGebraForQuest PC v0.12.0 - Başlatma Hatası",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
             }
