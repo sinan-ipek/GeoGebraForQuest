@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using CefSharp;
 using CefSharp.OffScreen;
@@ -16,24 +15,25 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private const string LocalHost = "appassets.androidplatform.net";
     private const string LocalAppUrl = "https://appassets.androidplatform.net/assets/web/index.html";
     private const string PcStereoRuntimeUrl =
-        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.12.0-performance";
+        "https://appassets.androidplatform.net/pc-stereo-layout.js?v=0.13.0-gpu-stereo";
 
-    // Render A at native scale up to a sensible GPU ceiling. v0.11 accidentally forced
-    // scale >= 1.0 after computing the cap, so a 4K desktop always rendered the full
-    // 3840-wide CEF surface and then duplicated it for Quest. v0.12 allows the cap to work.
+    // 3456 px is intentionally above the Quest projection width but below a full
+    // 4K desktop. It gives the headset enough source detail without forcing CEF to
+    // repaint an 8-megapixel page on every UI change.
     private const float BrowserSupersample = 1.0f;
-    private const int MaxBrowserWidth = 3072;
-    private const int MaxBrowserHeight = 2048;
+    private const int MaxBrowserWidth = 3456;
+    private const int MaxBrowserHeight = 2304;
 
     private readonly object _d3dLock = new();
-    private readonly object _pendingFrameLock = new();
     private readonly object _geometryLock = new();
+    private readonly object _stereoGpuLock = new();
 
-    private readonly StereoSharedFrameWriter _sharedStereoFrames = new();
     private readonly GpuSharedTexturePublisher _gpuPublisher = new();
+    private readonly GpuStereoTexturePublisher _gpuStereoPublisher = new();
     private readonly XrInputSharedReader _xrInput = new();
     private readonly XrCompanionManager _xrCompanion = new();
     private readonly System.Windows.Forms.Timer _inputTimer = new() { Interval = 8 };
+    private readonly AutoResetEvent _presentEvent = new(false);
 
     private IRequestContext? _requestContext;
     private D3DChromiumWebBrowser? _browser;
@@ -56,6 +56,15 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private Texture2D? _xrSharedTexture;
     private KeyedMutex? _xrSharedMutex;
     private IntPtr _xrSharedHandle;
+
+    private Texture2D? _stereoStagingTexture;
+    private Texture2D? _xrStereoSharedTexture;
+    private KeyedMutex? _xrStereoSharedMutex;
+    private IntPtr _xrStereoSharedHandle;
+    private int _stereoEyeWidth;
+    private int _stereoEyeHeight;
+    private Format _stereoTextureFormat = Format.Unknown;
+
     private readonly List<IDisposable> _retiredSharedResources = new();
 
     private Thread? _renderThread;
@@ -63,23 +72,34 @@ internal sealed partial class MainForm : Form, IRenderHandler
     private Size _browserSize = new(1280, 720);
     private bool _swapChainResizePending;
 
-    private (string Left, string Right)? _pendingFrames;
     private Rectangle _stereo3DRenderBounds = Rectangle.Empty;
     private bool _stereo3DActive;
-    private int _decodeWorkerActive;
     private long _stereoFrameNumber;
     private long _gpuFrameNumber;
     private string _xrStatusText = "Quest hazırlanıyor";
     private string _cefPageText = "CEF başlatılıyor";
     private string _gpuShareStatus = "A-share bekleniyor";
-    private string _gpuPaintStatus = "";
-    private string _presentStatus = "";
+    private string _gpuStereoStatus = "B-GPU bekleniyor";
+    private string _gpuPaintStatus = string.Empty;
+    private string _presentStatus = string.Empty;
     private bool _xrTriggerDown;
     private bool _xrPointerWasValid;
 
+    private StereoGpuPhase _stereoGpuPhase;
+    private long _stereoGpuPhaseSerial;
+    private bool _stereoLeftCaptured;
+    private bool _suppressBasePresentation;
+
+    private enum StereoGpuPhase
+    {
+        None,
+        Left,
+        Right
+    }
+
     public MainForm()
     {
-        Text = "GeoGebraForQuest PC · v0.12.0 · Performance";
+        Text = "GeoGebraForQuest PC · v0.13.0 · GPU Stereo";
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
         MinimumSize = new Size(1000, 650);
@@ -91,7 +111,11 @@ internal sealed partial class MainForm : Form, IRenderHandler
         _inputTimer.Tick += (_, _) => PumpXrPointer();
         Shown += MainFormShown;
         Resize += (_, _) => RequestResize();
-        FormClosing += (_, _) => _closing = true;
+        FormClosing += (_, _) =>
+        {
+            _closing = true;
+            _presentEvent.Set();
+        };
         FormClosed += (_, _) => Shutdown();
         KeyDown += MainFormKeyDown;
     }
@@ -120,7 +144,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
             MessageBox.Show(
                 this,
                 ex.ToString(),
-                "GeoGebraForQuest PC v0.12.0 başlatma hatası",
+                "GeoGebraForQuest PC v0.13.0 başlatma hatası",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -168,7 +192,6 @@ internal sealed partial class MainForm : Form, IRenderHandler
         _browser.LoadError += (_, args) =>
         {
             if (_closing || args.ErrorCode == CefErrorCode.Aborted) return;
-
             _cefPageText = $"CEF HATA {args.ErrorCode}: {args.ErrorText}";
             BeginInvokeSafe(UpdateWindowTitle);
         };
@@ -198,12 +221,9 @@ internal sealed partial class MainForm : Form, IRenderHandler
               }
 
               window.QuestBridge = {
-                __pcCefGpuV12: true,
+                __pcCefGpuV13: true,
                 updateStereoLayout: function (json) {
                   post({ type: 'stereoLayout', payload: String(json || '') });
-                },
-                updateStereoEyes: function (left, right) {
-                  post({ type: 'stereoEyes', left: String(left || ''), right: String(right || '') });
                 },
                 stereoInactive: function () { post({ type: 'stereoInactive' }); },
                 runtimeError: function (message) {
@@ -214,8 +234,8 @@ internal sealed partial class MainForm : Form, IRenderHandler
                 getStereoDebugStatus: function () {
                   return JSON.stringify({
                     platform: 'GeoGebraForQuest PC',
-                    version: '0.12.0-performance',
-                    presentation: 'CEF D3D11 GPU A + async Exp46 2K stereo B'
+                    version: '0.13.0-gpu-stereo',
+                    presentation: 'A GPU direct + B GPU direct; JPEG/base64 yok'
                   });
                 }
               };
@@ -234,10 +254,10 @@ internal sealed partial class MainForm : Form, IRenderHandler
               setTimeout(resizeGeoGebra, 250);
               setTimeout(resizeGeoGebra, 1200);
 
-              var old = document.getElementById('ggq-pc-stereo-v12');
+              var old = document.getElementById('ggq-pc-stereo-v13');
               if (old) old.remove();
               var tag = document.createElement('script');
-              tag.id = 'ggq-pc-stereo-v12';
+              tag.id = 'ggq-pc-stereo-v13';
               tag.src = {{runtimeUrl}};
               tag.async = false;
               tag.onerror = function () {
@@ -284,22 +304,20 @@ internal sealed partial class MainForm : Form, IRenderHandler
                 case "panelReady":
                     BeginInvokeSafe(UpdateWindowTitle);
                     break;
+
                 case "stereoInactive":
                     SetStereoInactive();
                     break;
+
                 case "stereoLayout":
                     if (root.TryGetProperty("payload", out var payload))
                         HandleStereoLayout(payload.GetString());
                     break;
-                case "stereoEyes":
-                    if (!root.TryGetProperty("left", out var leftNode) ||
-                        !root.TryGetProperty("right", out var rightNode)) return;
-                    var left = leftNode.GetString();
-                    var right = rightNode.GetString();
-                    if (!string.IsNullOrWhiteSpace(left) &&
-                        !string.IsNullOrWhiteSpace(right))
-                        QueueStereoFrames(left, right);
+
+                case "stereoGpuPhase":
+                    HandleStereoGpuPhase(root);
                     break;
+
                 case "runtimeError":
                     if (root.TryGetProperty("message", out var message))
                     {
@@ -314,6 +332,44 @@ internal sealed partial class MainForm : Form, IRenderHandler
             _cefPageText = "CEF JS: " + ex.Message;
             BeginInvokeSafe(UpdateWindowTitle);
         }
+    }
+
+    private void HandleStereoGpuPhase(JsonElement root)
+    {
+        if (_browser is null || _closing) return;
+        if (!root.TryGetProperty("eye", out var eyeNode) ||
+            !root.TryGetProperty("serial", out var serialNode)) return;
+
+        var eye = eyeNode.GetString();
+        if (!serialNode.TryGetInt64(out var serial) || serial < 0) return;
+
+        lock (_stereoGpuLock)
+        {
+            if (eye == "left")
+            {
+                _stereoGpuPhase = StereoGpuPhase.Left;
+                _stereoGpuPhaseSerial = serial;
+                _stereoLeftCaptured = false;
+                _suppressBasePresentation = true;
+            }
+            else if (eye == "right")
+            {
+                if (!_stereoLeftCaptured || _stereoGpuPhaseSerial != serial)
+                {
+                    _stereoGpuPhase = StereoGpuPhase.None;
+                    _suppressBasePresentation = false;
+                    _ = CancelStereoGpuTransportAsync();
+                    return;
+                }
+                _stereoGpuPhase = StereoGpuPhase.Right;
+            }
+            else
+            {
+                return;
+            }
+        }
+
+        try { _browser.GetBrowserHost()?.Invalidate(PaintElementType.View); } catch { }
     }
 
     private void HandleStereoLayout(string? payload)
@@ -388,22 +444,25 @@ internal sealed partial class MainForm : Form, IRenderHandler
         if (!string.IsNullOrWhiteSpace(_gpuPaintStatus)) extra += " · " + _gpuPaintStatus;
         if (!string.IsNullOrWhiteSpace(_presentStatus)) extra += " · " + _presentStatus;
 
-        Text = $"GeoGebraForQuest PC v0.12.0 · Performance · " +
+        Text = $"GeoGebraForQuest PC v0.13.0 · GPU Stereo · " +
                $"A {render.Width}×{render.Height} GPU#{_gpuFrameNumber} · " +
                (stereo
-                   ? $"B {rect.Width}×{rect.Height} stereo#{_stereoFrameNumber}"
+                   ? $"B {rect.Width}×{rect.Height} GPU-stereo#{_stereoFrameNumber}"
                    : "B bekleniyor") +
-               $" · {_cefPageText} · {_gpuShareStatus} · Quest: {_xrStatusText}{extra}";
+               $" · {_cefPageText} · {_gpuShareStatus} · {_gpuStereoStatus} · " +
+               $"Quest: {_xrStatusText}{extra}";
     }
 
     private void Shutdown()
     {
         _closing = true;
+        _presentEvent.Set();
         _inputTimer.Stop();
         _xrCompanion.Dispose();
         _gpuPublisher.SetInactive();
-        _sharedStereoFrames.Dispose();
+        _gpuStereoPublisher.SetInactive(Rectangle.Empty, Size.Empty);
         _gpuPublisher.Dispose();
+        _gpuStereoPublisher.Dispose();
         _xrInput.Dispose();
 
         try
@@ -423,8 +482,13 @@ internal sealed partial class MainForm : Form, IRenderHandler
         {
             foreach (var srv in _pcSrvs) srv?.Dispose();
             foreach (var tex in _pcTextures) tex?.Dispose();
+
             _xrSharedMutex?.Dispose();
             _xrSharedTexture?.Dispose();
+            _xrStereoSharedMutex?.Dispose();
+            _xrStereoSharedTexture?.Dispose();
+            _stereoStagingTexture?.Dispose();
+
             foreach (var retired in _retiredSharedResources) retired.Dispose();
             _rasterizer?.Dispose();
             _sampler?.Dispose();
@@ -440,6 +504,7 @@ internal sealed partial class MainForm : Form, IRenderHandler
         }
 
         _requestContext?.Dispose();
+        _presentEvent.Dispose();
     }
 
     private void BeginInvokeSafe(Action action)
