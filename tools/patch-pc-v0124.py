@@ -67,6 +67,7 @@ for file in ('pc/MainFormV11.cs', 'pc/GeoGebraForQuest.PC.csproj', 'pc/build.ps1
     text = text.replace('0.12.3.0', '0.12.4.0')
     text = text.replace('<Version>0.12.3</Version>', '<Version>0.12.4</Version>')
     text = text.replace('main-v123.cpp', 'main-v124.cpp')
+    text = text.replace('main-v123\\.cpp', 'main-v124\\.cpp')
     text = text.replace('Quest 3 physical target 2064x2208/göz, runtime maxImageRect ile clamp',
                         'OpenXR recommended x1.12/göz, Quest 3 physical/runtime max ile clamp')
     p.write_text(text, encoding='utf-8')
