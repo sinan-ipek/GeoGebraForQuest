@@ -162,9 +162,9 @@ internal sealed partial class MainForm
         var clientH = Math.Max(240, ClientSize.Height);
         var dpiScale = GetBrowserDeviceScaleFactor();
 
-        // WinForms/Direct3D client pixels are physical pixels. CEF's view rectangle is
-        // expressed in DIP. Respect the current Windows per-monitor DPI so a 4K monitor
-        // at 150/175/200% scaling has the same native GeoGebra sizing as Chrome.
+        // PC görünümü Windows'un gerçek per-monitor DPI ölçeğini izler. Quest kalite
+        // çözünürlüğü bundan bağımsızdır; XR tarafında Quest 3 fiziksel göz çözünürlüğü
+        // ve yüksek kaliteli minification kullanılır.
         var size = new Size(
             Math.Max(320, (int)Math.Round(clientW / dpiScale)),
             Math.Max(240, (int)Math.Round(clientH / dpiScale)));
@@ -227,15 +227,23 @@ internal sealed partial class MainForm
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        PublishMousePointerToXr(e.Location, true);
         if (_browser is null) return;
         var p = FormToBrowser(e.Location);
         _browser.GetBrowserHost()?.SendMouseMoveEvent(
             p.X, p.Y, false, GetMouseModifiers(e.Button));
     }
 
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        PublishMousePointerToXr(Point.Empty, false);
+    }
+
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
+        PublishMousePointerToXr(e.Location, true);
         Focus();
         if (_browser is null) return;
         var button = ToCefButton(e.Button);
@@ -248,6 +256,7 @@ internal sealed partial class MainForm
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
+        PublishMousePointerToXr(e.Location, true);
         if (_browser is null) return;
         var button = ToCefButton(e.Button);
         if (button is null) return;
@@ -259,6 +268,7 @@ internal sealed partial class MainForm
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
+        PublishMousePointerToXr(e.Location, true);
         if (_browser is null) return;
         var p = FormToBrowser(e.Location);
         _browser.GetBrowserHost()?.SendMouseWheelEvent(
