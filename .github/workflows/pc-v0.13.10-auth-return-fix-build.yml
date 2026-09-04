@@ -57,6 +57,7 @@ jobs:
           python tools/patch-pc-v0139-direct.py
           python tools/patch-pc-v0139-buildfix.py
           python tools/patch-pc-v01310.py
+          python tools/patch-pc-v01310-buildfix.py
       - name: Verify v0.13.10 auth return code
         shell: powershell
         run: |
