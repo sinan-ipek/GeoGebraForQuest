@@ -47,6 +47,7 @@ jobs:
           python tools/patch-pc-v0135.py
           python tools/patch-pc-v0135-buildfix.py
           python tools/patch-pc-v0136.py
+          python tools/patch-pc-v0136-buildfix.py
       - name: Verify v0.13.6 changes
         shell: powershell
         run: |
