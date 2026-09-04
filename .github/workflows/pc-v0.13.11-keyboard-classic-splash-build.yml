@@ -61,19 +61,20 @@ jobs:
           python tools/patch-pc-v01310-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01311.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01311-extra.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01311-postfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Verify v0.13.11 features
         shell: powershell
         run: |
           $main = Get-Content 'pc/MainFormV11.cs' -Raw
           $project = Get-Content 'pc/GeoGebraForQuest.PC.csproj' -Raw
           $program = Get-Content 'pc/Program.cs' -Raw
-          if (-not $main.Contains('PostLoginClassicUrl = "https://www.geogebra.org/classic"')) { throw 'classic post-login URL missing' }
+          if (-not $main.Contains('https://www.geogebra.org/classic')) { throw 'classic post-login URL missing' }
+          if (-not $main.Contains('root.MainFrame.LoadUrl(PostLoginClassicUrl)')) { throw 'classic auth return navigation missing' }
           if (-not $main.Contains('popup.JavascriptMessageReceived += BrowserJavascriptMessageReceived')) { throw 'popup key tone bridge missing' }
           if (-not $main.Contains('case "keyTone"')) { throw 'native key tone handler missing' }
           if (-not $main.Contains("['@','.','!','-','_']")) { throw 'ABC punctuation row missing' }
           if (-not $main.Contains('max-width:1040px')) { throw 'compact keyboard layout missing' }
           if (-not $main.Contains('caret-color:#00ddf5')) { throw 'caret visibility CSS missing' }
-          if (-not $main.Contains('https://www.geogebra.org/classic')) { throw 'classic runtime handling missing' }
           if (-not (Test-Path 'pc/QuestTonePlayer.cs')) { throw 'QuestTonePlayer missing' }
           if (-not (Test-Path 'pc/SplashForm.cs')) { throw 'SplashForm missing' }
           if (-not $project.Contains('NAudio')) { throw 'NAudio missing' }
