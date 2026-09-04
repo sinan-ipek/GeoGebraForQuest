@@ -1,0 +1,95 @@
+name: GeoGebraForQuest PC v0.13.11 Keyboard Classic Splash
+
+on:
+  push:
+    branches:
+      - pc-v0.13.11-keyboard-classic-splash
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Download Exp46 assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" --repo "sinan-ipek/GeoGebraForQuest" --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          Copy-Item $apk.FullName ".exp46/exp46.zip" -Force
+          Expand-Archive ".exp46/exp46.zip" ".exp46/unpacked" -Force
+          $source = ".exp46/unpacked/assets/web"
+          if (Test-Path "app/src/main/assets/web") { Remove-Item "app/src/main/assets/web" -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+      - name: Apply patches
+        shell: powershell
+        run: |
+          python tools/patch-pc-v013.py
+          python tools/patch-pc-v013-buildfix.py
+          python tools/patch-pc-v0131.py
+          python tools/patch-pc-v0132.py
+          python tools/patch-pc-v0133-adapter.py
+          python tools/patch-pc-v0133.py
+          python tools/patch-pc-v0133-adapter.py
+          python tools/patch-pc-v0134.py
+          python tools/patch-pc-v0134-buildfix.py
+          python tools/patch-pc-v0135.py
+          python tools/patch-pc-v0135-buildfix.py
+          python tools/patch-pc-v0136.py
+          python tools/patch-pc-v0136-buildfix.py
+          python tools/patch-pc-v0137.py
+          python tools/patch-pc-v0137-buildfix.py
+          python tools/patch-pc-v0138-prep.py
+          python tools/patch-pc-v0138-prep2.py
+          python tools/patch-pc-v0138.py
+          python tools/patch-pc-v0138-buildfix.py
+          python tools/patch-pc-v0139-direct.py
+          python tools/patch-pc-v0139-buildfix.py
+          python tools/patch-pc-v01310.py
+          python tools/patch-pc-v01310-buildfix.py
+          python tools/patch-pc-v01311.py
+          python tools/patch-pc-v01311-extra.py
+      - name: Verify v0.13.11 features
+        shell: powershell
+        run: |
+          $main = Get-Content "pc/MainFormV11.cs" -Raw
+          $project = Get-Content "pc/GeoGebraForQuest.PC.csproj" -Raw
+          $program = Get-Content "pc/Program.cs" -Raw
+          if (-not $main.Contains("PostLoginClassicUrl = \"https://www.geogebra.org/classic\"")) { throw "classic post-login URL missing" }
+          if (-not $main.Contains("popup.JavascriptMessageReceived += BrowserJavascriptMessageReceived")) { throw "popup key tone bridge missing" }
+          if (-not $main.Contains("case \"keyTone\"")) { throw "native key tone handler missing" }
+          if (-not $main.Contains("['@','.','!','-','_']")) { throw "ABC punctuation row missing" }
+          if (-not $main.Contains("max-width:1040px")) { throw "compact keyboard layout missing" }
+          if (-not $main.Contains("caret-color:#00ddf5")) { throw "caret visibility CSS missing" }
+          if (-not $main.Contains("https://www.geogebra.org/classic")) { throw "classic runtime handling missing" }
+          if (-not (Test-Path "pc/QuestTonePlayer.cs")) { throw "QuestTonePlayer missing" }
+          if (-not (Test-Path "pc/SplashForm.cs")) { throw "SplashForm missing" }
+          if (-not $project.Contains("NAudio")) { throw "NAudio missing" }
+          if (-not $project.Contains("<Version>0.13.11</Version>")) { throw "version missing" }
+          if (-not $program.Contains("new SplashForm()")) { throw "splash startup missing" }
+      - name: Build Windows EXE package
+        shell: powershell
+        run: .\pc\build.ps1
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = "dist/GeoGebraForQuest-PC-v0.13.11-keyboard-classic-splash-win-x64"
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.13.11-keyboard-classic-splash-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.13.11-keyboard-classic-splash-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
