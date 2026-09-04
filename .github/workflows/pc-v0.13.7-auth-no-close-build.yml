@@ -55,12 +55,12 @@ jobs:
           $main = Get-Content "pc/MainFormV11.cs" -Raw
           $life = Get-Content "pc/SameSurfaceLifeSpanHandler.cs" -Raw
           $project = Get-Content "pc/GeoGebraForQuest.PC.csproj" -Raw
-          if ($life -notmatch "return true; // cancel close" -or $life -notmatch "_recoverMainBrowser") { throw "main browser close protection missing" }
-          if ($main -notmatch "browser.MainFrame.LoadUrl\(LocalAppUrl\)" -or $main -notmatch "GetBrowser\(\)") { throw "same-browser auth return missing" }
-          if ($main -notmatch 'e\.Url\.StartsWith\("https://appassets\.androidplatform\.net/' ) { throw "local-only stereo injection missing" }
-          if ($main -notmatch "about:blank" -or $main -notmatch "RecoverMainBrowserAfterAuthClose") { throw "blank-page recovery missing" }
-          if ($main -notmatch "0\.13\.7-auth-no-close") { throw "v0.13.7 runtime tag missing" }
-          if ($project -notmatch "<Version>0.13.7</Version>") { throw "v0.13.7 version missing" }
+          if (-not $life.Contains("return true; // cancel close") -or -not $life.Contains("_recoverMainBrowser")) { throw "main browser close protection missing" }
+          if (-not $main.Contains("browser.MainFrame.LoadUrl(LocalAppUrl);") -or -not $main.Contains("_browser?.GetBrowser()")) { throw "same-browser auth return missing" }
+          if (-not $main.Contains('e.Url.StartsWith("https://appassets.androidplatform.net/"')) { throw "local-only stereo injection missing" }
+          if (-not $main.Contains("about:blank") -or -not $main.Contains("RecoverMainBrowserAfterAuthClose")) { throw "blank-page recovery missing" }
+          if (-not $main.Contains("0.13.7-auth-no-close")) { throw "v0.13.7 runtime tag missing" }
+          if (-not $project.Contains("<Version>0.13.7</Version>")) { throw "v0.13.7 version missing" }
       - name: Build Windows EXE package
         shell: powershell
         run: .\pc\build.ps1
