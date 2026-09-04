@@ -4,6 +4,14 @@ import re
 main = Path('pc/MainFormV11.cs')
 t = main.read_text(encoding='utf-8')
 
+# Ensure the native Quest tone player field exists before any keyTone handler uses it.
+tone_field = '    private readonly QuestTonePlayer _questTonePlayer = new();'
+if tone_field not in t:
+    anchor = '    private readonly XrCompanionManager _xrCompanion = new();'
+    if anchor not in t:
+        raise SystemExit('could not find field anchor for QuestTonePlayer')
+    t = t.replace(anchor, anchor + '\n' + tone_field, 1)
+
 # Ensure canonical post-login Classic constant exists, regardless of earlier patch formatting.
 if 'PostLoginClassicUrl' not in t:
     pat = r'(private const string LocalAppUrl\s*=\s*"https://appassets\.androidplatform\.net/assets/web/index\.html";)'
@@ -103,6 +111,7 @@ for file in ('pc/MainFormV11.cs','pc/GeoGebraForQuest.PC.csproj','pc/build.ps1')
 # Final hard assertions.
 final_main = main.read_text(encoding='utf-8')
 required = [
+    tone_field,
     'https://www.geogebra.org/classic',
     'root.MainFrame.LoadUrl(PostLoginClassicUrl);',
     bridge,
@@ -115,4 +124,4 @@ for item in required:
     if item not in final_main:
         raise SystemExit('v0.13.11 postfix final assertion failed: ' + item)
 
-print('v0.13.11 deterministic postfix + popup bridge + compact punctuation layout + visible caret applied')
+print('v0.13.11 deterministic postfix + Quest tone field + popup bridge + compact punctuation layout + visible caret applied')
