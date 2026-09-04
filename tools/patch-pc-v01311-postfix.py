@@ -21,8 +21,7 @@ if 'root.MainFrame.LoadUrl(PostLoginClassicUrl);' not in block2:
     raise SystemExit('post-login Classic navigation missing')
 t = t[:method.start()] + block2 + t[method.end():]
 
-# Force popup JavascriptMessageReceived wiring. Earlier patches can be formatted
-# differently, so use a regex anchored on the popup FrameLoadEnd subscription.
+# Force popup JavascriptMessageReceived wiring.
 bridge = 'popup.JavascriptMessageReceived += BrowserJavascriptMessageReceived;'
 if bridge not in t:
     t, n = re.subn(
@@ -34,14 +33,44 @@ if bridge not in t:
     if n != 1:
         raise SystemExit('could not insert popup JavascriptMessageReceived bridge')
 
-# Ensure the native key-tone message handler exists. This is intentionally
-# idempotent so the postfix repairs older generated code too.
+# Ensure native key-tone handler exists.
 if 'case "keyTone":' not in t:
     marker = '''                case "panelReady":\n                    BeginInvokeSafe(UpdateWindowTitle);\n                    break;'''
     replacement = '''                case "keyTone":\n                    _questTonePlayer.PlayClick();\n                    break;\n                case "panelReady":\n                    BeginInvokeSafe(UpdateWindowTitle);\n                    break;'''
     if marker not in t:
         raise SystemExit('could not insert native keyTone handler')
     t = t.replace(marker, replacement, 1)
+
+# Force common punctuation into the ABC layout, regardless of whitespace/formatting.
+if "['@','.','!','-','_']" not in t:
+    t, n = re.subn(
+        r"\[\s*'@'\s*,\s*'\.'\s*,\s*'-'\s*,\s*'_'\s*\]",
+        "['@','.','!','-','_']",
+        t,
+        count=1,
+    )
+    if n != 1:
+        raise SystemExit('could not insert ABC punctuation row')
+
+# Force compact letter/numpad spacing.
+if 'max-width:1040px' not in t:
+    t, n = re.subn(
+        r"rows\.style\.cssText='display:flex;align-items:stretch;justify-content:center;gap:\d+px;'",
+        "rows.style.cssText='display:flex;align-items:stretch;justify-content:center;gap:2px;max-width:1040px;margin:0 auto;'",
+        t,
+        count=1,
+    )
+    if n != 1:
+        raise SystemExit('could not compact keyboard rows')
+
+t = t.replace("main.style.cssText='flex:1;min-width:0;text-align:center;'",
+              "main.style.cssText='flex:0 1 auto;min-width:0;text-align:center;'", 1)
+t = re.sub(
+    r"num\.style\.cssText='width:\d+px;border-left:1px solid #52606d;padding-left:\d+px;display:flex;flex-direction:column;justify-content:center;'",
+    "num.style.cssText='width:176px;border-left:1px solid #52606d;padding-left:2px;margin-left:0;display:flex;flex-direction:column;justify-content:center;'",
+    t,
+    count=1,
+)
 
 # Version labels, project version and build output/validation tags.
 main.write_text(t, encoding='utf-8')
@@ -63,16 +92,18 @@ for file in ('pc/MainFormV11.cs','pc/GeoGebraForQuest.PC.csproj','pc/build.ps1')
         s = s.replace('v0.13.10 doÄŸrulamasÄ± baÅŸarÄ±sÄ±z','v0.13.11 doÄŸrulamasÄ± baÅŸarÄ±sÄ±z')
     p.write_text(s, encoding='utf-8')
 
-# Final hard assertions after every write, to prevent a later overwrite in this patch.
+# Final hard assertions.
 final_main = main.read_text(encoding='utf-8')
 required = [
     'https://www.geogebra.org/classic',
     'root.MainFrame.LoadUrl(PostLoginClassicUrl);',
     bridge,
     'case "keyTone":',
+    "['@','.','!','-','_']",
+    'max-width:1040px',
 ]
 for item in required:
     if item not in final_main:
         raise SystemExit('v0.13.11 postfix final assertion failed: ' + item)
 
-print('v0.13.11 deterministic postfix + popup bridge applied')
+print('v0.13.11 deterministic postfix + popup bridge + compact punctuation layout applied')
