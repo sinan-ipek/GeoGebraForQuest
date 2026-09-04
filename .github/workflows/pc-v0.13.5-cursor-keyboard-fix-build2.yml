@@ -1,4 +1,4 @@
-name: GeoGebraForQuest PC v0.13.5 Cursor Keyboard Fix Build 2
+name: GeoGebraForQuest PC v0.13.5 Cursor Keyboard Fix Build 3
 
 on:
   push:
@@ -45,16 +45,19 @@ jobs:
           python tools/patch-pc-v0134.py
           python tools/patch-pc-v0134-buildfix.py
           python tools/patch-pc-v0135.py
+          python tools/patch-pc-v0135-buildfix.py
       - name: Verify v0.13.5 changes
         shell: powershell
         run: |
           $render = Get-Content "pc-xr/v11-render.hpp" -Raw
           $main = Get-Content "pc/MainFormV11.cs" -Raw
+          $build = Get-Content "pc/build.ps1" -Raw
           $project = Get-Content "pc/GeoGebraForQuest.PC.csproj" -Raw
           if ($render -notmatch "unifiedCursorValid" -or $render -match "mouseCursorTexture_") { throw "single cursor path missing" }
           if ($render -notmatch "rotated 45 degrees counter-clockwise" -or $render -notmatch "0xFF00DDF5u") { throw "rotated cyan cursor missing" }
           if ($main -notmatch "deleteContentBackward" -or $main -notmatch "nativeSetValue") { throw "robust backspace path missing" }
           if ($main -notmatch "0\.13\.5-cursor-keyboard-fix") { throw "v0.13.5 runtime tag missing" }
+          if ($build -notmatch "0\\.13\\.5-cursor-keyboard-fix") { throw "v0.13.5 build guard missing" }
           if ($project -notmatch "<Version>0.13.5</Version>") { throw "v0.13.5 version missing" }
       - name: Build Windows EXE package
         shell: powershell
