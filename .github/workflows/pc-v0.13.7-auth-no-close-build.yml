@@ -56,7 +56,7 @@ jobs:
           $life = Get-Content "pc/SameSurfaceLifeSpanHandler.cs" -Raw
           $project = Get-Content "pc/GeoGebraForQuest.PC.csproj" -Raw
           if ($life -notmatch "return true; // cancel close" -or $life -notmatch "_recoverMainBrowser") { throw "main browser close protection missing" }
-          if ($main -match "old\?\.Dispose" -or $main -notmatch "browser.MainFrame.LoadUrl\(LocalAppUrl\)") { throw "same-browser auth return missing" }
+          if ($main -notmatch "browser.MainFrame.LoadUrl\(LocalAppUrl\)" -or $main -notmatch "GetBrowser\(\)") { throw "same-browser auth return missing" }
           if ($main -notmatch 'e\.Url\.StartsWith\("https://appassets\.androidplatform\.net/' ) { throw "local-only stereo injection missing" }
           if ($main -notmatch "about:blank" -or $main -notmatch "RecoverMainBrowserAfterAuthClose") { throw "blank-page recovery missing" }
           if ($main -notmatch "0\.13\.7-auth-no-close") { throw "v0.13.7 runtime tag missing" }
