@@ -51,6 +51,7 @@ jobs:
           python tools/patch-pc-v0137.py
           python tools/patch-pc-v0137-buildfix.py
           python tools/patch-pc-v0138-prep.py
+          python tools/patch-pc-v0138-prep2.py
           python tools/patch-pc-v0138.py
       - name: Verify v0.13.8 popup architecture
         shell: powershell
