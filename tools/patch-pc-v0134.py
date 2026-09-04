@@ -22,7 +22,7 @@ p.write_text(t, encoding='utf-8')
 p = Path('pc-xr/v11-render.hpp')
 t = p.read_text(encoding='utf-8')
 old_cursor = '''    void InitializeCursor(ID3D11Device* device, ID3D11DeviceContext* context) {\n        const std::uint32_t controllerPixel = 0xFF00FFFFu;\n        const std::uint32_t mousePixel = 0xFFFFFFFFu;\n        cursorTexture_.Upload(\n            device, context,\n            reinterpret_cast<const std::uint8_t*>(&controllerPixel),\n            1, 1, 4);\n        mouseCursorTexture_.Upload(\n            device, context,\n            reinterpret_cast<const std::uint8_t*>(&mousePixel),\n            1, 1, 4);\n    }'''
-new_cursor = '''    void InitializeCursor(ID3D11Device* device, ID3D11DeviceContext* context) {\n        // 40x40 right-pointing cyan triangle with a dark outline. Transparent\n        // background + alpha blending keeps it visible on both white and dark UI.\n        constexpr int s = 40;\n        std::array<std::uint32_t, s * s> pixels{};\n        constexpr std::uint32_t transparent = 0x00000000u;\n        constexpr std::uint32_t outline = 0xFF101820u;\n        constexpr std::uint32_t fill = 0xFF00DDF5u;\n        pixels.fill(transparent);\n        for (int y = 0; y < s; ++y) {\n            for (int x = 0; x < s; ++x) {\n                const float dx = static_cast<float>(x - 5);\n                const float dy = std::abs(static_cast<float>(y) - 19.5f);\n                const bool inside = dx >= 0.0f && dx <= 30.0f &&\n                    dy <= dx * 0.58f + 1.0f;\n                if (!inside) continue;\n                const bool edge = dx < 3.0f ||\n                    std::abs(dy - (dx * 0.58f + 1.0f)) < 2.2f ||\n                    x >= 33;\n                pixels[static_cast<std::size_t>(y * s + x)] = edge ? outline : fill;\n            }\n        }\n        cursorTexture_.Upload(\n            device, context,\n            reinterpret_cast<const std::uint8_t*>(pixels.data()),\n            s, s, s * 4);\n\n        const std::uint32_t mousePixel = 0xFFFFFFFFu;\n        mouseCursorTexture_.Upload(\n            device, context,\n            reinterpret_cast<const std::uint8_t*>(&mousePixel),\n            1, 1, 4);\n\n        D3D11_BLEND_DESC blend{};\n        blend.RenderTarget[0].BlendEnable = TRUE;\n        blend.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;\n        blend.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;\n        blend.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;\n        blend.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;\n        blend.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;\n        blend.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;\n        blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;\n        CheckHr(device->CreateBlendState(&blend, &cursorBlend_),\n            "CreateBlendState(cursor)");\n    }'''
+new_cursor = '''    void InitializeCursor(ID3D11Device* device, ID3D11DeviceContext* context) {\n        // 40x40 right-pointing cyan triangle with a dark outline. Transparent\n        // background + alpha blending keeps it visible on both white and dark UI.\n        constexpr int s = 40;\n        std::array<std::uint32_t, s * s> pixels{};\n        constexpr std::uint32_t transparent = 0x00000000u;\n        constexpr std::uint32_t outline = 0xFF101820u;\n        constexpr std::uint32_t fill = 0xFF00DDF5u;\n        pixels.fill(transparent);\n        for (int y = 0; y < s; ++y) {\n            for (int x = 0; x < s; ++x) {\n                const float dx = static_cast<float>(x - 5);\n                const float dy = std::abs(static_cast<float>(y) - 19.5f);\n                const bool inside = dx >= 0.0f && dx <= 30.0f &&\n                    dy <= dx * 0.58f + 1.0f;\n                if (!inside) continue;\n                const bool edge = dx < 3.0f ||\n                    std::abs(dy - (dx * 0.58f + 1.0f)) < 2.2f ||\n                    x >= 33;\n                pixels[static_cast<std::size_t>(y * s + x)] = edge ? outline : fill;\n            }\n        }\n        cursorTexture_.Upload(\n            device, context,\n            reinterpret_cast<const std::uint8_t*>(pixels.data()),\n            s, s, s * 4);\n\n        const std::uint32_t mousePixel = 0xFFFFFFFFu;\n        mouseCursorTexture_.Upload(\n            device, context,\n            reinterpret_cast<const std::uint8_t*>(&mousePixel),\n            1, 1, 4);\n\n        D3D11_BLEND_DESC blend{};\n        blend.RenderTarget[0].BlendEnable = TRUE;\n        blend.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;\n        blend.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;\n        blend.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;\n        blend.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;\n        blend.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;\n        blend.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;\n        blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;\n        CheckHr(device->CreateBlendState(&blend, &cursorBlend_),\n            \"CreateBlendState(cursor)\");\n    }'''
 if old_cursor not in t: raise SystemExit('InitializeCursor block missing')
 t = t.replace(old_cursor, new_cursor, 1)
 
@@ -42,7 +42,7 @@ p.write_text(t, encoding='utf-8')
 p = Path('pc/MainFormV11.cs')
 t = p.read_text(encoding='utf-8')
 needle = '''        e.Frame.ExecuteJavaScriptAsync(script);\n    }'''
-login_injection = r'''        e.Frame.ExecuteJavaScriptAsync(script);
+login_injection = '''        e.Frame.ExecuteJavaScriptAsync(script);
 
         // External sign-in pages are usable without removing the headset. The
         // keyboard appears only while an editable field has focus.
@@ -78,6 +78,7 @@ login_injection = r'''        e.Frame.ExecuteJavaScriptAsync(script);
               function emitInput(el) {
                 try { el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText'})); }
                 catch (_) { el.dispatchEvent(new Event('input',{bubbles:true})); }
+                try { el.dispatchEvent(new Event('change',{bubbles:true})); } catch (_) {}
               }
               function insertText(text) {
                 if (!active) return;
@@ -124,8 +125,8 @@ login_injection = r'''        e.Frame.ExecuteJavaScriptAsync(script);
                 var layouts = symbols ? [
                   ['1','2','3','4','5','6','7','8','9','0'],
                   ['!','@','#','$','%','^','&','*','(',')'],
-                  ['-','_','=','+','[',']','{','}','/','\\'],
-                  ['.',',',';',':','?','\'', '"','<','>','|']
+                  ['-','_','=','+','[',']','{','}','/','\\\\'],
+                  ['.',',',';',':','?','\\\'', '"','<','>','|']
                 ] : [
                   ['q','w','e','r','t','y','u','i','o','p'],
                   ['a','s','d','f','g','h','j','k','l'],
@@ -164,13 +165,14 @@ login_injection = r'''        e.Frame.ExecuteJavaScriptAsync(script);
     }'''
 if needle not in t: raise SystemExit('BrowserFrameLoadEnd end marker missing')
 t = t.replace(needle, login_injection, 1)
+p.write_text(t, encoding='utf-8')
 
 # Version labels only; retain all v0.13.3 visual/controller tuning.
 for file in ('pc/MainFormV11.cs', 'pc/GeoGebraForQuest.PC.csproj', 'pc/build.ps1'):
     q = Path(file)
     s = q.read_text(encoding='utf-8')
     s = s.replace('0.13.3-resume-controls', '0.13.4-login-keyboard-cursor')
-    s = s.replace(r'0\.13\.3-resume-controls', r'0\.13\.4-login-keyboard-cursor')
+    s = s.replace(r'0\\.13\\.3-resume-controls', r'0\\.13\\.4-login-keyboard-cursor')
     s = s.replace('v0.13.3 ·', 'v0.13.4 ·')
     s = s.replace('[GGQ-PC v0.13.3]', '[GGQ-PC v0.13.4]')
     if file.endswith('.csproj'):
