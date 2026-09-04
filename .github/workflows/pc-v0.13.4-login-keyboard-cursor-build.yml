@@ -51,7 +51,9 @@ jobs:
           python tools/patch-pc-v0133-adapter.py
       - name: Apply v0.13.4 login keyboard and cursor
         shell: powershell
-        run: python tools/patch-pc-v0134.py
+        run: |
+          python tools/patch-pc-v0134.py
+          python tools/patch-pc-v0134-buildfix.py
       - name: Verify v0.13.4 changes
         shell: powershell
         run: |
@@ -62,6 +64,7 @@ jobs:
           if ($shared -notmatch "kCursorSizeMeters = 0.032f") { throw "larger cursor missing" }
           if ($render -notmatch "CreateBlendState\(cursor\)" -or $render -notmatch "0xFF00DDF5u" -or $render -notmatch "40x40 right-pointing") { throw "triangular cursor missing" }
           if ($main -notmatch "ggq-vr-keyboard" -or $main -notmatch "Quest keyboard" -or $main -notmatch "requestSubmit") { throw "VR login keyboard missing" }
+          if ($main -notmatch "0\.13\.4-login-keyboard-cursor") { throw "v0.13.4 runtime tag missing" }
           if ($project -notmatch "<Version>0.13.4</Version>") { throw "v0.13.4 version missing" }
       - name: Build Windows EXE package
         shell: powershell
