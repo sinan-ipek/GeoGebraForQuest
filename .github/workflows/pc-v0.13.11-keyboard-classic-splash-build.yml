@@ -35,58 +35,59 @@ jobs:
       - name: Apply patches
         shell: powershell
         run: |
-          python tools/patch-pc-v013.py
-          python tools/patch-pc-v013-buildfix.py
-          python tools/patch-pc-v0131.py
-          python tools/patch-pc-v0132.py
-          python tools/patch-pc-v0133-adapter.py
-          python tools/patch-pc-v0133.py
-          python tools/patch-pc-v0133-adapter.py
-          python tools/patch-pc-v0134.py
-          python tools/patch-pc-v0134-buildfix.py
-          python tools/patch-pc-v0135.py
-          python tools/patch-pc-v0135-buildfix.py
-          python tools/patch-pc-v0136.py
-          python tools/patch-pc-v0136-buildfix.py
-          python tools/patch-pc-v0137.py
-          python tools/patch-pc-v0137-buildfix.py
-          python tools/patch-pc-v0138-prep.py
-          python tools/patch-pc-v0138-prep2.py
-          python tools/patch-pc-v0138.py
-          python tools/patch-pc-v0138-buildfix.py
-          python tools/patch-pc-v0139-direct.py
-          python tools/patch-pc-v0139-buildfix.py
-          python tools/patch-pc-v01310.py
-          python tools/patch-pc-v01310-buildfix.py
-          python tools/patch-pc-v01311.py
-          python tools/patch-pc-v01311-extra.py
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v013.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v013-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0131.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0132.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0133-adapter.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0133.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0133-adapter.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0134.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0134-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0135.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0135-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0136.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0136-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0137.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0137-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0138-prep.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0138-prep2.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0138.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0138-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0139-direct.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0139-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01310.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01310-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01311.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01311-extra.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Verify v0.13.11 features
         shell: powershell
         run: |
-          $main = Get-Content "pc/MainFormV11.cs" -Raw
-          $project = Get-Content "pc/GeoGebraForQuest.PC.csproj" -Raw
-          $program = Get-Content "pc/Program.cs" -Raw
-          if (-not $main.Contains("PostLoginClassicUrl = \"https://www.geogebra.org/classic\"")) { throw "classic post-login URL missing" }
-          if (-not $main.Contains("popup.JavascriptMessageReceived += BrowserJavascriptMessageReceived")) { throw "popup key tone bridge missing" }
-          if (-not $main.Contains("case \"keyTone\"")) { throw "native key tone handler missing" }
-          if (-not $main.Contains("['@','.','!','-','_']")) { throw "ABC punctuation row missing" }
-          if (-not $main.Contains("max-width:1040px")) { throw "compact keyboard layout missing" }
-          if (-not $main.Contains("caret-color:#00ddf5")) { throw "caret visibility CSS missing" }
-          if (-not $main.Contains("https://www.geogebra.org/classic")) { throw "classic runtime handling missing" }
-          if (-not (Test-Path "pc/QuestTonePlayer.cs")) { throw "QuestTonePlayer missing" }
-          if (-not (Test-Path "pc/SplashForm.cs")) { throw "SplashForm missing" }
-          if (-not $project.Contains("NAudio")) { throw "NAudio missing" }
-          if (-not $project.Contains("<Version>0.13.11</Version>")) { throw "version missing" }
-          if (-not $program.Contains("new SplashForm()")) { throw "splash startup missing" }
+          $main = Get-Content 'pc/MainFormV11.cs' -Raw
+          $project = Get-Content 'pc/GeoGebraForQuest.PC.csproj' -Raw
+          $program = Get-Content 'pc/Program.cs' -Raw
+          if (-not $main.Contains('PostLoginClassicUrl = "https://www.geogebra.org/classic"')) { throw 'classic post-login URL missing' }
+          if (-not $main.Contains('popup.JavascriptMessageReceived += BrowserJavascriptMessageReceived')) { throw 'popup key tone bridge missing' }
+          if (-not $main.Contains('case "keyTone"')) { throw 'native key tone handler missing' }
+          if (-not $main.Contains("['@','.','!','-','_']")) { throw 'ABC punctuation row missing' }
+          if (-not $main.Contains('max-width:1040px')) { throw 'compact keyboard layout missing' }
+          if (-not $main.Contains('caret-color:#00ddf5')) { throw 'caret visibility CSS missing' }
+          if (-not $main.Contains('https://www.geogebra.org/classic')) { throw 'classic runtime handling missing' }
+          if (-not (Test-Path 'pc/QuestTonePlayer.cs')) { throw 'QuestTonePlayer missing' }
+          if (-not (Test-Path 'pc/SplashForm.cs')) { throw 'SplashForm missing' }
+          if (-not $project.Contains('NAudio')) { throw 'NAudio missing' }
+          if (-not $project.Contains('<Version>0.13.11</Version>')) { throw 'version missing' }
+          if (-not $program.Contains('new SplashForm()')) { throw 'splash startup missing' }
       - name: Build Windows EXE package
         shell: powershell
         run: .\pc\build.ps1
       - name: Verify package
         shell: powershell
         run: |
-          $dir = "dist/GeoGebraForQuest-PC-v0.13.11-keyboard-classic-splash-win-x64"
-          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw "Main EXE missing" }
-          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw "XR EXE missing" }
+          $dir = 'dist/GeoGebraForQuest-PC-v0.13.11-keyboard-classic-splash-win-x64'
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw 'Main EXE missing' }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw 'XR EXE missing' }
       - uses: actions/upload-artifact@v4
         with:
           name: GeoGebraForQuest-PC-v0.13.11-keyboard-classic-splash-win-x64
