@@ -72,6 +72,14 @@ t = re.sub(
     count=1,
 )
 
+# Force a clearly visible text caret for all editable fields.
+if 'caret-color:#00ddf5' not in t:
+    install_marker = '              window.__ggqVrKeyboardInstalled = true;'
+    caret_css = '''              window.__ggqVrKeyboardInstalled = true;\n              var caretStyle=document.createElement('style');\n              caretStyle.textContent='input:focus,textarea:focus,[contenteditable=true]:focus{caret-color:#00ddf5 !important;}';\n              (document.head||document.documentElement).appendChild(caretStyle);'''
+    if install_marker not in t:
+        raise SystemExit('could not find keyboard install marker for caret CSS')
+    t = t.replace(install_marker, caret_css, 1)
+
 # Version labels, project version and build output/validation tags.
 main.write_text(t, encoding='utf-8')
 
@@ -101,9 +109,10 @@ required = [
     'case "keyTone":',
     "['@','.','!','-','_']",
     'max-width:1040px',
+    'caret-color:#00ddf5',
 ]
 for item in required:
     if item not in final_main:
         raise SystemExit('v0.13.11 postfix final assertion failed: ' + item)
 
-print('v0.13.11 deterministic postfix + popup bridge + compact punctuation layout applied')
+print('v0.13.11 deterministic postfix + popup bridge + compact punctuation layout + visible caret applied')
