@@ -4,35 +4,29 @@ import re
 p = Path('pc/MainFormV11.cs')
 t = p.read_text(encoding='utf-8')
 
-# 1) Route popup JS messages too, so key-tone events from the OAuth popup reach C#.
 old = """            popup.FrameLoadEnd += BrowserFrameLoadEnd;\n            popup.LoadError += (_, args) =>"""
 new = """            popup.FrameLoadEnd += BrowserFrameLoadEnd;\n            popup.JavascriptMessageReceived += BrowserJavascriptMessageReceived;\n            popup.LoadError += (_, args) =>"""
 if old not in t:
     raise SystemExit('popup event wiring marker missing')
 t = t.replace(old, new, 1)
 
-# 2) Add a native Quest-audio tone player field.
 field = '    private static readonly object AuthTraceLock = new();'
 if field not in t:
     raise SystemExit('AuthTraceLock field missing')
 t = t.replace(field, field + '\n    private readonly QuestTonePlayer _questTonePlayer = new();', 1)
 
-# 3) Handle keyTone messages from the injected keyboard.
 needle = '''                case "panelReady":\n                    BeginInvokeSafe(UpdateWindowTitle);\n                    break;'''
 replacement = '''                case "keyTone":\n                    _questTonePlayer.PlayClick();\n                    break;\n                case "panelReady":\n                    BeginInvokeSafe(UpdateWindowTitle);\n                    break;'''
 if needle not in t:
     raise SystemExit('JS message switch marker missing')
 t = t.replace(needle, replacement, 1)
 
-# 4) Dispose audio player on shutdown.
 needle = '        _xrMousePointer.Dispose();\n        _xrCompanion.Dispose();'
 replacement = '        _xrMousePointer.Dispose();\n        _questTonePlayer.Dispose();\n        _xrCompanion.Dispose();'
 if needle not in t:
     raise SystemExit('shutdown dispose marker missing')
 t = t.replace(needle, replacement, 1)
 
-# 5) Make the virtual keyboard available on BOTH auth pages and GeoGebra itself,
-# so clicking the magnifier/search input also opens it.
 start = t.find('        // External sign-in pages are usable without removing the headset.')
 if start < 0:
     raise SystemExit('login assist comment missing')
@@ -51,9 +45,6 @@ if end < 0:
 body = t[body_start:end] + '            e.Frame.ExecuteJavaScriptAsync(loginAssist);\n'
 t = prefix + body + '    }' + t[end+len(end_marker):]
 
-# 6) Compact keyboard: reduce left/right spread, bring numpad tight to letters,
-# put common punctuation on ABC view, ensure visible caret, and send a native
-# keyTone event in addition to browser WebAudio.
 old_style = "rows.style.cssText='display:flex;align-items:stretch;justify-content:center;gap:10px;';"
 new_style = "rows.style.cssText='display:flex;align-items:stretch;justify-content:center;gap:2px;max-width:1040px;margin:0 auto;';"
 if old_style not in t:
@@ -62,9 +53,7 @@ t = t.replace(old_style, new_style, 1)
 
 t = t.replace("main.style.cssText='flex:1;min-width:0;text-align:center;';",
               "main.style.cssText='flex:0 1 auto;min-width:0;text-align:center;';", 1)
-
 t = t.replace("['@','.','-','_']", "['@','.','!','-','_']", 1)
-
 t = t.replace("num.style.cssText='width:190px;border-left:1px solid #52606d;padding-left:8px;display:flex;flex-direction:column;justify-content:center;';",
               "num.style.cssText='width:176px;border-left:1px solid #52606d;padding-left:2px;margin-left:0;display:flex;flex-direction:column;justify-content:center;';", 1)
 
@@ -91,7 +80,6 @@ if install not in t:
     raise SystemExit('keyboard install marker missing')
 t = t.replace(install, install_new, 1)
 
-# 7) After auth, always go to the canonical GeoGebra Classic page.
 classic_const = '    private const string LocalAppUrl = "https://appassets.androidplatform.net/assets/web/index.html";'
 classic_new = classic_const + '\n    private const string PostLoginClassicUrl = "https://www.geogebra.org/classic";'
 if classic_const not in t:
@@ -103,16 +91,15 @@ t = t.replace('popup-close step 7: reloading local GeoGebra with shared auth ses
 t = t.replace('popup-close complete; root surface restored and reloaded',
               'popup-close complete; root surface restored and classic opened', 1)
 
-# Keep the QuestBridge/stereo runtime active on geogebra.org/classic too. Directly
-# execute the local runtime source for Classic so CSP cannot block a cross-origin
-# <script src> from appassets.androidplatform.net.
-old_guard = '''        if (e.Url.StartsWith("https://appassets.androidplatform.net/", StringComparison.OrdinalIgnoreCase))\n        {\n            e.Frame.ExecuteJavaScriptAsync(script);\n        }'''
-new_guard = '''        var isLocalGeoGebra = e.Url.StartsWith("https://appassets.androidplatform.net/", StringComparison.OrdinalIgnoreCase);\n        var isClassicGeoGebra = e.Url.StartsWith("https://www.geogebra.org/classic", StringComparison.OrdinalIgnoreCase) ||\n                                e.Url.StartsWith("https://geogebra.org/classic", StringComparison.OrdinalIgnoreCase);\n        if (isLocalGeoGebra)\n        {\n            e.Frame.ExecuteJavaScriptAsync(script);\n        }\n        else if (isClassicGeoGebra)\n        {\n            e.Frame.ExecuteJavaScriptAsync(script);\n            try\n            {\n                var runtimePath = Path.Combine(AppContext.BaseDirectory, "pc-stereo-layout.js");\n                if (File.Exists(runtimePath))\n                {\n                    var runtimeSource = File.ReadAllText(runtimePath);\n                    e.Frame.ExecuteJavaScriptAsync(runtimeSource);\n                }\n            }\n            catch (Exception ex)\n            {\n                _cefPageText = "CEF classic runtime: " + ShortError(ex);\n                BeginInvokeSafe(UpdateWindowTitle);\n            }\n        }'''
-if old_guard not in t:
-    raise SystemExit('stereo runtime local-only guard missing')
-t = t.replace(old_guard, new_guard, 1)
+# Keep QuestBridge/stereo runtime active on the canonical Classic page. Do not
+# depend on the exact formatting of the inherited local-app guard; simply insert
+# an explicit Classic branch immediately before the keyboard helper section.
+classic_marker = '        // External sign-in pages are usable without removing the headset.'
+classic_block = '''        if (e.Url.StartsWith("https://www.geogebra.org/classic", StringComparison.OrdinalIgnoreCase) ||\n            e.Url.StartsWith("https://geogebra.org/classic", StringComparison.OrdinalIgnoreCase))\n        {\n            e.Frame.ExecuteJavaScriptAsync(script);\n            try\n            {\n                var runtimePath = Path.Combine(AppContext.BaseDirectory, "pc-stereo-layout.js");\n                if (File.Exists(runtimePath))\n                {\n                    var runtimeSource = File.ReadAllText(runtimePath);\n                    e.Frame.ExecuteJavaScriptAsync(runtimeSource);\n                }\n            }\n            catch (Exception ex)\n            {\n                _cefPageText = "CEF classic runtime: " + ShortError(ex);\n                BeginInvokeSafe(UpdateWindowTitle);\n            }\n        }\n\n'''
+if classic_marker not in t:
+    raise SystemExit('classic insertion marker missing')
+t = t.replace(classic_marker, classic_block + classic_marker, 1)
 
-# Version labels.
 for file in ('pc/MainFormV11.cs', 'pc/GeoGebraForQuest.PC.csproj', 'pc/build.ps1'):
     q = Path(file)
     s = q.read_text(encoding='utf-8')
