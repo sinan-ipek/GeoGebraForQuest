@@ -19,7 +19,7 @@ def require(text: str, needle: str, label: str) -> None:
 #               /   \
 #              B-----C
 #
-# A is north, B south-west, C south-east, and AB = AC > BC.  The cursor is
+# A is north, B south-west, C south-east, and AB = AC > BC. The cursor is
 # intentionally narrow/pointed. Mouse coordinates and GeoGebra hit-testing stay
 # untouched; only the visual cursor artwork and its hotspot are changed.
 # ---------------------------------------------------------------------------
@@ -109,8 +109,17 @@ for file in ('pc/MainFormV11.cs', 'pc/GeoGebraForQuest.PC.csproj', 'pc/build.ps1
     p = Path(file)
     s = p.read_text(encoding='utf-8')
     s = s.replace('0.13.16-cursor-hotspot', '0.13.17-cursor-apex')
-    s = s.replace(r'0\\.13\\.16-cursor-hotspot', r'0\\.13\\.17-cursor-apex')
+    s = s.replace(r'0\.13\.16-cursor-hotspot', r'0\.13\.17-cursor-apex')
     s = s.replace('v0.13.16', 'v0.13.17')
+
+    if file.endswith('MainFormV11.cs'):
+        # Keep the stereo runtime URL cache-buster in lockstep with the build
+        # version. Older patch layers do not always carry the full package suffix.
+        s = re.sub(
+            r'(pc-stereo-layout\.js\?v=)[^"\']+',
+            r'\g<1>0.13.17-cursor-apex',
+            s,
+            count=1)
 
     if file.endswith('.csproj'):
         s = re.sub(r'<Version>[^<]+</Version>', '<Version>0.13.17</Version>', s, count=1)
