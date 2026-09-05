@@ -113,8 +113,6 @@ new_listeners = """              function showFor(el){
                 if (root.contains(e.target)) return;
                 var candidate=editableFrom(e.target);
                 if(candidate){ showFor(candidate); return; }
-                // GeoGebra's search button creates/focuses the real input after
-                // the pointer event. Re-check on the next event-loop turns.
                 setTimeout(function(){recoverFocusedEditable(e.target);},0);
                 setTimeout(function(){recoverFocusedEditable(document.activeElement);},80);
                 setTimeout(function(){recoverFocusedEditable(document.activeElement);},220);
@@ -132,8 +130,7 @@ new_listeners = """              function showFor(el){
 require(t, old_listeners, 'v0.13.12: keyboard listener block missing')
 t = t.replace(old_listeners, new_listeners, 1)
 
-# Better layout density: closer numpad, slightly larger hit areas without a huge
-# overall keyboard footprint.
+# Better layout density.
 t = t.replace('max-width:1040px', 'max-width:980px', 1)
 t = t.replace("width:176px;border-left:1px solid #52606d;padding-left:2px;margin-left:0;",
               "width:168px;border-left:1px solid #52606d;padding-left:0;margin-left:-2px;", 1)
@@ -155,9 +152,7 @@ for file in ('pc/MainFormV11.cs','pc/GeoGebraForQuest.PC.csproj','pc/build.ps1')
     q.write_text(s, encoding='utf-8')
 
 # ---------------------------------------------------------------------------
-# Native XR splash: use the exact left/right splash artwork from the standalone
-# Quest branch. Each eye gets its own image before the PC surface is ready and
-# for a minimum startup interval.
+# Native XR splash.
 # ---------------------------------------------------------------------------
 p = Path('pc-xr/main-v11.cpp')
 x = p.read_text(encoding='utf-8')
@@ -239,7 +234,6 @@ new_srv = '''                        showSplash
 require(x, old_srv, 'v0.13.12: RenderEye base SRV marker missing')
 x = x.replace(old_srv, new_srv, 1)
 
-# Release splash resources cleanly.
 x = x.replace('        context_.Reset();\n        device_.Reset();',
               '        splashLeft_.Reset();\n        splashRight_.Reset();\n        context_.Reset();\n        device_.Reset();', 1)
 p.write_text(x, encoding='utf-8')
@@ -256,13 +250,13 @@ p.write_text(c, encoding='utf-8')
 # Build package includes the converted standalone splash images next to XR EXE.
 p = Path('pc/build.ps1')
 b = p.read_text(encoding='utf-8')
-copy_marker = 'Copy-Item $xrExe (Join-Path $xrDist "GeoGebraForQuestPC.XR.exe") -Force'
+copy_marker = 'Copy-Item $xrExe.FullName (Join-Path $xrOut "GeoGebraForQuestPC.XR.exe") -Force'
 require(b, copy_marker, 'v0.13.12: XR copy marker missing')
 b = b.replace(copy_marker, copy_marker + '''
-$splashLeft = Join-Path $repoRoot "pc-xr\\stereo_splash_left.png"
-$splashRight = Join-Path $repoRoot "pc-xr\\stereo_splash_right.png"
-if (Test-Path $splashLeft) { Copy-Item $splashLeft (Join-Path $xrDist "stereo_splash_left.png") -Force }
-if (Test-Path $splashRight) { Copy-Item $splashRight (Join-Path $xrDist "stereo_splash_right.png") -Force }''', 1)
+$splashLeft = Join-Path $root "pc-xr\\stereo_splash_left.png"
+$splashRight = Join-Path $root "pc-xr\\stereo_splash_right.png"
+if (Test-Path $splashLeft) { Copy-Item $splashLeft (Join-Path $xrOut "stereo_splash_left.png") -Force }
+if (Test-Path $splashRight) { Copy-Item $splashRight (Join-Path $xrOut "stereo_splash_right.png") -Force }''', 1)
 p.write_text(b, encoding='utf-8')
 
 print('GeoGebraForQuest PC v0.13.12 login/stereo/keyboard/native-XR-splash patch applied')
