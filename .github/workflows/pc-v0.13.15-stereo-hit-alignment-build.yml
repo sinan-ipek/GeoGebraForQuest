@@ -1,0 +1,129 @@
+name: GeoGebraForQuest PC v0.13.15 Stereo Hit Alignment
+
+on:
+  push:
+    branches:
+      - pc-v0.13.15-stereo-hit-alignment
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download Exp46 assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" --repo "sinan-ipek/GeoGebraForQuest" --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          if (-not $apk) { throw 'Exp46 APK missing' }
+          Copy-Item $apk.FullName ".exp46/exp46.zip" -Force
+          Expand-Archive ".exp46/exp46.zip" ".exp46/unpacked" -Force
+          $source = ".exp46/unpacked/assets/web"
+          if (Test-Path "app/src/main/assets/web") { Remove-Item "app/src/main/assets/web" -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+
+      - name: Prepare standalone Quest stereo splash artwork
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $left = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/v0.9.22-splash-20fps/app/src/main/res/drawable-nodpi/stereo_splash_left.webp'
+          $right = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/v0.9.22-splash-20fps/app/src/main/res/drawable-nodpi/stereo_splash_right.webp'
+          Invoke-WebRequest $left -OutFile 'pc-xr/stereo_splash_left.webp'
+          Invoke-WebRequest $right -OutFile 'pc-xr/stereo_splash_right.webp'
+          python -m pip install --disable-pip-version-check --quiet pillow
+          @'
+          from PIL import Image
+          for side in ('left','right'):
+              src=f'pc-xr/stereo_splash_{side}.webp'
+              dst=f'pc-xr/stereo_splash_{side}.png'
+              with Image.open(src) as im:
+                  im.convert('RGBA').save(dst, 'PNG')
+          '@ | python -
+          if (-not (Test-Path 'pc-xr/stereo_splash_left.png')) { throw 'left splash PNG missing' }
+          if (-not (Test-Path 'pc-xr/stereo_splash_right.png')) { throw 'right splash PNG missing' }
+
+      - name: Apply patches
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v013.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v013-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0131.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0132.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0133-adapter.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0133.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0133-adapter.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0134.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0134-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0135.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0135-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0136.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0136-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0137.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0137-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0138-prep.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0138-prep2.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0138.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0138-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0139-direct.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v0139-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01310.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01310-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01311.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01311-extra.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01311-postfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01312-prep.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01312-buildprep.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01312.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01313.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01314.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01315.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Verify v0.13.15 stereo hit alignment
+        shell: powershell
+        run: |
+          $main = Get-Content 'pc/MainFormV11.cs' -Raw
+          $xr = Get-Content 'pc-xr/main-v11.cpp' -Raw
+          $render = Get-Content 'pc-xr/v11-render.hpp' -Raw
+          $project = Get-Content 'pc/GeoGebraForQuest.PC.csproj' -Raw
+          if (-not $main.Contains('_inputTimer.Stop();')) { throw 'mouse-only host input timer stop missing' }
+          if (-not $xr.Contains('const bool cursorValid = false;')) { throw 'XR controller cursor is still active' }
+          if (-not $render.Contains('mouseInsideStereo3D')) { throw '3D/UI cursor handoff logic missing' }
+          if (-not $render.Contains('behindStereoExact')) { throw 'exact stereo quad missing' }
+          if (-not $render.Contains('behindStereoGuard')) { throw 'seam guard stereo quad missing' }
+          if ($render.Contains('context, view, behindStereo, -behindDistance')) { throw 'old scaled overscan stereo draw still active' }
+          if (-not $project.Contains('<Version>0.13.15</Version>')) { throw 'v0.13.15 version missing' }
+
+      - name: Build Windows EXE package
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = 'dist/GeoGebraForQuest-PC-v0.13.15-stereo-hit-alignment-win-x64'
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw 'Main EXE missing' }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw 'XR EXE missing' }
+          if (-not (Test-Path "$dir/xr/stereo_splash_left.png")) { throw 'left splash package missing' }
+          if (-not (Test-Path "$dir/xr/stereo_splash_right.png")) { throw 'right splash package missing' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.13.15-stereo-hit-alignment-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.13.15-stereo-hit-alignment-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
