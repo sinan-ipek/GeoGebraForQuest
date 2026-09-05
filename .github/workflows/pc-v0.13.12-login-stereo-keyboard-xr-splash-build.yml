@@ -87,6 +87,7 @@ jobs:
           python tools/patch-pc-v01311-extra.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01311-postfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01312-prep.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01312-buildprep.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01312.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Verify v0.13.12 features
