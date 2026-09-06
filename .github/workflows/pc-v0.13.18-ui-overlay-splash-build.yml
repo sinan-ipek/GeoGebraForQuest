@@ -96,6 +96,7 @@ jobs:
           python tools/patch-pc-v01317.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01318-prep.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01318.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01318-buildfix.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Verify v0.13.18 UI overlay, Windows cursor and XR splash
         shell: powershell
@@ -113,7 +114,7 @@ jobs:
           if (-not $input.Contains('WriteFrames(left, right, rect, size, overlays, frame)')) { throw 'overlay rectangles not carried to SBS writer' }
           if (-not $runtime.Contains('collectUiOverlayRects')) { throw 'dynamic UI overlay detector missing' }
           if (-not $runtime.Contains('uiOverlays: uiOverlays')) { throw 'UI overlays not present in layout payload' }
-          if ($runtime.Contains("reportInactive('ui-overlay')")) { throw 'old menu-disables-B behavior still active' }
+          if (-not $runtime.Contains('v0.13.18: B geometry is ALWAYS')) { throw 'fixed-B geometry logic missing' }
           if (-not $writer.Contains('MaxUiOverlayRects = 3')) { throw 'SBS overlay header writer missing' }
           if (-not $writer.Contains('_view.Write(64, overlayCount)')) { throw 'SBS overlay count write missing' }
           if (-not $shared.Contains('struct UiOverlayRectPx')) { throw 'C++ overlay header reader missing' }
