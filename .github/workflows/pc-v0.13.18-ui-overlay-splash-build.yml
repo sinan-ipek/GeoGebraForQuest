@@ -94,6 +94,7 @@ jobs:
           python tools/patch-pc-v01315.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01316.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01317.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/patch-pc-v01318-prep.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tools/patch-pc-v01318.py; if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Verify v0.13.18 UI overlay, Windows cursor and XR splash
