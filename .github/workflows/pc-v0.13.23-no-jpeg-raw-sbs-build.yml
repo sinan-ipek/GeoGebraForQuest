@@ -105,6 +105,7 @@ jobs:
           python tools/patch-pc-v01322.py
           python tools/patch-pc-v01322-compilefix.py
           python tools/patch-pc-v01323.py
+          python tools/patch-pc-v01323-buildfix.py
 
       - name: Verify v0.13.23 raw transport
         shell: powershell
