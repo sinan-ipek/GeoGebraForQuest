@@ -98,6 +98,7 @@ jobs:
           python tools/patch-pc-v01319.py
           python tools/patch-pc-v01320.py
           python tools/patch-pc-v01321.py
+          python tools/patch-pc-v01321-js-extra.py
           python tools/patch-pc-v01321-extra.py
           python tools/patch-pc-v01321-compilefix.py
           python tools/patch-pc-v01321-buildfix.py
@@ -112,6 +113,7 @@ jobs:
           $project = Get-Content 'pc/GeoGebraForQuest.PC.csproj' -Raw
           if (-not $runtime.Contains('emitPerformanceSample')) { throw 'JS telemetry missing' }
           if (-not $runtime.Contains('actualEncodeFps')) { throw 'JS encode FPS metric missing' }
+          if (-not $runtime.Contains('avgCaptureMs')) { throw 'JS capture timing missing' }
           if (-not $runtime.Contains('avgEncodeMs')) { throw 'JS encode timing missing' }
           if (-not $main.Contains('performanceSample')) { throw 'JS telemetry bridge missing' }
           if (-not $main.Contains('HostPerformanceTelemetry')) { throw 'host telemetry field missing' }
