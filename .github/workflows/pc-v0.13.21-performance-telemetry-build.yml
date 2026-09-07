@@ -99,6 +99,7 @@ jobs:
           python tools/patch-pc-v01320.py
           python tools/patch-pc-v01321.py
           python tools/patch-pc-v01321-extra.py
+          python tools/patch-pc-v01321-compilefix.py
           python tools/patch-pc-v01321-buildfix.py
 
       - name: Verify v0.13.21 telemetry
@@ -126,6 +127,7 @@ jobs:
           if (-not $xr.Contains('avg_render_eyes_ms')) { throw 'eye render timing missing' }
           if (-not $xr.Contains('avg_end_frame_ms')) { throw 'XR end-frame timing missing' }
           if (-not $xr.Contains('predicted_display_ms')) { throw 'XR predicted display period metric missing' }
+          if (-not $xr.Contains('#include <iomanip>')) { throw 'telemetry iomanip include missing' }
           if (-not $project.Contains('<Version>0.13.21</Version>')) { throw 'v0.13.21 version missing' }
 
       - name: Build Windows EXE package
