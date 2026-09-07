@@ -103,6 +103,7 @@ jobs:
           python tools/patch-pc-v01321-compilefix.py
           python tools/patch-pc-v01321-buildfix.py
           python tools/patch-pc-v01322.py
+          python tools/patch-pc-v01322-compilefix.py
 
       - name: Verify v0.13.22 telemetry
         shell: powershell
@@ -121,6 +122,7 @@ jobs:
           if (-not $xr.Contains('std::ios::app')) { throw 'XR telemetry append mode missing' }
           if (-not $xr.Contains('session_id,pid,elapsed_s')) { throw 'XR session columns missing' }
           if (-not $xr.Contains('perfSessionId_')) { throw 'XR session id missing' }
+          if (-not $xr.Contains('#include <iostream>')) { throw 'iostream compile include missing' }
           if (-not $project.Contains('<Version>0.13.22</Version>')) { throw 'v0.13.22 version missing' }
           if (-not $build.Contains('v0.13.22-pipeline-latency-telemetry')) { throw 'v0.13.22 package label missing' }
 
