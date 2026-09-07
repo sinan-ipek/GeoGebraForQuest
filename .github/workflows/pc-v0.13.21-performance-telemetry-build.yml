@@ -98,6 +98,7 @@ jobs:
           python tools/patch-pc-v01319.py
           python tools/patch-pc-v01320.py
           python tools/patch-pc-v01321.py
+          python tools/patch-pc-v01321-buildfix.py
 
       - name: Verify v0.13.21 telemetry
         shell: powershell
