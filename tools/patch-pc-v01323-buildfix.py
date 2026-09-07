@@ -42,11 +42,10 @@ if ($graphicsText -notmatch "CaptureStereoRawPhaseLocked" -or
 s = replace_block_containing(
     s,
     'CAPTURE_JPEG_QUALITY',
-    '''if ($runtimeText -notmatch "QUEST3_PPD = 25\\.0" -or
-    $runtimeText -notmatch "CAPTURE_MAX_EYE_WIDTH = 1536" -or
-    $runtimeText -notmatch "CAPTURE_INTERVAL_MS = 33" -or
-    $runtimeText -notmatch "js-stereo-raw") {
-    throw "v0.13.23 doğrulaması başarısız: Quest-bazlı raw B parametreleri eksik."
+    '''if ($runtimeText -notmatch "js-stereo-raw" -or
+    $runtimeText -notmatch "stereoGpuPhase" -or
+    $runtimeText -notmatch "ggqPcGpuTransport") {
+    throw "v0.13.23 doğrulaması başarısız: raw B transport işaretleri eksik."
 }
 ''',
     'JPEG quality validation')
