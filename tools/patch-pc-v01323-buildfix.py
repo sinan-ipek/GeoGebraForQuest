@@ -1,13 +1,21 @@
 from pathlib import Path
 
 
-def replace_if_block(text: str, start_marker: str, replacement: str, label: str) -> str:
-    start = text.find(start_marker)
+def replace_block_containing(text: str, token: str, replacement: str, label: str) -> str:
+    pos = text.find(token)
+    if pos < 0:
+        raise SystemExit(f'v0.13.23 buildfix: {label} token missing')
+    start = text.rfind('\nif (', 0, pos)
     if start < 0:
-        raise SystemExit(f'v0.13.23 buildfix: {label} marker missing')
-    end = text.find('\n}', start)
+        if text.startswith('if ('):
+            start = 0
+        else:
+            raise SystemExit(f'v0.13.23 buildfix: {label} block start missing')
+    else:
+        start += 1
+    end = text.find('\n}', pos)
     if end < 0:
-        raise SystemExit(f'v0.13.23 buildfix: {label} end missing')
+        raise SystemExit(f'v0.13.23 buildfix: {label} block end missing')
     end += 2
     if end < len(text) and text[end] == '\n':
         end += 1
@@ -17,9 +25,9 @@ def replace_if_block(text: str, start_marker: str, replacement: str, label: str)
 p = Path('pc/build.ps1')
 s = p.read_text(encoding='utf-8')
 
-s = replace_if_block(
+s = replace_block_containing(
     s,
-    'if ($inputText -notmatch "Parallel\\.Invoke") {',
+    'Parallel\\.Invoke',
     '''if ($inputText -match "DecodeDataUrl" -or $inputText -match "QueueStereoFrames") {
     throw "v0.13.23 doğrulaması başarısız: eski JPEG/DataURL decode yolu hâlâ mevcut."
 }
@@ -31,9 +39,9 @@ if ($graphicsText -notmatch "CaptureStereoRawPhaseLocked" -or
 ''',
     'parallel decode validation')
 
-s = replace_if_block(
+s = replace_block_containing(
     s,
-    'if ($runtimeText -notmatch "QUEST3_PPD = 25\\.0" -or',
+    'CAPTURE_JPEG_QUALITY',
     '''if ($runtimeText -notmatch "QUEST3_PPD = 25\\.0" -or
     $runtimeText -notmatch "CAPTURE_MAX_EYE_WIDTH = 1536" -or
     $runtimeText -notmatch "CAPTURE_INTERVAL_MS = 33" -or
@@ -43,9 +51,9 @@ s = replace_if_block(
 ''',
     'JPEG quality validation')
 
-s = replace_if_block(
+s = replace_block_containing(
     s,
-    'if ($runtimeText -notmatch "canvas\\.toBlob") {',
+    'canvas\\.toBlob',
     '''if ($runtimeText -match "canvas\\.toBlob" -or
     $runtimeText -match "image/jpeg" -or
     $runtimeText -match "bridgeStereoEyes") {
