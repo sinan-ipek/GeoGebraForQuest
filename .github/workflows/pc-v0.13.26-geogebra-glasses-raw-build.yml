@@ -102,6 +102,7 @@ jobs:
           python tools/patch-pc-v01322-compilefix.py
           python tools/patch-pc-v01324.py
           python tools/patch-pc-v01324-buildfix.py
+          python tools/patch-pc-v01326-prep.py
           python tools/patch-pc-v01326.py
 
       - name: Verify v0.13.26 simple stereo architecture
