@@ -109,9 +109,11 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $url = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/6ec8b49d1a23f2eca3a2a3feba220a59589aa545/tools/patch-pc-v01324.py'
-          Invoke-WebRequest $url -OutFile 'tools/patch-pc-v01324-imported.py'
+          $base = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/6ec8b49d1a23f2eca3a2a3feba220a59589aa545/tools'
+          Invoke-WebRequest "$base/patch-pc-v01324.py" -OutFile 'tools/patch-pc-v01324-imported.py'
+          Invoke-WebRequest "$base/patch-pc-v01324-buildfix.py" -OutFile 'tools/patch-pc-v01324-buildfix-imported.py'
           python tools/patch-pc-v01324-imported.py
+          python tools/patch-pc-v01324-buildfix-imported.py
 
       - name: Apply v0.13.27 A_L A_R full-SBS architecture
         shell: powershell
@@ -143,6 +145,7 @@ jobs:
           if (-not $xr.Contains('fullSbsComposer_.Compose')) { throw 'XR composer invocation missing' }
           if (-not $project.Contains('<Version>0.13.27</Version>')) { throw 'v0.13.27 version missing' }
           if (-not $build.Contains('v0.13.27-al-ar-full-sbs')) { throw 'v0.13.27 package label missing' }
+          if ($runtime.Contains('canvas.toBlob') -or $runtime.Contains('image/jpeg')) { throw 'JPEG regression detected' }
 
       - name: Build Windows EXE package
         shell: powershell
