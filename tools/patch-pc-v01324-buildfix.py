@@ -67,4 +67,21 @@ s = s.replace("B XR:   Quest angular-density source; 640..1536 px/göz; A'nın 2
               "B XR:   detached SBS canvas -> RGBA ArrayBuffer -> binary CEF IPC -> raw MMF")
 
 p.write_text(s, encoding='utf-8')
-print('v0.13.24 build validation updated for raw ArrayBuffer stereo')
+
+# SourceTexture is also used by cursor/UI helper textures. v0.13.24 added a
+# pixelFormat argument for the SBS texture, but all old six-argument callers must
+# remain valid and continue to mean BGRA. Keep one method with a default value.
+p = Path('pc-xr/v11-shared.hpp')
+s = p.read_text(encoding='utf-8')
+old = '''        int rowPitch,
+        int pixelFormat) {
+'''
+new = '''        int rowPitch,
+        int pixelFormat = 1) {
+'''
+if old not in s:
+    raise SystemExit('v0.13.24 buildfix: SourceTexture::Upload pixelFormat signature missing')
+s = s.replace(old, new, 1)
+p.write_text(s, encoding='utf-8')
+
+print('v0.13.24 build validation + SourceTexture compatibility updated')
