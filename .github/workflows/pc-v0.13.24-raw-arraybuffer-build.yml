@@ -129,6 +129,9 @@ jobs:
           if (-not $runtime.Contains('image.data.buffer')) { throw 'ArrayBuffer payload missing' }
           if (-not $runtime.Contains('getImageData')) { throw 'raw canvas readback missing' }
           if (-not $runtime.Contains('ggqRawStereoAck')) { throw 'host ACK gate missing' }
+          if (-not $runtime.Contains('CAPTURE_INTERVAL_MS = 33')) { throw '33 ms raw cadence missing' }
+          if (-not $runtime.Contains('QUEST3_PPD = 25.0')) { throw 'Quest PPD marker missing' }
+          if (-not $runtime.Contains('CAPTURE_MAX_EYE_WIDTH = 1536')) { throw 'raw eye width cap missing' }
           if (-not $main.Contains('TryHandleRawStereoMessage')) { throw 'C# binary fast path missing' }
           if (-not $main.Contains('rgbaObject is not byte[] rgba')) { throw 'CefSharp ArrayBuffer byte[] path missing' }
           if (-not $writer.Contains('WriteRawSbsRgba')) { throw 'raw MMF writer missing' }
