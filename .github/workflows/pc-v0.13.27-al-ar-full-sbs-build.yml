@@ -120,6 +120,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           python tools/patch-pc-v01327.py
+          python tools/patch-pc-v01327-buildfix.py
 
       - name: Verify v0.13.27 architecture
         shell: powershell
@@ -145,6 +146,7 @@ jobs:
           if (-not $xr.Contains('fullSbsComposer_.Compose')) { throw 'XR composer invocation missing' }
           if (-not $project.Contains('<Version>0.13.27</Version>')) { throw 'v0.13.27 version missing' }
           if (-not $build.Contains('v0.13.27-al-ar-full-sbs')) { throw 'v0.13.27 package label missing' }
+          if (-not $build.Contains('16 ms LEFT-only raw cadence')) { throw 'v0.13.27 16 ms build validation missing' }
           if ($runtime.Contains('canvas.toBlob') -or $runtime.Contains('image/jpeg')) { throw 'JPEG regression detected' }
 
       - name: Build Windows EXE package
