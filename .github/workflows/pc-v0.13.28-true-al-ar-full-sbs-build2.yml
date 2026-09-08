@@ -128,6 +128,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           python tools/patch-pc-v01328.py
+          python tools/patch-pc-v01328-buildfix.py
 
       - name: Verify v0.13.28 architecture
         shell: powershell
