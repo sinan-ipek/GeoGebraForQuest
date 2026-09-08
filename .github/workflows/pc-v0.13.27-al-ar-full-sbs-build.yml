@@ -121,6 +121,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python tools/patch-pc-v01327.py
           python tools/patch-pc-v01327-buildfix.py
+          python tools/patch-pc-v01327-xr-compilefix.py
 
       - name: Verify v0.13.27 architecture
         shell: powershell
@@ -143,7 +144,9 @@ jobs:
           if (-not $shared.Contains('candidate.pixelFormat == 3')) { throw 'XR mono LEFT reader missing' }
           if (-not $render.Contains('class FullSbsComposer')) { throw 'GPU full-SBS composer missing' }
           if (-not $render.Contains('GGQ v0.13.27: one content panel')) { throw 'single-panel renderer missing' }
+          if (-not $render.Contains('const bool stereoVisible = sbsSrv != nullptr && stereoRect != nullptr;')) { throw 'cursor handoff interaction gate missing' }
           if (-not $xr.Contains('fullSbsComposer_.Compose')) { throw 'XR composer invocation missing' }
+          if (-not $xr.Contains('cursorStereoValid ? &cursorStereoRect : nullptr')) { throw 'cursor 3D interaction geometry missing' }
           if (-not $project.Contains('<Version>0.13.27</Version>')) { throw 'v0.13.27 version missing' }
           if (-not $build.Contains('v0.13.27-al-ar-full-sbs')) { throw 'v0.13.27 package label missing' }
           if (-not $build.Contains('16 ms LEFT-only raw cadence')) { throw 'v0.13.27 16 ms build validation missing' }
