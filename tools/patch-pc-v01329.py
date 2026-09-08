@@ -53,13 +53,19 @@ if 'case "stereoEyes":' not in s:
                     break;
 '''
     if '                case "performanceSample":' in s:
-        s = s.replace('                case "performanceSample":', arm + '                case "performanceSample":', 1)
+        s = s.replace(
+            '                case "performanceSample":',
+            arm + '                case "performanceSample":',
+            1)
     else:
         req(s, '                case "runtimeError":', 'v0.13.29 stereoEyes insertion marker missing')
-        s = s.replace('                case "runtimeError":', arm + '                case "runtimeError":', 1)
+        s = s.replace(
+            '                case "runtimeError":',
+            arm + '                case "runtimeError":',
+            1)
 
-# Old JPEG messages must fall through TryHandleRawStereoMessage(false) and reach
-# the JSON switch above. The raw handler remains compiled but is unused here.
+# Old JPEG messages fall through TryHandleRawStereoMessage(false) and reach the
+# restored stereoEyes arm. The raw handler remains compiled but is unused here.
 s = re.sub(
     r'(pc-stereo-layout\.js\?v=)[^"\']+',
     r'\g<1>0.13.29-jpeg-proof-single-panel',
@@ -103,7 +109,7 @@ p.write_text(s, encoding='utf-8')
 
 
 # ---------------------------------------------------------------------------
-# 3) Version/package labels.
+# 3) Version/package labels and build validation.
 # ---------------------------------------------------------------------------
 p = Path('pc/GeoGebraForQuest.PC.csproj')
 s = p.read_text(encoding='utf-8')
@@ -122,61 +128,56 @@ s = s.replace(r'0\.13\.28-true-al-ar-full-sbs', r'0\.13\.29-jpeg-proof-single-pa
 s = s.replace('v0.13.28', 'v0.13.29')
 s = s.replace(r'v0\.13\.28', r'v0\.13\.29')
 
-# v0.13.28's build guard requires raw ArrayBuffer markers. This proof build
-# deliberately restores the old JPEG runtime, so replace only that architecture
-# guard with a guard for the cross-connected JPEG + single-panel path.
-pattern = re.compile(
-    r'if \(\$renderText -notmatch "GGQ v0\\\.13\\\.29 TRUE A_L/A_R SBS single-panel path".*?\n\}',
-    re.S)
-match = pattern.search(s)
-if match:
-    replacement = '''if ($renderText -notmatch "GGQ v0\\.13\\.29 JPEG-PROOF A_L/A_R SBS single-panel path" -or
-    $renderText -notmatch "class FullSbsComposer" -or
-    $renderText -notmatch "pairFrame->pixelFormat == 1" -or
-    $renderText -notmatch "rightEye \\? 0\\.5f : 0\\.0f" -or
-    $renderText -notmatch "footprint <= 1\\.12") {
-    throw "v0.13.29 doğrulaması başarısız: proven JPEG L/R + full A_L/A_R SBS single-panel path eksik."
-}'''
-    s = s[:match.start()] + replacement + s[match.end():]
-else:
-    # Fallback: locate the previous throw block by its known message.
-    throw_text = 'v0.13.29 doğrulaması başarısız: full A_L/A_R SBS / single panel / quality minification eksik.'
-    idx = s.find(throw_text)
-    if idx >= 0:
-        start = s.rfind('if (', 0, idx)
-        end = s.find('\n}', idx)
-        if start < 0 or end < 0:
-            raise SystemExit('v0.13.29 build guard boundaries missing')
-        end += 2
-        replacement = '''if ($renderText -notmatch "GGQ v0\\.13\\.29 JPEG-PROOF A_L/A_R SBS single-panel path" -or
-    $renderText -notmatch "class FullSbsComposer" -or
-    $renderText -notmatch "pairFrame->pixelFormat == 1" -or
-    $renderText -notmatch "rightEye \\? 0\\.5f : 0\\.0f" -or
-    $renderText -notmatch "footprint <= 1\\.12") {
-    throw "v0.13.29 doğrulaması başarısız: proven JPEG L/R + full A_L/A_R SBS single-panel path eksik."
-}'''
-        s = s[:start] + replacement + s[end:]
+# Replace the complete raw-runtime validation cluster installed by v0.13.24+
+# with proof-build checks for the exact checkpoint JPEG path.
+raw_start = s.find('if (-not $runtimeText.Contains("var CAPTURE_INTERVAL_MS = 16"))')
+if raw_start < 0:
+    raw_start = s.find('if (-not $runtimeText.Contains("CAPTURE_INTERVAL_MS = 16"))')
+if raw_start < 0:
+    raise SystemExit('v0.13.29 raw validation cluster start missing')
 
-# Remove raw-runtime-specific checks that cannot be true after restoring the
-# checkpoint JS. Keep all generic packaging/XR/quality checks.
-lines = s.splitlines()
-out = []
-skip = False
-brace_depth = 0
-for line in lines:
-    if not skip and ('stereoRawPair' in line or 'js-al-ar-pair-raw' in line or 'WriteRawStereoPairRgba' in line):
-        # These tokens may occur in a multiline if guard. Drop the whole guard.
-        if any(x in line for x in ('if (', '-notmatch', '-match')):
-            skip = True
-            brace_depth = line.count('{') - line.count('}')
-            continue
-    if skip:
-        brace_depth += line.count('{') - line.count('}')
-        if brace_depth <= 0 and '}' in line:
-            skip = False
-        continue
-    out.append(line)
-s = '\n'.join(out) + ('\n' if s.endswith('\n') else '')
+raw_end_token = 'host/MMF/XR raw RGBA zinciri eksik.'
+raw_end_pos = s.find(raw_end_token, raw_start)
+if raw_end_pos < 0:
+    raise SystemExit('v0.13.29 raw validation cluster end token missing')
+raw_end = s.find('\n}', raw_end_pos)
+if raw_end < 0:
+    raise SystemExit('v0.13.29 raw validation cluster closing brace missing')
+raw_end += 2
+if raw_end < len(s) and s[raw_end] == '\n':
+    raw_end += 1
+
+jpeg_guard = '''if (-not $runtimeText.Contains("var CAPTURE_INTERVAL_MS = 33")) { throw "v0.13.29 doğrulaması: proven 33 ms JPEG cadence eksik." }
+if (-not $runtimeText.Contains("CAPTURE_JPEG_QUALITY")) { throw "v0.13.29 doğrulaması: JPEG quality marker eksik." }
+if (-not $runtimeText.Contains("canvasToDataUrlAsync")) { throw "v0.13.29 doğrulaması: proven JPEG encoder eksik." }
+if (-not $runtimeText.Contains("bridgeStereoEyes")) { throw "v0.13.29 doğrulaması: proven L/R bridge eksik." }
+if (-not $mainFormText.Contains("updateStereoEyes: function (left, right)")) { throw "v0.13.29 doğrulaması: host stereoEyes bridge eksik." }
+if (-not $mainFormText.Contains('case "stereoEyes":')) { throw "v0.13.29 doğrulaması: host stereoEyes switch eksik." }
+if (-not $writerText.Contains("_view.Write(116, 1)")) { throw "v0.13.29 doğrulaması: legacy BGRA MMF marker eksik." }
+if (-not $sharedText.Contains("candidate.pixelFormat == 1")) { throw "v0.13.29 doğrulaması: XR legacy BGRA reader eksik." }
+'''
+s = s[:raw_start] + jpeg_guard + s[raw_end:]
+
+# Replace the single-panel structural guard so it accepts the JPEG-proof label
+# and explicitly requires legacy pixelFormat=1 acceptance.
+throw_text = 'v0.13.29 doğrulaması başarısız: full A_L/A_R SBS / single panel / quality minification eksik.'
+idx = s.find(throw_text)
+if idx < 0:
+    raise SystemExit('v0.13.29 old single-panel guard throw missing')
+start = s.rfind('if (', 0, idx)
+end = s.find('\n}', idx)
+if start < 0 or end < 0:
+    raise SystemExit('v0.13.29 single-panel guard boundaries missing')
+end += 2
+replacement = '''if ($renderText -notmatch "GGQ v0\\.13\\.29 JPEG-PROOF A_L/A_R SBS single-panel path" -or
+    $renderText -notmatch "class FullSbsComposer" -or
+    $renderText -notmatch "pairFrame->pixelFormat == 1" -or
+    $renderText -notmatch "rightEye \\? 0\\.5f : 0\\.0f" -or
+    $renderText -notmatch "footprint <= 1\\.12") {
+    throw "v0.13.29 doğrulaması başarısız: proven JPEG L/R + full A_L/A_R SBS single-panel path eksik."
+}'''
+s = s[:start] + replacement + s[end:]
+
 p.write_text(s, encoding='utf-8')
 
 
@@ -217,7 +218,6 @@ for file, needles in checks.items():
         if needle not in text:
             raise SystemExit(f'v0.13.29 final invariant missing in {file}: {needle}')
 
-# The proof runtime itself must not use the raw binary transport.
 runtime = Path('pc/pc-stereo-layout.js').read_text(encoding='utf-8')
 for forbidden in ("type: 'stereoRawPair'", "type: 'stereoRawSbs'", 'getImageData('):
     if forbidden in runtime:
