@@ -1,0 +1,152 @@
+name: GeoGebraForQuest PC v0.13.22 A Eye-ID Test
+
+on:
+  push:
+    branches:
+      - test-v0.13.22-a-eye-id
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download Exp46 assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" --repo "sinan-ipek/GeoGebraForQuest" --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          if (-not $apk) { throw 'Exp46 APK missing' }
+          Copy-Item $apk.FullName ".exp46/exp46.zip" -Force
+          Expand-Archive ".exp46/exp46.zip" ".exp46/unpacked" -Force
+          $source = ".exp46/unpacked/assets/web"
+          if (Test-Path "app/src/main/assets/web") { Remove-Item "app/src/main/assets/web" -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+
+      - name: Prepare standalone Quest stereo splash artwork
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $left = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/v0.9.22-splash-20fps/app/src/main/res/drawable-nodpi/stereo_splash_left.webp'
+          $right = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/v0.9.22-splash-20fps/app/src/main/res/drawable-nodpi/stereo_splash_right.webp'
+          Invoke-WebRequest $left -OutFile 'pc-xr/stereo_splash_left.webp'
+          Invoke-WebRequest $right -OutFile 'pc-xr/stereo_splash_right.webp'
+          python -m pip install --disable-pip-version-check --quiet pillow
+          @'
+          from PIL import Image
+          for side in ('left','right'):
+              src=f'pc-xr/stereo_splash_{side}.webp'
+              dst=f'pc-xr/stereo_splash_{side}.png'
+              with Image.open(src) as im:
+                  im.convert('RGBA').save(dst, 'PNG')
+          '@ | python -
+
+      - name: Apply v0.13.22 working-stereo patches and A eye-ID diagnostic
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v013.py
+          python tools/patch-pc-v013-buildfix.py
+          python tools/patch-pc-v0131.py
+          python tools/patch-pc-v0132.py
+          python tools/patch-pc-v0133-adapter.py
+          python tools/patch-pc-v0133.py
+          python tools/patch-pc-v0133-adapter.py
+          python tools/patch-pc-v0134.py
+          python tools/patch-pc-v0134-buildfix.py
+          python tools/patch-pc-v0135.py
+          python tools/patch-pc-v0135-buildfix.py
+          python tools/patch-pc-v0136.py
+          python tools/patch-pc-v0136-buildfix.py
+          python tools/patch-pc-v0137.py
+          python tools/patch-pc-v0137-buildfix.py
+          python tools/patch-pc-v0138-prep.py
+          python tools/patch-pc-v0138-prep2.py
+          python tools/patch-pc-v0138.py
+          python tools/patch-pc-v0138-buildfix.py
+          python tools/patch-pc-v0139-direct.py
+          python tools/patch-pc-v0139-buildfix.py
+          python tools/patch-pc-v01310.py
+          python tools/patch-pc-v01310-buildfix.py
+          python tools/patch-pc-v01311.py
+          python tools/patch-pc-v01311-extra.py
+          python tools/patch-pc-v01311-postfix.py
+          python tools/patch-pc-v01312-prep.py
+          python tools/patch-pc-v01312-buildprep.py
+          python tools/patch-pc-v01312.py
+          python tools/patch-pc-v01313.py
+          python tools/patch-pc-v01314.py
+          python tools/patch-pc-v01315.py
+          python tools/patch-pc-v01316.py
+          python tools/patch-pc-v01317.py
+          python tools/patch-pc-v01318-prep.py
+          python tools/patch-pc-v01318.py
+          python tools/patch-pc-v01318-buildfix.py
+          python tools/patch-pc-v01319.py
+          python tools/patch-pc-v01320.py
+          python tools/patch-pc-v01321.py
+          python tools/patch-pc-v01321-js-extra.py
+          python tools/patch-pc-v01321-extra.py
+          python tools/patch-pc-v01321-compilefix.py
+          python tools/patch-pc-v01321-buildfix.py
+          python tools/patch-pc-v01322.py
+          python tools/patch-pc-v01322-compilefix.py
+          python tools/patch-pc-v01322-eye-id-test.py
+
+      - name: Verify diagnostic is isolated from B capture
+        shell: powershell
+        run: |
+          $capture = Get-Content 'app/src/main/assets/web/quest-stereo-capture.js' -Raw
+          $runtime = Get-Content 'pc/pc-stereo-layout.js' -Raw
+          $project = Get-Content 'pc/GeoGebraForQuest.PC.csproj' -Raw
+          if (-not $capture.Contains("window.__ggqAEyeIdDiagnostic = 'LEFT_RED_RIGHT_BLUE'")) { throw 'eye-ID marker missing' }
+          if (-not $capture.Contains("stampVisibleEyeMarker('left')")) { throw 'LEFT red marker hook missing' }
+          if (-not $capture.Contains("stampVisibleEyeMarker('right')")) { throw 'RIGHT blue marker hook missing' }
+          if (-not $capture.Contains("if (readInto(gl, state.rightPixels)) emitStereoPair(state);")) { throw 'B right-eye capture path changed unexpectedly' }
+          if (-not $runtime.Contains('ggq-renderer-left-eye') -or -not $runtime.Contains('ggq-renderer-right-eye')) { throw 'working B renderer-eye path missing' }
+          if (-not $project.Contains('<Version>0.13.22</Version>')) { throw 'working v0.13.22 base version changed' }
+
+      - name: Build Windows EXE package
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Prepare clearly named diagnostic package
+        shell: powershell
+        run: |
+          $source = 'dist/GeoGebraForQuest-PC-v0.13.22-pipeline-latency-telemetry-win-x64'
+          $target = 'dist/GeoGebraForQuest-PC-v0.13.22-A-EYE-ID-TEST-win-x64'
+          if (-not (Test-Path "$source/GeoGebraForQuestPC.exe")) { throw 'Main EXE missing' }
+          if (-not (Test-Path "$source/xr/GeoGebraForQuestPC.XR.exe")) { throw 'XR EXE missing' }
+          if (Test-Path $target) { Remove-Item $target -Recurse -Force }
+          Copy-Item $source $target -Recurse -Force
+          @'
+          A EYE IDENTIFICATION TEST
+
+          This package is a temporary diagnostic based on the working v0.13.22 stereo checkpoint.
+
+          RED strip  = GeoGebra LEFT pass
+          BLUE strip = GeoGebra RIGHT pass
+
+          The strip is stamped only after B readPixels capture, so B's stereo pair is not intentionally modified.
+          Observe the normal A/GeoGebra 3D region and report which strip remains visible.
+          '@ | Set-Content "$target/A-EYE-ID-TEST.txt" -Encoding UTF8
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.13.22-A-EYE-ID-TEST-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.13.22-A-EYE-ID-TEST-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
