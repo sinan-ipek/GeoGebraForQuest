@@ -130,7 +130,7 @@ p.write_text(s, encoding='utf-8')
 
 
 # ---------------------------------------------------------------------------
-# 3) Version/package labels.
+# 3) Version/package labels and build validation.
 # ---------------------------------------------------------------------------
 p = Path('pc/GeoGebraForQuest.PC.csproj')
 s = p.read_text(encoding='utf-8')
@@ -192,8 +192,10 @@ if (-not $sharedText.Contains("candidate.pixelFormat == 1")) { throw "v0.13.29 d
 '''
 s = s[:raw_start] + jpeg_guard + s[raw_end:]
 
-# Replace whichever old v0.13.27/28 single-panel structural guard survived the
-# patch chain. Do not depend on its versioned error text.
+# If the previous slicing left the structural single-panel guard in place,
+# rewrite it for the proof label. In the current generated build.ps1 that guard
+# may already have been swallowed by the replaced raw-validation region; that is
+# intentional and is independently checked by the workflow before build.ps1.
 proof_guard = '''if ($renderText -notmatch "JPEG-PROOF A_L/A_R SBS single-panel path" -or
     $renderText -notmatch "class FullSbsComposer" -or
     $renderText -notmatch "pairFrame->pixelFormat == 1" -or
@@ -203,25 +205,15 @@ proof_guard = '''if ($renderText -notmatch "JPEG-PROOF A_L/A_R SBS single-panel 
 }
 '''
 
-replaced = False
 for token in (
     'full A_L/A_R SBS / single panel / quality minification eksik.',
     'quality minification eksik.',
-    'footprint <= 1\\.12',
-    'footprint <= 1\.12',
+    r'footprint <= 1\.12',
 ):
     s2, ok = replace_if_block_containing(s, token, proof_guard)
     if ok:
         s = s2
-        replaced = True
         break
-
-# If a prior build-fix already removed that guard, that is fine: the workflow
-# has an independent architecture-verification step before build.ps1.
-if not replaced:
-    marker = '$runtimeText = Get-Content $runtimePath -Raw'
-    req(s, marker, 'v0.13.29 build verification insertion marker missing')
-    # No extra insertion needed; external workflow verification is authoritative.
 
 p.write_text(s, encoding='utf-8')
 
