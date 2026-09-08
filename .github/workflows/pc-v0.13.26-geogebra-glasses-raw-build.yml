@@ -104,6 +104,7 @@ jobs:
           python tools/patch-pc-v01324-buildfix.py
           python tools/patch-pc-v01326-prep.py
           python tools/patch-pc-v01326.py
+          python tools/patch-pc-v01326-buildfix.py
 
       - name: Verify v0.13.26 simple stereo architecture
         shell: powershell
