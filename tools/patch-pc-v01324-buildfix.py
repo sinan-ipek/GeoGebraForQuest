@@ -25,20 +25,18 @@ def replace_block_containing(text: str, token: str, replacement: str, label: str
 p = Path('pc/build.ps1')
 s = p.read_text(encoding='utf-8')
 
-# Old JPEG quality validation is no longer meaningful. Keep the Quest-density
-# geometry checks, and require the new raw transport markers instead.
+# Replace the old JPEG quality test with literal raw-transport assertions. Using
+# Contains here avoids PowerShell regex/escape ambiguity in the generated build.
 s = replace_block_containing(
     s,
     'CAPTURE_JPEG_QUALITY',
-    '''if ($runtimeText -notmatch "QUEST3_PPD = 25\\.0" -or
-    $runtimeText -notmatch "CAPTURE_MAX_EYE_WIDTH = 1536" -or
-    $runtimeText -notmatch "CAPTURE_INTERVAL_MS = 33" -or
-    $runtimeText -notmatch "js-stereo-raw-arraybuffer" -or
-    $runtimeText -notmatch "stereoRawSbs" -or
-    $runtimeText -notmatch "getImageData" -or
-    $runtimeText -notmatch "image\\.data\\.buffer") {
-    throw "v0.13.24 doğrulaması başarısız: raw ArrayBuffer B yolu eksik."
-}
+    '''if (-not $runtimeText.Contains("QUEST3_PPD = 25.0")) { throw "v0.13.24 doğrulaması: QUEST3_PPD eksik." }
+if (-not $runtimeText.Contains("CAPTURE_MAX_EYE_WIDTH = 1536")) { throw "v0.13.24 doğrulaması: B boyut tavanı eksik." }
+if (-not $runtimeText.Contains("CAPTURE_INTERVAL_MS = 33")) { throw "v0.13.24 doğrulaması: 33 ms raw cadence eksik." }
+if (-not $runtimeText.Contains("js-stereo-raw-arraybuffer")) { throw "v0.13.24 doğrulaması: raw telemetry eksik." }
+if (-not $runtimeText.Contains("stereoRawSbs")) { throw "v0.13.24 doğrulaması: stereoRawSbs mesajı eksik." }
+if (-not $runtimeText.Contains("getImageData")) { throw "v0.13.24 doğrulaması: raw canvas readback eksik." }
+if (-not $runtimeText.Contains("image.data.buffer")) { throw "v0.13.24 doğrulaması: ArrayBuffer payload eksik." }
 ''',
     'JPEG quality validation')
 
@@ -46,18 +44,18 @@ s = replace_block_containing(
 s = replace_block_containing(
     s,
     'canvas\\.toBlob',
-    '''if ($runtimeText -match "canvas\\.toBlob" -or
-    $runtimeText -match "image/jpeg" -or
-    $runtimeText -match "bridgeStereoEyes" -or
-    $runtimeText -match "stereoGpuPhase" -or
-    $runtimeText -match "ggq-pc-raw-left-eye-overlay") {
+    '''if ($runtimeText.Contains("canvas.toBlob") -or
+    $runtimeText.Contains("image/jpeg") -or
+    $runtimeText.Contains("bridgeStereoEyes") -or
+    $runtimeText.Contains("stereoGpuPhase") -or
+    $runtimeText.Contains("ggq-pc-raw-left-eye-overlay")) {
     throw "v0.13.24 doğrulaması başarısız: eski JPEG veya görünür-kompozit stereo yolu bulundu."
 }
-if ($mainFormText -notmatch "TryHandleRawStereoMessage" -or
-    $mainFormText -notmatch "WriteRawSbsRgba" -or
-    $writerText -notmatch "WriteRawSbsRgba" -or
-    $sharedText -notmatch "pixelFormat" -or
-    $sharedText -notmatch "DXGI_FORMAT_R8G8B8A8_UNORM") {
+if (-not $mainFormText.Contains("TryHandleRawStereoMessage") -or
+    -not $mainFormText.Contains("WriteRawSbsRgba") -or
+    -not $writerText.Contains("WriteRawSbsRgba") -or
+    -not $sharedText.Contains("pixelFormat") -or
+    -not $sharedText.Contains("DXGI_FORMAT_R8G8B8A8_UNORM")) {
     throw "v0.13.24 doğrulaması başarısız: host/MMF/XR raw RGBA zinciri eksik."
 }
 ''',
