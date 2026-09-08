@@ -8,6 +8,10 @@ s = p.read_text(encoding='utf-8')
 s = s.replace('js-stereo-raw-arraybuffer', 'js-stereo-single-eye-raw')
 s = s.replace('stereoRawSbs', 'stereoRawEye')
 
+# build.ps1 uses an escaped regex literal for the cache-busting version.
+s = s.replace(r'0\.13\.24-raw-arraybuffer', r'0\.13\.26-geogebra-glasses-raw')
+s = s.replace('0.13.24-raw-arraybuffer', '0.13.26-geogebra-glasses-raw')
+
 # Keep the binary/raw invariants, but validate the new host/writer/XR join too.
 marker = '''if (-not $mainFormText.Contains("TryHandleRawStereoMessage") -or
     -not $mainFormText.Contains("WriteRawSbsRgba") -or
