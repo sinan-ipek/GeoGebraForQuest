@@ -103,6 +103,7 @@ jobs:
           python tools/patch-pc-v01324.py
           python tools/patch-pc-v01324-buildfix.py
           python tools/patch-pc-v01325.py
+          python tools/patch-pc-v01325-buildfix.py
 
       - name: Verify stereo proof diagnostics
         shell: powershell
