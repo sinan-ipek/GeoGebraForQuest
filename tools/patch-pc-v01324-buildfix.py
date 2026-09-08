@@ -25,14 +25,12 @@ def replace_block_containing(text: str, token: str, replacement: str, label: str
 p = Path('pc/build.ps1')
 s = p.read_text(encoding='utf-8')
 
-# Replace the old JPEG quality test with literal raw-transport assertions. Using
-# Contains here avoids PowerShell regex/escape ambiguity in the generated build.
+# v0.13.24 changes transport only. Do not bind this build check to historical
+# Quest-density literals that earlier tuning patches are free to rewrite.
 s = replace_block_containing(
     s,
     'CAPTURE_JPEG_QUALITY',
-    '''if (-not $runtimeText.Contains("QUEST3_PPD = 25.0")) { throw "v0.13.24 doğrulaması: QUEST3_PPD eksik." }
-if (-not $runtimeText.Contains("CAPTURE_MAX_EYE_WIDTH = 1536")) { throw "v0.13.24 doğrulaması: B boyut tavanı eksik." }
-if (-not $runtimeText.Contains("CAPTURE_INTERVAL_MS = 33")) { throw "v0.13.24 doğrulaması: 33 ms raw cadence eksik." }
+    '''if (-not $runtimeText.Contains("CAPTURE_INTERVAL_MS = 33")) { throw "v0.13.24 doğrulaması: 33 ms raw cadence eksik." }
 if (-not $runtimeText.Contains("js-stereo-raw-arraybuffer")) { throw "v0.13.24 doğrulaması: raw telemetry eksik." }
 if (-not $runtimeText.Contains("stereoRawSbs")) { throw "v0.13.24 doğrulaması: stereoRawSbs mesajı eksik." }
 if (-not $runtimeText.Contains("getImageData")) { throw "v0.13.24 doğrulaması: raw canvas readback eksik." }
