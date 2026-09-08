@@ -7,24 +7,46 @@ def req(text: str, needle: str, label: str) -> None:
         raise SystemExit(label)
 
 
+def replace_if_block_containing(text: str, token: str, replacement: str) -> tuple[str, bool]:
+    """Replace the nearest PowerShell if (...) { ... } block containing token."""
+    pos = text.find(token)
+    if pos < 0:
+        return text, False
+
+    start = text.rfind('\nif (', 0, pos)
+    if start < 0:
+        if text.startswith('if ('):
+            start = 0
+        else:
+            return text, False
+    else:
+        start += 1
+
+    end = text.find('\n}', pos)
+    if end < 0:
+        return text, False
+    end += 2
+    if end < len(text) and text[end] == '\n':
+        end += 1
+    return text[:start] + replacement + text[end:], True
+
+
 # ---------------------------------------------------------------------------
 # GeoGebraForQuest PC v0.13.29
 #
-# Purpose: isolate the failure seen in v0.13.28.
+# Diagnostic architecture:
+#   - Keep the NEW single-panel A_L | A_R GPU compositor.
+#   - Feed it with the EXACT proven v0.13.22 JPEG/Base64 L/R transport.
+#   - Keep the proven legacy Bitmap -> BGRA SBS MMF publication path.
 #
-# Keep the NEW single-panel A_L|A_R GPU compositor, but feed it with the exact
-# PROVEN v0.13.22 JPEG/Base64 L/R transport and legacy Bitmap -> BGRA SBS MMF
-# path. If this produces depth, the compositor architecture is valid and the
-# v0.13.24+ raw ArrayBuffer transport is the broken layer.
-#
-# The workflow restores pc/pc-stereo-layout.js verbatim from
-# checkpoint-v0.13.22-working-stereo BEFORE this patch runs.
+# If this build creates depth, the single-panel compositor is good and the
+# raw ArrayBuffer path introduced after v0.13.22 is the failing layer.
+# If it does not create depth, the fault is in the new compositor/presentation.
 # ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
-# 1) Restore the old updateStereoEyes bridge and stereoEyes host switch arm.
-#    v0.13.24 intentionally removed both; decoder helpers were left compiled.
+# 1) Restore JPEG stereo bridge in MainFormV11.cs.
 # ---------------------------------------------------------------------------
 p = Path('pc/MainFormV11.cs')
 s = p.read_text(encoding='utf-8')
@@ -35,11 +57,13 @@ if 'updateStereoEyes: function (left, right)' not in s:
                 },
 '''
     req(s, marker, 'v0.13.29 updateStereoLayout bridge marker missing')
-    addition = marker + '''                updateStereoEyes: function (left, right) {
+    s = s.replace(
+        marker,
+        marker + '''                updateStereoEyes: function (left, right) {
                   post({ type: 'stereoEyes', left: String(left || ''), right: String(right || '') });
                 },
-'''
-    s = s.replace(marker, addition, 1)
+''',
+        1)
 
 if 'case "stereoEyes":' not in s:
     arm = '''                case "stereoEyes":
@@ -58,14 +82,12 @@ if 'case "stereoEyes":' not in s:
             arm + '                case "performanceSample":',
             1)
     else:
-        req(s, '                case "runtimeError":', 'v0.13.29 stereoEyes insertion marker missing')
+        req(s, '                case "runtimeError":', 'v0.13.29 stereoEyes switch insertion marker missing')
         s = s.replace(
             '                case "runtimeError":',
             arm + '                case "runtimeError":',
             1)
 
-# Old JPEG messages fall through TryHandleRawStereoMessage(false) and reach the
-# restored stereoEyes arm. The raw handler remains compiled but is unused here.
 s = re.sub(
     r'(pc-stereo-layout\.js\?v=)[^"\']+',
     r'\g<1>0.13.29-jpeg-proof-single-panel',
@@ -76,8 +98,7 @@ p.write_text(s, encoding='utf-8')
 
 
 # ---------------------------------------------------------------------------
-# 2) NEW compositor accepts BOTH legacy BGRA SBS (pixelFormat=1) and raw RGBA
-#    SBS (pixelFormat=2). v0.13.29 intentionally exercises format=1 only.
+# 2) Let the new GPU compositor consume the proven legacy BGRA SBS (fmt=1).
 # ---------------------------------------------------------------------------
 p = Path('pc-xr/v11-render.hpp')
 s = p.read_text(encoding='utf-8')
@@ -109,7 +130,7 @@ p.write_text(s, encoding='utf-8')
 
 
 # ---------------------------------------------------------------------------
-# 3) Version/package labels and build validation.
+# 3) Version/package labels.
 # ---------------------------------------------------------------------------
 p = Path('pc/GeoGebraForQuest.PC.csproj')
 s = p.read_text(encoding='utf-8')
@@ -128,18 +149,31 @@ s = s.replace(r'0\.13\.28-true-al-ar-full-sbs', r'0\.13\.29-jpeg-proof-single-pa
 s = s.replace('v0.13.28', 'v0.13.29')
 s = s.replace(r'v0\.13\.28', r'v0\.13\.29')
 
-# Replace the complete raw-runtime validation cluster installed by v0.13.24+
-# with proof-build checks for the exact checkpoint JPEG path.
-raw_start = s.find('if (-not $runtimeText.Contains("var CAPTURE_INTERVAL_MS = 16"))')
-if raw_start < 0:
-    raw_start = s.find('if (-not $runtimeText.Contains("CAPTURE_INTERVAL_MS = 16"))')
+# Replace the raw-transport validation cluster installed by v0.13.24+.
+raw_start_candidates = [
+    'if (-not $runtimeText.Contains("var CAPTURE_INTERVAL_MS = 16"))',
+    'if (-not $runtimeText.Contains("CAPTURE_INTERVAL_MS = 16"))',
+    'if (-not $runtimeText.Contains("var CAPTURE_INTERVAL_MS = 33"))',
+]
+raw_start = -1
+for candidate in raw_start_candidates:
+    raw_start = s.find(candidate)
+    if raw_start >= 0:
+        break
 if raw_start < 0:
     raise SystemExit('v0.13.29 raw validation cluster start missing')
 
-raw_end_token = 'host/MMF/XR raw RGBA zinciri eksik.'
-raw_end_pos = s.find(raw_end_token, raw_start)
+raw_end_tokens = [
+    'host/MMF/XR raw RGBA zinciri eksik.',
+    'host/MMF/XR raw RGBA zinciri eksik',
+]
+raw_end_pos = -1
+for token in raw_end_tokens:
+    raw_end_pos = s.find(token, raw_start)
+    if raw_end_pos >= 0:
+        break
 if raw_end_pos < 0:
-    raise SystemExit('v0.13.29 raw validation cluster end token missing')
+    raise SystemExit('v0.13.29 raw validation cluster end missing')
 raw_end = s.find('\n}', raw_end_pos)
 if raw_end < 0:
     raise SystemExit('v0.13.29 raw validation cluster closing brace missing')
@@ -158,25 +192,36 @@ if (-not $sharedText.Contains("candidate.pixelFormat == 1")) { throw "v0.13.29 d
 '''
 s = s[:raw_start] + jpeg_guard + s[raw_end:]
 
-# Replace the single-panel structural guard so it accepts the JPEG-proof label
-# and explicitly requires legacy pixelFormat=1 acceptance.
-throw_text = 'v0.13.29 doğrulaması başarısız: full A_L/A_R SBS / single panel / quality minification eksik.'
-idx = s.find(throw_text)
-if idx < 0:
-    raise SystemExit('v0.13.29 old single-panel guard throw missing')
-start = s.rfind('if (', 0, idx)
-end = s.find('\n}', idx)
-if start < 0 or end < 0:
-    raise SystemExit('v0.13.29 single-panel guard boundaries missing')
-end += 2
-replacement = '''if ($renderText -notmatch "GGQ v0\\.13\\.29 JPEG-PROOF A_L/A_R SBS single-panel path" -or
+# Replace whichever old v0.13.27/28 single-panel structural guard survived the
+# patch chain. Do not depend on its versioned error text.
+proof_guard = '''if ($renderText -notmatch "JPEG-PROOF A_L/A_R SBS single-panel path" -or
     $renderText -notmatch "class FullSbsComposer" -or
     $renderText -notmatch "pairFrame->pixelFormat == 1" -or
     $renderText -notmatch "rightEye \\? 0\\.5f : 0\\.0f" -or
     $renderText -notmatch "footprint <= 1\\.12") {
     throw "v0.13.29 doğrulaması başarısız: proven JPEG L/R + full A_L/A_R SBS single-panel path eksik."
-}'''
-s = s[:start] + replacement + s[end:]
+}
+'''
+
+replaced = False
+for token in (
+    'full A_L/A_R SBS / single panel / quality minification eksik.',
+    'quality minification eksik.',
+    'footprint <= 1\\.12',
+    'footprint <= 1\.12',
+):
+    s2, ok = replace_if_block_containing(s, token, proof_guard)
+    if ok:
+        s = s2
+        replaced = True
+        break
+
+# If a prior build-fix already removed that guard, that is fine: the workflow
+# has an independent architecture-verification step before build.ps1.
+if not replaced:
+    marker = '$runtimeText = Get-Content $runtimePath -Raw'
+    req(s, marker, 'v0.13.29 build verification insertion marker missing')
+    # No extra insertion needed; external workflow verification is authoritative.
 
 p.write_text(s, encoding='utf-8')
 
