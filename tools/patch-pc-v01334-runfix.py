@@ -2,9 +2,9 @@
 """Build-only wrapper for GeoGebraForQuest PC v0.13.34.
 
 The architectural v0.13.34 patch is kept intact except for brittle textual
-matchers inherited from earlier generated patch chains. This wrapper normalizes
-those matchers, executes the complete v0.13.34 patch, then fixes the inherited
-cache-busting guard so build.ps1 validates the actual v0.13.34 runtime id.
+matchers and stale build guards inherited from earlier generated patch chains.
+This wrapper normalizes those matchers, executes the complete v0.13.34 patch,
+then updates build.ps1 so it validates the actual v0.13.34 GPU/FBO architecture.
 """
 
 from pathlib import Path
@@ -80,8 +80,8 @@ exec(
 )
 
 # ---------------------------------------------------------------------------
-# Normalize the inherited v0.13.32 cache-busting validation. The old guard may
-# contain escaped dots, so plain replacement of "0.13.32" is insufficient.
+# Normalize inherited cache-busting validation. Older guards can contain
+# escaped dots, so plain replacement of only the visible version is not enough.
 # ---------------------------------------------------------------------------
 build_path = Path("pc/build.ps1")
 build = build_path.read_text(encoding="utf-8")
@@ -94,8 +94,30 @@ for old, new in (
     ("0.13.31-raw-legacy-bgra", "0.13.34-gpu-fbo-sbs"),
 ):
     build = build.replace(old, new)
+
+# ---------------------------------------------------------------------------
+# v0.13's original "A GPU-direct" guard validates the old direct CopyResource
+# publication path. v0.13.34 intentionally replaces that with a shader blit
+# from the client-owned PC texture/SRV into a BGRA8 keyed-mutex XR render target.
+# Replace only that obsolete guard, and validate the new path explicitly.
+# ---------------------------------------------------------------------------
+gpu_direct_guard = re.compile(
+    r'(?ms)^if \([^\{]*\)\s*\{\s*'
+    r'throw "v0\.13 doğrulaması başarısız: A GPU-direct yolu eksik\."\s*\}'
+)
+if not gpu_direct_guard.search(build):
+    raise SystemExit("v0.13.34 wrapper: stale A GPU-direct build guard not found")
+
+new_gpu_guard = '''if ($graphicsText -notmatch "TryQueueGpuPublishLocked\\(target, _pcSrvs\\[next\\]\\)" -or
+    $graphicsText -notmatch "PSShare" -or
+    $graphicsText -notmatch "BindFlags\\.ShaderResource \\| BindFlags\\.RenderTarget" -or
+    $graphicsText -notmatch "SetRenderTargets\\(_xrSharedRtv\\)") {
+    throw "v0.13.34 doğrulaması başarısız: shader tabanlı A GPU-share yolu eksik."
+}'''
+build = gpu_direct_guard.sub(new_gpu_guard, build, count=1)
 build_path.write_text(build, encoding="utf-8")
 
+# Keep the host-side cache-busting runtime id synchronized with this build.
 main_path = Path("pc/MainFormV11.cs")
 main = main_path.read_text(encoding="utf-8")
 main = re.sub(
@@ -106,10 +128,18 @@ main = re.sub(
 )
 main_path.write_text(main, encoding="utf-8")
 
+# Final wrapper-level invariants.
 if "0.13.34-gpu-fbo-sbs" not in main:
     raise SystemExit("v0.13.34 wrapper: host cache-busting runtime id missing")
 if (r"0\.13\.34-gpu-fbo-sbs" not in build and
         "0.13.34-gpu-fbo-sbs" not in build):
     raise SystemExit("v0.13.34 wrapper: build cache-busting guard missing")
+for needle in (
+    "TryQueueGpuPublishLocked\\(target, _pcSrvs\\[next\\]\\)",
+    "PSShare",
+    "SetRenderTargets\\(_xrSharedRtv\\)",
+):
+    if needle not in build:
+        raise SystemExit(f"v0.13.34 wrapper: GPU-share validation missing: {needle}")
 
-print("v0.13.34 runfix: robust matchers + cache-busting guard normalized")
+print("v0.13.34 runfix: robust matchers + cache-busting + GPU-direct guard normalized")
