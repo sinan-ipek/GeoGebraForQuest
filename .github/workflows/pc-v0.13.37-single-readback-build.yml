@@ -167,6 +167,8 @@ jobs:
           $patchPath = 'tools/patch-pc-v01337.py'
           $patch = Get-Content $patchPath -Raw
           $patch = $patch.Replace('allocation and no row-by-row pair.set() packing pass.', 'allocation and no extra row-by-row packing copy.')
+          $validationWord = 'do' + [char]0x011F + 'rulamas' + [char]0x0131
+          $patch = $patch.Replace($validationWord, 'validation')
           Set-Content -Path $patchPath -Value $patch -Encoding UTF8
           python $patchPath
 
