@@ -225,7 +225,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          python tools/patch-pc-v01334.py
+          python tools/patch-pc-v01334-runfix.py
 
       - name: Verify v0.13.34 architecture
         shell: powershell
