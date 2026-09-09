@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
 """Build-only wrapper for GeoGebraForQuest PC v0.13.34.
 
-The architectural v0.13.34 patch is kept intact except for two brittle textual
-matchers inherited from earlier generated patch chains:
-
-1. The A-share call site may already use either cefTexture or the client-owned
-   target texture.
-2. The TryQueueGpuPublishLocked method signature may no longer be the exact
-   single-line spelling expected by the original patch.
-
-This wrapper rewrites only those matchers before executing the complete
-v0.13.34 patch.
+The architectural v0.13.34 patch is kept intact except for brittle textual
+matchers inherited from earlier generated patch chains. This wrapper normalizes
+those matchers, executes the complete v0.13.34 patch, then fixes the inherited
+cache-busting guard so build.ps1 validates the actual v0.13.34 runtime id.
 """
 
 from pathlib import Path
+import re
 
 
 path = Path("tools/patch-pc-v01334.py")
@@ -21,8 +16,7 @@ source = path.read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Replace the original exact-string A-share call-site patch with a semantic
-# regex matcher. Avoid embedding the original triple-quoted Python literals in
-# this wrapper, because doing so makes the wrapper itself syntactically fragile.
+# regex matcher.
 # ---------------------------------------------------------------------------
 call_start = source.find(
     "# Publish the just-copied client-owned target/SRV, not CEF's pool texture."
@@ -84,3 +78,38 @@ exec(
     compile(source, "patch-pc-v01334-runfixed.py", "exec"),
     {"__name__": "__main__"},
 )
+
+# ---------------------------------------------------------------------------
+# Normalize the inherited v0.13.32 cache-busting validation. The old guard may
+# contain escaped dots, so plain replacement of "0.13.32" is insufficient.
+# ---------------------------------------------------------------------------
+build_path = Path("pc/build.ps1")
+build = build_path.read_text(encoding="utf-8")
+for old, new in (
+    (r"0\.13\.32-gpu-native-sbs", r"0\.13\.34-gpu-fbo-sbs"),
+    (r"v0\.13\.32-gpu-native-sbs", r"v0\.13\.34-gpu-fbo-sbs"),
+    ("0.13.32-gpu-native-sbs", "0.13.34-gpu-fbo-sbs"),
+    ("v0.13.32-gpu-native-sbs", "v0.13.34-gpu-fbo-sbs"),
+    (r"0\.13\.31-raw-legacy-bgra", r"0\.13\.34-gpu-fbo-sbs"),
+    ("0.13.31-raw-legacy-bgra", "0.13.34-gpu-fbo-sbs"),
+):
+    build = build.replace(old, new)
+build_path.write_text(build, encoding="utf-8")
+
+main_path = Path("pc/MainFormV11.cs")
+main = main_path.read_text(encoding="utf-8")
+main = re.sub(
+    r"(pc-stereo-layout\.js\?v=)[^\"']+",
+    r"\g<1>0.13.34-gpu-fbo-sbs",
+    main,
+    count=1,
+)
+main_path.write_text(main, encoding="utf-8")
+
+if "0.13.34-gpu-fbo-sbs" not in main:
+    raise SystemExit("v0.13.34 wrapper: host cache-busting runtime id missing")
+if (r"0\.13\.34-gpu-fbo-sbs" not in build and
+        "0.13.34-gpu-fbo-sbs" not in build):
+    raise SystemExit("v0.13.34 wrapper: build cache-busting guard missing")
+
+print("v0.13.34 runfix: robust matchers + cache-busting guard normalized")
