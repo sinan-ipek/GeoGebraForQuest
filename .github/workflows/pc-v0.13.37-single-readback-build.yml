@@ -164,7 +164,11 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          python tools/patch-pc-v01337.py
+          $patchPath = 'tools/patch-pc-v01337.py'
+          $patch = Get-Content $patchPath -Raw
+          $patch = $patch.Replace('allocation and no row-by-row pair.set() packing pass.', 'allocation and no extra row-by-row packing copy.')
+          Set-Content -Path $patchPath -Value $patch -Encoding UTF8
+          python $patchPath
 
       - name: Verify v0.13.37 architecture
         shell: powershell
