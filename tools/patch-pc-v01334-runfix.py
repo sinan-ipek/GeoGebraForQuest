@@ -4,7 +4,8 @@
 The architectural v0.13.34 patch is kept intact except for brittle textual
 matchers and stale build guards inherited from earlier generated patch chains.
 This wrapper normalizes those matchers, executes the complete v0.13.34 patch,
-then updates build.ps1 so it validates the actual v0.13.34 GPU/FBO architecture.
+then updates the generated host/build files for the actual v0.13.34 GPU/FBO
+architecture.
 """
 
 from pathlib import Path
@@ -80,6 +81,31 @@ exec(
 )
 
 # ---------------------------------------------------------------------------
+# v0.13.34 changes TryQueueGpuPublishLocked to accept both the texture and an
+# SRV. One inherited popup/composite helper still calls the old one-argument
+# form after the patch chain. Update that exact generated call as well.
+# ---------------------------------------------------------------------------
+graphics_path = Path("pc/MainFormV11.Graphics.cs")
+graphics = graphics_path.read_text(encoding="utf-8")
+old_composite_call = "if (TryQueueGpuPublishLocked(target))"
+new_composite_call = (
+    "if (TryQueueGpuPublishLocked(target, _pcSrvs[_currentPcTexture]))"
+)
+composite_count = graphics.count(old_composite_call)
+if composite_count > 1:
+    raise SystemExit(
+        f"v0.13.34 wrapper: unexpected legacy GPU publish call count: {composite_count}"
+    )
+if composite_count == 1:
+    graphics = graphics.replace(old_composite_call, new_composite_call, 1)
+graphics_path.write_text(graphics, encoding="utf-8")
+
+# No one-argument target publish call may remain after the v0.13.34 signature
+# change. Failing here is much faster and clearer than waiting for dotnet build.
+if "TryQueueGpuPublishLocked(target)" in graphics:
+    raise SystemExit("v0.13.34 wrapper: legacy one-argument GPU publish call remains")
+
+# ---------------------------------------------------------------------------
 # Normalize inherited cache-busting validation. Older guards can contain
 # escaped dots, so plain replacement of only the visible version is not enough.
 # ---------------------------------------------------------------------------
@@ -142,4 +168,7 @@ for needle in (
     if needle not in build:
         raise SystemExit(f"v0.13.34 wrapper: GPU-share validation missing: {needle}")
 
-print("v0.13.34 runfix: robust matchers + cache-busting + GPU-direct guard normalized")
+print(
+    "v0.13.34 runfix: robust matchers + cache-busting + GPU-direct guard + "
+    "remaining publish call normalized"
+)
