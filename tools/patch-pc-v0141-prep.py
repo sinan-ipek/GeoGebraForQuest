@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import re
 
 # Normalize the shutdown/log-bundle marker expected by the v0.14.1 host patch.
 p = Path('pc/MainFormV11.cs')
@@ -18,26 +17,64 @@ if '        LogBundle.Create();\n' not in s:
 
 p.write_text(s, encoding='utf-8')
 
-# Historical build patches leave harmless whitespace differences around the
-# accelerated-paint anchor. Normalize only that anchor; no behavior changes here.
-p = Path('pc/MainFormV11.Graphics.cs')
-g = p.read_text(encoding='utf-8')
+# The generated v0.13.x Graphics file is popup-aware. Preserve that exact popup
+# branch and inject the v0.14.1 temporary-staging latch only after the View gate.
+# patch-pc-v0141-host.py originally assumed an older simpler OnAcceleratedPaint
+# layout, so adapt that patch itself before executing it.
+p = Path('tools/patch-pc-v0141-host.py')
+h = p.read_text(encoding='utf-8')
 
-pattern = re.compile(
-    r'''(?P<indent>[ \t]*)using\s+var\s+cefTexture\s*=\s*_device1\.OpenSharedResource1<Texture2D>\(\s*\n?\s*acceleratedPaintInfo\.SharedTextureHandle\s*\);\s*\n\s*EnsurePcTextureLocked\(cefTexture\.Description\);''',
-    re.MULTILINE,
-)
-match = pattern.search(g)
-if not match:
-    raise SystemExit('v0.14.1 prep: accelerated paint anchor not found')
+old = '''p = Path('pc/MainFormV11.Graphics.cs')
+graphics = p.read_text(encoding='utf-8')
+marker = \'\'\'                using var cefTexture = _device1.OpenSharedResource1<Texture2D>(
+                    acceleratedPaintInfo.SharedTextureHandle);
 
-indent = match.group('indent')
-replacement = (
-    indent + 'using var cefTexture = _device1.OpenSharedResource1<Texture2D>(\n'
-    + indent + '    acceleratedPaintInfo.SharedTextureHandle);\n\n'
-    + indent + 'EnsurePcTextureLocked(cefTexture.Description);'
-)
-g = g[:match.start()] + replacement + g[match.end():]
-p.write_text(g, encoding='utf-8')
+                EnsurePcTextureLocked(cefTexture.Description);
+\'\'\'
+req(graphics, marker, 'v0.14.1: accelerated paint marker missing')
+graphics = graphics.replace(
+    marker,
+    \'\'\'                using var cefTexture = _device1.OpenSharedResource1<Texture2D>(
+                    acceleratedPaintInfo.SharedTextureHandle);
 
-print('v0.14.1 prep: shutdown and accelerated-paint markers normalized')
+                if (TryConsumeGpuStereoV141PaintLocked(cefTexture))
+                {
+                    return;
+                }
+
+                // Ordinary A paint remains on the proven v0.13.35 path.
+                EnsurePcTextureLocked(cefTexture.Description);
+\'\'\',
+    1)
+p.write_text(graphics, encoding='utf-8')
+'''
+
+new = '''p = Path('pc/MainFormV11.Graphics.cs')
+graphics = p.read_text(encoding='utf-8')
+marker = \'\'\'                if (type != PaintElementType.View) return;
+
+                EnsurePcTextureLocked(cefTexture.Description);
+\'\'\'
+req(graphics, marker, 'v0.14.1: popup-aware View paint marker missing')
+graphics = graphics.replace(
+    marker,
+    \'\'\'                if (type != PaintElementType.View) return;
+
+                if (TryConsumeGpuStereoV141PaintLocked(cefTexture))
+                {
+                    return;
+                }
+
+                // Ordinary A paint remains on the proven popup-aware v0.13.35 path.
+                EnsurePcTextureLocked(cefTexture.Description);
+\'\'\',
+    1)
+p.write_text(graphics, encoding='utf-8')
+'''
+
+if old not in h:
+    raise SystemExit('v0.14.1 prep: host Graphics patch block not found')
+h = h.replace(old, new, 1)
+p.write_text(h, encoding='utf-8')
+
+print('v0.14.1 prep: popup-aware accelerated-paint latch adapter applied')
