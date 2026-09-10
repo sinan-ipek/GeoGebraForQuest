@@ -1,0 +1,2 @@
+GeoGebraForQuest PC v0.14.0 XR GPU PerfTest
+Corrected packaging trigger.
