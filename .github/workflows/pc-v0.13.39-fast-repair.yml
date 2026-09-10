@@ -1,9 +1,9 @@
-name: GeoGebraForQuest PC v0.13.39 FAST Repair
+name: GeoGebraForQuest PC v0.13.40 Black-Frame Fallback
 
 on:
   push:
     branches:
-      - pc-v0.13.39-gpu-fullframe-sbs
+      - pc-v0.13.40-blackframe-fallback
   workflow_dispatch:
 
 permissions:
@@ -158,14 +158,15 @@ jobs:
           python tools/patch-pc-v01335.py
           python tools/patch-pc-v01336.py
 
-      - name: Apply v0.13.39 GPU full-window A_L A_R architecture
+      - name: Apply v0.13.39 GPU full-window architecture and v0.13.40 fallback
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           python tools/patch-pc-v01339-prep.py
           python tools/patch-pc-v01339.py
+          python tools/patch-pc-v01340-blackframe-fallback.py
 
-      - name: Verify v0.13.39 architecture before build
+      - name: Verify v0.13.40 architecture before build
         shell: powershell
         run: |
           $runtime = Get-Content 'pc/pc-stereo-layout.js' -Raw
@@ -185,8 +186,11 @@ jobs:
           if (-not $gpuHostSource.Contains('CaptureLeftPaint') -or -not $gpuHostSource.Contains('CaptureRightPaint')) { throw 'full-window eye capture states missing' }
           if (-not $gpuHostSource.Contains('ComposeAndPublishGpuFullSbsLocked')) { throw 'native full-SBS compositor missing' }
           if (-not $graphics.Contains('TryConsumeGpuStereoPaintLocked')) { throw 'CEF accelerated paint state machine missing' }
+          if (-not $graphics.Contains('bootstrap-aa-published')) { throw 'v0.13.40 A|A startup fallback missing' }
+          if (-not $graphics.Contains('if (!_gpuStereoPairAvailable)')) { throw 'fallback pair guard missing' }
           if (-not $xr.Contains('baseTexture_.Width() / 2')) { throw 'XR logical eye width missing' }
           if (-not $render.Contains('rightEye ? 0.5f : 0.0f')) { throw 'XR half sampler missing' }
+          if (-not $meta.Contains('pc_gpu_renderer=v0.13.39')) { throw 'v0.13.39 Web3D source metadata missing' }
           if (-not $meta.Contains('visible_webgl_backing=W_x_H')) { throw 'W x H source invariant missing' }
           if (-not $bundle.Contains('AddMatchingLogs')) { throw 'log.zip dynamic telemetry collector missing' }
           if (-not $gpuLog.Contains('Performance.GPU.csv') -or -not $gpuLog.Contains('Performance.GPUJS.jsonl')) { throw 'GPU telemetry missing' }
@@ -198,14 +202,14 @@ jobs:
       - name: Verify package
         shell: powershell
         run: |
-          $dir = 'dist/GeoGebraForQuest-PC-v0.13.39-gpu-fullframe-sbs-win-x64'
+          $dir = 'dist/GeoGebraForQuest-PC-v0.13.40-blackframe-fallback-win-x64'
           if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw 'Main EXE missing' }
           if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw 'XR EXE missing' }
           if (-not (Test-Path "$dir/assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt")) { throw 'source metadata missing' }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.13.39-gpu-fullframe-sbs-win-x64
-          path: dist/GeoGebraForQuest-PC-v0.13.39-gpu-fullframe-sbs-win-x64/**
+          name: GeoGebraForQuest-PC-v0.13.40-blackframe-fallback-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.13.40-blackframe-fallback-win-x64/**
           if-no-files-found: error
           compression-level: 6
