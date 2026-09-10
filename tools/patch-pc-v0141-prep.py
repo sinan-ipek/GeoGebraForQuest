@@ -77,6 +77,27 @@ if old not in h:
 h = h.replace(old, new, 1)
 p.write_text(h, encoding='utf-8')
 
+# v0.13.21 performance telemetry references the old CPU SBS sequence in two
+# places outside RefreshSources. Once v0.14.1 replaces the SBS reader/member,
+# those references must follow the GPU B metadata sequence as well. Adapt the
+# XR patch so it performs that rename after installing the new GPU consumer.
+p = Path('tools/patch-pc-v0141-xr.py')
+x = p.read_text(encoding='utf-8')
+write_marker = "p.write_text(xr, encoding='utf-8')\n\n\n# ---------------------------------------------------------------------------\n# 3) FullSbs compositor"
+if write_marker not in x:
+    raise SystemExit('v0.14.1 prep: XR main write marker missing')
+x = x.replace(
+    write_marker,
+    "# v0.13.21 telemetry still names the retired CPU SBS sequence.\n"
+    "xr = xr.replace('sbsSequence_', 'stereoGpuSequence_')\n"
+    "if 'sbsSequence_' in xr:\n"
+    "    raise SystemExit('v0.14.1: stale CPU SBS sequence reference remains')\n"
+    "p.write_text(xr, encoding='utf-8')\n\n\n"
+    "# ---------------------------------------------------------------------------\n"
+    "# 3) FullSbs compositor",
+    1)
+p.write_text(x, encoding='utf-8')
+
 # v0.14.1 intentionally asks CEF for 120 accelerated frames/s. The inherited
 # v0.13 build script contains a historical guard that requires exactly 60 fps;
 # update only that guard, not the runtime behavior itself.
@@ -110,4 +131,4 @@ b = b.replace(
     1)
 p.write_text(b, encoding='utf-8')
 
-print('v0.14.1 prep: popup-aware latch + CEF 120 + zero-copy cadence guards applied')
+print('v0.14.1 prep: popup-aware latch + XR telemetry rename + CEF/cadence guards applied')
