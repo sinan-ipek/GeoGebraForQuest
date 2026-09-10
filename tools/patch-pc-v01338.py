@@ -27,7 +27,8 @@ def require(text: str, needle: str, label: str) -> None:
 # MainForm: cache/version labels only. Do not touch stereo handlers.
 p = Path("pc/MainFormV11.cs")
 s = p.read_text(encoding="utf-8")
-require(s, 'case "stereoRawPair":', "v0.13.38 raw stereo host switch missing before relabel")
+require(s, "TryHandleRawStereoMessage", "v0.13.38 raw stereo host dispatcher missing before relabel")
+require(s, '"stereoRawPair"', "v0.13.38 raw stereo message type missing before relabel")
 require(s, "HandleRawStereoPair", "v0.13.38 raw stereo host handler missing before relabel")
 require(s, "LogBundle.Create();", "v0.13.38 log.zip shutdown hook missing")
 s = re.sub(
@@ -83,7 +84,8 @@ required = (
     (render, "pairFrame->pixelFormat == 1", "XR legacy BGRA compositor missing"),
     (xr, "sbsFrame_.pixelFormat == 1", "XR TRUE L/R pair gate missing"),
     (graphics, "v0.13.35: D3D immediate-context state is global", "desktop viewport guard missing"),
-    (main, 'case "stereoRawPair":', "host raw stereo switch missing"),
+    (main, "TryHandleRawStereoMessage", "host raw stereo dispatcher missing"),
+    (main, '"stereoRawPair"', "host raw stereo message type missing"),
     (main, "HandleRawStereoPair", "host raw stereo handler missing"),
     (main, "LogBundle.Create();", "log.zip shutdown hook missing"),
     (bundle, 'Path.Combine(baseDir, "log.zip")', "log.zip target missing"),
