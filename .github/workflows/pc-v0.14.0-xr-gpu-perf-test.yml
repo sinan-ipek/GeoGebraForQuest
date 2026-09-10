@@ -1,0 +1,122 @@
+name: GeoGebraForQuest PC v0.14.0 XR GPU PerfTest
+
+on:
+  push:
+    branches:
+      - pc-v0.14.0-xr-gpu-perf-test
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure OpenXR performance test
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S pc-xr -B .xr-perf-build -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+
+      - name: Build standalone XR GPU performance test
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --build .xr-perf-build --config Release --target GeoGebraForQuestPC.XR.PerfTest --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'XR PerfTest build failed' }
+
+      - name: Package performance test
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'dist/GeoGebraForQuest-PC-v0.14.0-XR-GPU-PerfTest-win-x64'
+          if (Test-Path $out) { Remove-Item $out -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+          $exe = Get-ChildItem '.xr-perf-build' -Filter 'GeoGebraForQuestPC.XR.PerfTest.exe' -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'GeoGebraForQuestPC.XR.PerfTest.exe missing' }
+          Copy-Item $exe.FullName (Join-Path $out 'GeoGebraForQuestPC.XR.PerfTest.exe') -Force
+
+          $loader = Get-ChildItem '.xr-perf-build' -Filter 'openxr_loader.dll' -Recurse | Select-Object -First 1
+          if (-not $loader) { throw 'openxr_loader.dll missing' }
+          Copy-Item $loader.FullName (Join-Path $out 'openxr_loader.dll') -Force
+
+          Copy-Item 'pc-xr/Run-XR-GPU-PerfTest.bat' (Join-Path $out 'Run-XR-GPU-PerfTest.bat') -Force
+
+          @'
+          GeoGebraForQuest PC v0.14.0 - XR GPU Performance Test
+
+          PURPOSE
+          -------
+          This is NOT the normal GeoGebraForQuest PC application.
+          It isolates only this pipeline:
+
+              synthetic texture already in VRAM
+                -> D3D11 renderer
+                -> OpenXR projection swapchain
+                -> Meta Quest Link / Air Link
+                -> Quest headset
+
+          Explicitly excluded from the test:
+          - GeoGebra
+          - Chromium / CEF
+          - JavaScript
+          - Canvas2D drawImage
+          - getImageData / readPixels
+          - CefSharp pixel IPC
+          - pixel shared-memory transport
+          - per-frame CPU-to-GPU source uploads
+
+          RUN
+          ---
+          1. Connect Quest using Meta Quest Link or Air Link.
+          2. Keep the headset active in the Link environment.
+          3. Preferably set Link refresh rate to 90 Hz.
+          4. Double-click Run-XR-GPU-PerfTest.bat.
+          5. Put on the headset. A stereo grid/test card and a moving cursor should appear.
+          6. The test ends automatically after 30 seconds.
+
+          OUTPUT
+          ------
+          GeoGebraForQuestPC.XR.PerfTest.log
+          GeoGebraForQuestPC.XR.PerfTest.csv
+
+          Upload both files for analysis.
+
+          INTERPRETATION
+          --------------
+          If target_hz is approximately 90 and delivered FPS stays approximately 90
+          with low workload_ms, the native D3D11/OpenXR/Link path is healthy and the
+          current GeoGebra-to-native transport is the primary bottleneck.
+
+          If this isolated test is also slow or unstable, we must optimize/fix the
+          OpenXR renderer or Link/runtime path before touching GeoGebra again.
+          '@ | Set-Content (Join-Path $out 'README.txt') -Encoding UTF8
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'dist/GeoGebraForQuest-PC-v0.14.0-XR-GPU-PerfTest-win-x64'
+          foreach ($name in @(
+            'GeoGebraForQuestPC.XR.PerfTest.exe',
+            'openxr_loader.dll',
+            'Run-XR-GPU-PerfTest.bat',
+            'README.txt')) {
+            if (-not (Test-Path (Join-Path $out $name))) {
+              throw "Package file missing: $name"
+            }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.14.0-XR-GPU-PerfTest-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.14.0-XR-GPU-PerfTest-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
