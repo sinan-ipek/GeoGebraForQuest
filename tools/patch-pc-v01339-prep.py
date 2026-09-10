@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Build-compatibility prep for the v0.13.39 GPU full-window experiment.
 
-This file changes no intended architecture. It only normalizes two brittle
-textual assumptions in the generated patch chain:
+This file changes no intended architecture. It only normalizes brittle textual
+assumptions inherited from the generated patch chain:
 
 1. v0.13.36 places explanatory comments between host telemetry disposal and
    LogBundle.Create(); v0.13.39 originally expected the calls to be adjacent.
-2. Different reconstructed XR baselines spell MakeBaseRect slightly
-   differently. v0.13.39 requires one logical application-eye width to be
-   exactly half of the final native [A_L|A_R] GPU texture width.
-
-It also normalizes a diagnostic label's case so the patch's own final invariant
-checks the same string that it writes.
+2. v0.13.12 changed MakeBaseRect to support native XR splash width/height
+   overrides. v0.13.39 still needs the normal application path to use exactly
+   half of the final native [A_L|A_R] GPU texture width, while splash overrides
+   must remain unchanged.
+3. A diagnostic label's case is normalized so the patch's own final invariant
+   checks the same string that it writes.
 """
 
 from pathlib import Path
@@ -45,28 +45,61 @@ p.write_text(s, encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # XR logical width normalization.
-# The shared GPU texture produced by v0.13.39 is 2W x H = [A_L | A_R].
-# MakeBaseRect must therefore use W, never 2W, for application aspect/geometry.
-# Do this before the main patch so its old exact-string replacement can simply
-# become a no-op on reconstructed baselines with slightly different formatting.
+# v0.13.12 MakeBaseRect can be either:
+#   std::max(1, baseTexture_.Width())
+# or
+#   std::max(1, widthOverride > 0 ? widthOverride : baseTexture_.Width())
+# Preserve splash widthOverride, but halve only the normal full-SBS texture.
 # ---------------------------------------------------------------------------
 p = Path("pc-xr/main-v11.cpp")
 xr = p.read_text(encoding="utf-8")
 
 if "baseTexture_.Width() / 2" not in xr:
-    pattern = re.compile(
-        r"(?m)^(?P<indent>[ \t]*)const int width = "
-        r"std::max\(1,\s*baseTexture_\.Width\(\)\);\s*$"
+    splash_old = (
+        "        const int width = std::max(1, "
+        "widthOverride > 0 ? widthOverride : baseTexture_.Width());"
     )
-    match = pattern.search(xr)
-    if not match:
-        raise SystemExit("v0.13.39 prep: MakeBaseRect baseTexture width line not found")
-    indent = match.group("indent")
-    replacement = (
-        indent + "// v0.13.39: baseTexture_ will be native [A_L|A_R] = 2W x H.\n" +
-        indent + "const int width = std::max(1, baseTexture_.Width() / 2);"
+    splash_new = (
+        "        // v0.13.39: normal baseTexture_ is native [A_L|A_R] = 2W x H;\n"
+        "        // native splash dimensions are already single-eye dimensions.\n"
+        "        const int width = std::max(1, widthOverride > 0\n"
+        "            ? widthOverride : baseTexture_.Width() / 2);"
     )
-    xr = xr[:match.start()] + replacement + xr[match.end():]
+    plain_old = "        const int width = std::max(1, baseTexture_.Width());"
+    plain_new = (
+        "        // v0.13.39: baseTexture_ is native [A_L|A_R] = 2W x H.\n"
+        "        const int width = std::max(1, baseTexture_.Width() / 2);"
+    )
+
+    if splash_old in xr:
+        xr = xr.replace(splash_old, splash_new, 1)
+    elif plain_old in xr:
+        xr = xr.replace(plain_old, plain_new, 1)
+    else:
+        # Formatting-tolerant fallback scoped to the width declaration.
+        pattern = re.compile(
+            r"(?m)^(?P<indent>[ \t]*)const int width = std::max\(1,\s*"
+            r"(?:(?:widthOverride\s*>\s*0\s*\?\s*widthOverride\s*:\s*)?)"
+            r"baseTexture_\.Width\(\)\);\s*$"
+        )
+        match = pattern.search(xr)
+        if not match:
+            raise SystemExit("v0.13.39 prep: MakeBaseRect baseTexture width line not found")
+        indent = match.group("indent")
+        original = match.group(0)
+        if "widthOverride" in original:
+            replacement = (
+                indent + "// v0.13.39: normal baseTexture_ is native [A_L|A_R] = 2W x H;\n" +
+                indent + "// native splash dimensions remain single-eye dimensions.\n" +
+                indent + "const int width = std::max(1, widthOverride > 0\n" +
+                indent + "    ? widthOverride : baseTexture_.Width() / 2);"
+            )
+        else:
+            replacement = (
+                indent + "// v0.13.39: baseTexture_ is native [A_L|A_R] = 2W x H.\n" +
+                indent + "const int width = std::max(1, baseTexture_.Width() / 2);"
+            )
+        xr = xr[:match.start()] + replacement + xr[match.end():]
 
 p.write_text(xr, encoding="utf-8")
 
@@ -83,4 +116,4 @@ patch = patch.replace(
 )
 p.write_text(patch, encoding="utf-8")
 
-print("v0.13.39 prep: shutdown marker + XR logical width + log label normalized")
+print("v0.13.39 prep: shutdown marker + splash-aware XR width + log label normalized")
