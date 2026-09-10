@@ -77,4 +77,22 @@ if old not in h:
 h = h.replace(old, new, 1)
 p.write_text(h, encoding='utf-8')
 
-print('v0.14.1 prep: popup-aware accelerated-paint latch adapter applied')
+# v0.14.1 intentionally asks CEF for 120 accelerated frames/s. The inherited
+# v0.13 build script contains a historical guard that requires exactly 60 fps;
+# update only that guard, not the runtime behavior itself.
+p = Path('pc/build.ps1')
+b = p.read_text(encoding='utf-8')
+old_guard = 'if ($browserText -notmatch "WindowlessFrameRate = 60") {'
+if old_guard not in b:
+    raise SystemExit('v0.14.1 prep: inherited CEF 60 fps build guard missing')
+b = b.replace(
+    old_guard,
+    'if ($browserText -notmatch "WindowlessFrameRate = 120") {',
+    1)
+b = b.replace(
+    'CEF 60 fps tavanı korunmuyor.',
+    'CEF 120 fps hedefi etkin değil.',
+    1)
+p.write_text(b, encoding='utf-8')
+
+print('v0.14.1 prep: popup-aware latch + CEF 120 build guard applied')
