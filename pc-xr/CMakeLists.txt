@@ -19,11 +19,30 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(openxr_sdk)
 
-# v0.12.3 keeps the proven v0.12 OpenXR session/input/stereo loop.
-# A: native-DPI CEF GPU texture -> XR, with high-quality Quest minification.
-# B: proven Exp46 [L|R] stereo, rendered 2 cm behind an XR-only transparent 3D hole.
-# Quest target: 2064x2208 physical pixels per eye, clamped to runtime maxImageRect.
-# Mouse: Windows pointer is mirrored into XR while Touch ray input continues to work.
+function(ggq_configure_xr_target target_name)
+  target_compile_definitions(${target_name} PRIVATE
+    XR_USE_PLATFORM_WIN32
+    XR_USE_GRAPHICS_API_D3D11
+    UNICODE
+    _UNICODE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+  )
+
+  target_link_libraries(${target_name} PRIVATE
+    openxr_loader
+    d3d11
+    d3dcompiler
+    dxgi
+    user32
+  )
+
+  if(MSVC)
+    target_compile_options(${target_name} PRIVATE /W4 /EHsc /permissive-)
+  endif()
+endfunction()
+
+# Production XR companion retained unchanged from the v0.13.35 working-depth baseline.
 add_executable(GeoGebraForQuestPC.XR
   main-v123.cpp
   main-v11.cpp
@@ -36,25 +55,23 @@ add_executable(GeoGebraForQuestPC.XR
 # compiled as a second translation unit.
 set_source_files_properties(main-v11.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
 
-target_compile_definitions(GeoGebraForQuestPC.XR PRIVATE
-  XR_USE_PLATFORM_WIN32
-  XR_USE_GRAPHICS_API_D3D11
-  UNICODE
-  _UNICODE
-  NOMINMAX
-  WIN32_LEAN_AND_MEAN
+ggq_configure_xr_target(GeoGebraForQuestPC.XR)
+
+# v0.14.0 diagnostic executable. This deliberately excludes GeoGebra, CEF,
+# JavaScript stereo capture, pixel MMF transport, and host-process IPC. Synthetic
+# textures are uploaded once during startup and then remain in VRAM. Every frame
+# therefore measures only our native D3D11 renderer + OpenXR + Meta Link path.
+add_executable(GeoGebraForQuestPC.XR.PerfTest
+  perf-test.cpp
+  v11-shared.hpp
+  v11-render.hpp
+  v123-mouse.hpp
 )
 
-target_link_libraries(GeoGebraForQuestPC.XR PRIVATE
-  openxr_loader
-  d3d11
-  d3dcompiler
-  dxgi
-  user32
+ggq_configure_xr_target(GeoGebraForQuestPC.XR.PerfTest)
+
+install(TARGETS
+  GeoGebraForQuestPC.XR
+  GeoGebraForQuestPC.XR.PerfTest
+  RUNTIME DESTINATION .
 )
-
-if(MSVC)
-  target_compile_options(GeoGebraForQuestPC.XR PRIVATE /W4 /EHsc /permissive-)
-endif()
-
-install(TARGETS GeoGebraForQuestPC.XR RUNTIME DESTINATION .)
