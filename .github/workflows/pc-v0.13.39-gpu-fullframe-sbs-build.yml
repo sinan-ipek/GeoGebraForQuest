@@ -1,0 +1,285 @@
+name: GeoGebraForQuest PC v0.13.39 GPU Full-Frame SBS
+
+on:
+  push:
+    branches:
+      - pc-v0.13.39-gpu-fullframe-sbs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-geogebra-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+
+      - name: Inject v0.13.39 W x H eye-FBO source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tools/build-geogebra-quest.sh')
+          s = p.read_text(encoding='utf-8')
+          anchor = 'echo "[GGQ] retaining last stereo frame and real popup-state detection"\n'
+          if anchor not in s:
+              raise SystemExit('GeoGebra source-build injection anchor missing')
+          insert = (
+              'echo "[GGQ] applying PC v0.13.39 GPU full-window eye-FBO renderer"\n'
+              'python3 "$ROOT/tools/patch-geogebra-pc-v01339.py" "$SRC"\n\n'
+          )
+          p.write_text(s.replace(anchor, insert + anchor, 1), encoding='utf-8')
+          PY
+          chmod +x tools/build-geogebra-quest.sh
+
+      - name: Build patched GeoGebra Web3D
+        shell: bash
+        run: ./tools/build-geogebra-quest.sh
+
+      - name: Verify v0.13.39 source invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          WEB=.geogebra-source-work/geogebra/source/web/web/src/main/java/org/geogebra/web/geogebra3D/web/euclidian3D/openGL/RendererWithImplW.java
+          QUEST=.geogebra-source-work/geogebra/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/openGL/QuestStereoRenderer.java
+          BASE=.geogebra-source-work/geogebra/source/shared/common/src/main/java/org/geogebra/common/geogebra3D/euclidian3D/openGL/Renderer.java
+
+          grep -q 'GGQ_PC_V01339_GPU_FULLFRAME_SBS' "$QUEST"
+          grep -q 'renderer.beginQuestEyeRender(Renderer.EYE_LEFT)' "$QUEST"
+          grep -q 'renderer.beginQuestEyeRender(Renderer.EYE_RIGHT)' "$QUEST"
+          grep -q 'renderer.finishQuestStereoPair(stereoFrameSerial)' "$QUEST"
+          ! grep -q 'captureQuestEye(Renderer.EYE_LEFT)' "$QUEST"
+          ! grep -q 'captureQuestEye(Renderer.EYE_RIGHT)' "$QUEST"
+
+          grep -q 'int backingWidth = (int) (w \* ratio);' "$WEB"
+          ! grep -q 'int backingWidth = (int) (w \* ratio) \* 2;' "$WEB"
+          grep -q 'v0.9.19: LEFT_EYE and RIGHT_EYE both render at x=0' "$WEB"
+          grep -q 'ggqGpuCanBeginStereoPair' "$WEB"
+          grep -q 'ggqGpuBindEyeFramebuffer' "$WEB"
+          grep -q 'ggqGpuEndEyeFramebuffer' "$WEB"
+          grep -q 'ggqGpuFinishStereoPair' "$WEB"
+          grep -q 'canBeginQuestStereoPair' "$BASE"
+          grep -q 'finishQuestStereoPair' "$BASE"
+
+          test -f app/src/main/assets/web/GeoGebra/deployggb.js
+          test -f app/src/main/assets/web/GeoGebra/web3d/web3d.nocache.js
+          cat >> app/src/main/assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt <<'EOF'
+          pc_gpu_renderer=v0.13.39
+          pc_gpu_projection_math=existing_PROJECTION_GLASSES_left_right_camera_math
+          visible_webgl_backing=W_x_H
+          visible_webgl_viewport=x0_W_x_H
+          eye_fbos=LEFT_W_x_H_x0;RIGHT_W_x_H_x0
+          scene_policy=one_dirty_GeoGebra_repaint_state_then_left_draw_then_right_draw
+          pair_freeze=eye_FBOs_not_overwritten_until_native_full_window_export_release
+          browser_export=selected_eye_FBO_blitted_to_existing_W_x_H_3D_canvas_then_CEF_full_view_GPU_texture
+          ui_composition=Chromium_native_compositor_keeps_menus_dialogs_and_DOM_above_3D_before_A_L_A_R_capture
+          pc_visibility=temporary_LEFT_phase_never_advances_native_PC_swapchain
+          final_sbs=native_host_GPU_composes_complete_A_L_and_A_R_to_2W_x_H_shared_D3D11_texture
+          pixel_transport=no_getImageData_no_readPixels_no_JPEG_no_Base64_no_raw_pixel_MMF
+          dirty_policy=static_scene_no_renderer_pair_loop;deferred_repaint_only_if_scene_draw_attempted_while_pair_frozen
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v01339-geogebra-eye-fbo
+          path: app/src/main/assets/web/GeoGebra/**
+          if-no-files-found: error
+          compression-level: 6
+
+  build-windows:
+    needs: build-geogebra-web
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download Exp46 web shell
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" --repo "sinan-ipek/GeoGebraForQuest" --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          if (-not $apk) { throw 'Exp46 APK missing' }
+          Copy-Item $apk.FullName ".exp46/exp46.zip" -Force
+          Expand-Archive ".exp46/exp46.zip" ".exp46/unpacked" -Force
+          $source = ".exp46/unpacked/assets/web"
+          if (Test-Path "app/src/main/assets/web") { Remove-Item "app/src/main/assets/web" -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v01339-geogebra-eye-fbo
+          path: .gpu-geogebra
+
+      - name: Overlay v0.13.39 custom GeoGebra runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dest = 'app/src/main/assets/web/GeoGebra'
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item '.gpu-geogebra/*' $dest -Recurse -Force
+          if (-not (Test-Path "$dest/deployggb.js")) { throw 'custom deployggb.js missing' }
+          if (-not (Test-Path "$dest/web3d/web3d.nocache.js")) { throw 'custom web3d runtime missing' }
+          $meta = Get-Content "$dest/GGQ_SOURCE_BUILD.txt" -Raw
+          if (-not $meta.Contains('pc_gpu_renderer=v0.13.39')) { throw 'v0.13.39 source metadata missing' }
+
+      - name: Prepare standalone Quest stereo splash artwork
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $left = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/v0.9.22-splash-20fps/app/src/main/res/drawable-nodpi/stereo_splash_left.webp'
+          $right = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/v0.9.22-splash-20fps/app/src/main/res/drawable-nodpi/stereo_splash_right.webp'
+          Invoke-WebRequest $left -OutFile 'pc-xr/stereo_splash_left.webp'
+          Invoke-WebRequest $right -OutFile 'pc-xr/stereo_splash_right.webp'
+          python -m pip install --disable-pip-version-check --quiet pillow
+          @'
+          from PIL import Image
+          for side in ('left','right'):
+              src=f'pc-xr/stereo_splash_{side}.webp'
+              dst=f'pc-xr/stereo_splash_{side}.png'
+              with Image.open(src) as im:
+                  im.convert('RGBA').save(dst, 'PNG')
+          '@ | python -
+
+      - name: Apply known-working v0.13.22 stack
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v013.py
+          python tools/patch-pc-v013-buildfix.py
+          python tools/patch-pc-v0131.py
+          python tools/patch-pc-v0132.py
+          python tools/patch-pc-v0133-adapter.py
+          python tools/patch-pc-v0133.py
+          python tools/patch-pc-v0133-adapter.py
+          python tools/patch-pc-v0134.py
+          python tools/patch-pc-v0134-buildfix.py
+          python tools/patch-pc-v0135.py
+          python tools/patch-pc-v0135-buildfix.py
+          python tools/patch-pc-v0136.py
+          python tools/patch-pc-v0136-buildfix.py
+          python tools/patch-pc-v0137.py
+          python tools/patch-pc-v0137-buildfix.py
+          python tools/patch-pc-v0138-prep.py
+          python tools/patch-pc-v0138-prep2.py
+          python tools/patch-pc-v0138.py
+          python tools/patch-pc-v0138-buildfix.py
+          python tools/patch-pc-v0139-direct.py
+          python tools/patch-pc-v0139-buildfix.py
+          python tools/patch-pc-v01310.py
+          python tools/patch-pc-v01310-buildfix.py
+          python tools/patch-pc-v01311.py
+          python tools/patch-pc-v01311-extra.py
+          python tools/patch-pc-v01311-postfix.py
+          python tools/patch-pc-v01312-prep.py
+          python tools/patch-pc-v01312-buildprep.py
+          python tools/patch-pc-v01312.py
+          python tools/patch-pc-v01313.py
+          python tools/patch-pc-v01314.py
+          python tools/patch-pc-v01315.py
+          python tools/patch-pc-v01316.py
+          python tools/patch-pc-v01317.py
+          python tools/patch-pc-v01318-prep.py
+          python tools/patch-pc-v01318.py
+          python tools/patch-pc-v01318-buildfix.py
+          python tools/patch-pc-v01319.py
+          python tools/patch-pc-v01320.py
+          python tools/patch-pc-v01321.py
+          python tools/patch-pc-v01321-js-extra.py
+          python tools/patch-pc-v01321-extra.py
+          python tools/patch-pc-v01321-compilefix.py
+          python tools/patch-pc-v01321-buildfix.py
+          python tools/patch-pc-v01322.py
+          python tools/patch-pc-v01322-compilefix.py
+
+      - name: Import proven v0.13.24 raw layer as reconstruction base
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/6ec8b49d1a23f2eca3a2a3feba220a59589aa545/tools'
+          Invoke-WebRequest "$base/patch-pc-v01324.py" -OutFile 'tools/patch-pc-v01324-imported.py'
+          Invoke-WebRequest "$base/patch-pc-v01324-buildfix.py" -OutFile 'tools/patch-pc-v01324-buildfix-imported.py'
+          python tools/patch-pc-v01324-imported.py
+          python tools/patch-pc-v01324-buildfix-imported.py
+
+      - name: Reconstruct verified single-panel depth baseline
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v01327.py
+          python tools/patch-pc-v01327-buildfix.py
+          python tools/patch-pc-v01327-xr-compilefix.py
+          python tools/patch-pc-v01328.py
+          Invoke-WebRequest 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/checkpoint-v0.13.22-working-stereo/pc/pc-stereo-layout.js' -OutFile 'pc/pc-stereo-layout.js'
+          python tools/patch-pc-v01329.py
+          python tools/patch-pc-v01331.py
+          python tools/patch-pc-v01335.py
+          python tools/patch-pc-v01336.py
+
+      - name: Apply v0.13.39 GPU full-window A_L A_R architecture
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v01339.py
+
+      - name: Verify v0.13.39 architecture before build
+        shell: powershell
+        run: |
+          $runtime = Get-Content 'pc/pc-stereo-layout.js' -Raw
+          $host = Get-Content 'pc/MainFormV139.GpuStereo.cs' -Raw
+          $graphics = Get-Content 'pc/MainFormV11.Graphics.cs' -Raw
+          $xr = Get-Content 'pc-xr/main-v11.cpp' -Raw
+          $render = Get-Content 'pc-xr/v11-render.hpp' -Raw
+          $index = Get-Content 'app/src/main/assets/web/index.html' -Raw
+          $meta = Get-Content 'app/src/main/assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt' -Raw
+          $bundle = Get-Content 'pc/LogBundle.cs' -Raw
+
+          if ($runtime -match 'getImageData|readPixels|toBlob|stereoRawPair|Base64') { throw 'CPU pixel path present' }
+          if (-not $index.Contains('ggq-gpu-fullframe-sbs-v01339')) { throw 'eye FBO bridge missing' }
+          if ($index.Contains('width * 2, height') -or $index.Contains('width*2,height')) { throw '2W WebGL presentation regression' }
+          if (-not $host.Contains('CaptureLeftPaint') -or -not $host.Contains('CaptureRightPaint')) { throw 'full-window eye capture states missing' }
+          if (-not $host.Contains('ComposeAndPublishGpuFullSbsLocked')) { throw 'native full-SBS compositor missing' }
+          if (-not $graphics.Contains('TryConsumeGpuStereoPaintLocked')) { throw 'CEF accelerated paint state machine missing' }
+          if (-not $xr.Contains('baseTexture_.Width() / 2')) { throw 'XR logical eye width missing' }
+          if (-not $render.Contains('rightEye ? 0.5f : 0.0f')) { throw 'XR half sampler missing' }
+          if (-not $meta.Contains('visible_webgl_backing=W_x_H')) { throw 'W x H source invariant missing' }
+          if (-not $bundle.Contains('AddMatchingLogs')) { throw 'log.zip dynamic telemetry collector missing' }
+
+      - name: Build Windows EXE package
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = 'dist/GeoGebraForQuest-PC-v0.13.39-gpu-fullframe-sbs-win-x64'
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw 'Main EXE missing' }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw 'XR EXE missing' }
+          if (-not (Test-Path "$dir/assets/web/GeoGebra/GGQ_SOURCE_BUILD.txt")) { throw 'source metadata missing' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.13.39-gpu-fullframe-sbs-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.13.39-gpu-fullframe-sbs-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
