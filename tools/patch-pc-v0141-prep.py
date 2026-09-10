@@ -93,6 +93,21 @@ b = b.replace(
     'CEF 60 fps tavanı korunmuyor.',
     'CEF 120 fps hedefi etkin değil.',
     1)
+
+# v0.13.31 also hard-coded the old 16 ms CPU/raw cadence as a build invariant.
+# v0.14.1 removes the serialized raw-ACK transport and deliberately uses a 1 ms
+# request cadence; CEF's 120 fps accelerated-paint rate is the practical cap.
+old_cadence = 'if (-not $runtimeText.Contains("var CAPTURE_INTERVAL_MS = 16")) {'
+if old_cadence not in b:
+    raise SystemExit('v0.14.1 prep: inherited 16 ms raw cadence build guard missing')
+b = b.replace(
+    old_cadence,
+    'if (-not $runtimeText.Contains("var CAPTURE_INTERVAL_MS = 1")) {',
+    1)
+b = b.replace(
+    '16 ms raw cadence eksik.',
+    '1 ms zero-copy request cadence eksik.',
+    1)
 p.write_text(b, encoding='utf-8')
 
-print('v0.14.1 prep: popup-aware latch + CEF 120 build guard applied')
+print('v0.14.1 prep: popup-aware latch + CEF 120 + zero-copy cadence guards applied')
