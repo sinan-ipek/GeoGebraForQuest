@@ -148,7 +148,7 @@ jobs:
           $runtime = Get-Content 'pc/pc-stereo-layout.js' -Raw
           $graphics = Get-Content 'pc/MainFormV11.Graphics.cs' -Raw
           $browser = Get-Content 'pc/D3DChromiumWebBrowser.cs' -Raw
-          $host = Get-Content 'pc/MainFormV141.GpuStereo.cs' -Raw
+          $gpuHost = Get-Content 'pc/MainFormV141.GpuStereo.cs' -Raw
           $publisher = Get-Content 'pc/StereoGpuTexturePublisher.cs' -Raw
           $shared = Get-Content 'pc-xr/v11-shared.hpp' -Raw
           $xr = Get-Content 'pc-xr/main-v11.cpp' -Raw
@@ -169,7 +169,7 @@ jobs:
           if (-not $graphics.Contains('v0.13.35: D3D immediate-context state is global')) { throw 'PC viewport guard lost' }
           if (-not $browser.Contains('SharedTextureEnabled = true')) { throw 'CEF shared texture disabled' }
           if (-not $browser.Contains('WindowlessFrameRate = 120')) { throw 'CEF 120 request missing' }
-          if (-not $host.Contains('CopyResource(cefTexture, _stereoGpuSharedTexture)')) { throw 'GPU B copy missing' }
+          if (-not $gpuHost.Contains('CopyResource(cefTexture, _stereoGpuSharedTexture)')) { throw 'GPU B copy missing' }
           if (-not $publisher.Contains('GeoGebraForQuestPC_B_GPU_v1')) { throw 'B GPU metadata publisher missing' }
           if (-not $shared.Contains('StereoGpuFrameInfoReader')) { throw 'XR B metadata reader missing' }
           if (-not $xr.Contains('stereoGpuTexture_.Update')) { throw 'XR GPU B consumer missing' }
