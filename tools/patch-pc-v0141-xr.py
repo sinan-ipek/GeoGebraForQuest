@@ -7,6 +7,25 @@ def req(text: str, needle: str, label: str) -> None:
         raise SystemExit(label)
 
 
+# ---------------------------------------------------------------------------
+# GeoGebraForQuest PC v0.14.1 — zero-copy GPU B consumer.
+#
+# The v0.13.35 correctness baseline is preserved as compatibility:
+#   pixelFormat 1 = legacy BGRA L|R
+#   pixelFormat 2 = older raw-RGBA L|R compatibility
+#
+# v0.14.1 adds:
+#   pixelFormat 5 = CEF accelerated-paint GPU staging texture
+#
+# The old CPU/MMF SBS transport is no longer used by v0.14.1 at runtime, but
+# the compositor keeps format 1/2 support so the known-good rendering contract
+# is not destructively rewritten.
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# 1) Shared metadata reader for the GPU-resident B texture.
+# ---------------------------------------------------------------------------
 p = Path('pc-xr/v11-shared.hpp')
 shared = p.read_text(encoding='utf-8')
 
@@ -55,7 +74,10 @@ public:
         if (!view_ && !Open()) return false;
         for (int attempt = 0; attempt < 3; ++attempt) {
             const auto first = ReadI64(view_, 8);
-            if ((first & 1) != 0) { std::this_thread::yield(); continue; }
+            if ((first & 1) != 0) {
+                std::this_thread::yield();
+                continue;
+            }
             if (first == previousSequence) return false;
 
             StereoGpuFrameInfo c{};
@@ -132,6 +154,10 @@ shared = shared.replace(
     1)
 p.write_text(shared, encoding='utf-8')
 
+
+# ---------------------------------------------------------------------------
+# 2) main-v11.cpp: replace the CPU SBS source with shared GPU B metadata.
+# ---------------------------------------------------------------------------
 p = Path('pc-xr/main-v11.cpp')
 xr = p.read_text(encoding='utf-8')
 
@@ -163,6 +189,7 @@ start = xr.find('        SbsSnapshot sbsUpdate{};')
 end = xr.find('\n    }\n\n    void RenderFrame()', start)
 if start < 0 or end < 0:
     raise SystemExit('v0.14.1: RefreshSources old SBS block missing')
+
 new_refresh = r'''        StereoGpuFrameInfo bUpdate{};
         if (stereoGpuReader_.ReadIfChanged(stereoGpuSequence_, bUpdate)) {
             stereoGpuSequence_ = bUpdate.sequence;
@@ -215,7 +242,20 @@ new_refresh = r'''        StereoGpuFrameInfo bUpdate{};
 '''
 xr = xr[:start] + new_refresh + xr[end:]
 
-old = '''                    const bool pairReady =
+# v0.13.28 originally used format 2; v0.13.29 broadened the gate to (1 || 2),
+# and v0.13.31/35 deliberately left the compositor unchanged. Accept either
+# generated spelling so the patch is stable across the correctness lineage.
+compose_candidates = [
+    '''                    const bool pairReady =
+                        sbsTexture_.Valid() && sbsFrame_.active &&
+                        (sbsFrame_.pixelFormat == 1 || sbsFrame_.pixelFormat == 2) && !sbsFrame_.sbs.empty();
+                    fullSbsSrv = fullSbsComposer_.Compose(
+                        device_.Get(), context_.Get(),
+                        baseTexture_.Srv(),
+                        baseTexture_.Width(), baseTexture_.Height(),
+                        pairReady ? sbsTexture_.Srv() : nullptr,
+                        pairReady ? &sbsFrame_ : nullptr);''',
+    '''                    const bool pairReady =
                         sbsTexture_.Valid() && sbsFrame_.active &&
                         sbsFrame_.pixelFormat == 1 && !sbsFrame_.sbs.empty();
                     fullSbsSrv = fullSbsComposer_.Compose(
@@ -223,9 +263,23 @@ old = '''                    const bool pairReady =
                         baseTexture_.Srv(),
                         baseTexture_.Width(), baseTexture_.Height(),
                         pairReady ? sbsTexture_.Srv() : nullptr,
-                        pairReady ? &sbsFrame_ : nullptr);'''
-req(xr, old, 'v0.14.1: v0.13.35 FullSbs compose block missing')
-new = '''                    const bool pairReady =
+                        pairReady ? &sbsFrame_ : nullptr);''',
+    '''                    const bool pairReady =
+                        sbsTexture_.Valid() && sbsFrame_.active &&
+                        sbsFrame_.pixelFormat == 2 && !sbsFrame_.sbs.empty();
+                    fullSbsSrv = fullSbsComposer_.Compose(
+                        device_.Get(), context_.Get(),
+                        baseTexture_.Srv(),
+                        baseTexture_.Width(), baseTexture_.Height(),
+                        pairReady ? sbsTexture_.Srv() : nullptr,
+                        pairReady ? &sbsFrame_ : nullptr);''',
+]
+
+compose_old = next((candidate for candidate in compose_candidates if candidate in xr), None)
+if compose_old is None:
+    raise SystemExit('v0.14.1: v0.13.35 FullSbs compose block missing')
+
+compose_new = '''                    const bool pairReady =
                         stereoGpuTexture_.Valid() && sbsFrame_.active &&
                         sbsFrame_.pixelFormat == 5;
                     fullSbsSrv = fullSbsComposer_.Compose(
@@ -234,7 +288,7 @@ new = '''                    const bool pairReady =
                         baseTexture_.Width(), baseTexture_.Height(),
                         pairReady ? stereoGpuTexture_.Srv() : nullptr,
                         pairReady ? &sbsFrame_ : nullptr);'''
-xr = xr.replace(old, new, 1)
+xr = xr.replace(compose_old, compose_new, 1)
 
 xr = xr.replace(
     'initialized: A CEF GPU + proven JPEG L/R -> GPU A_L|A_R full-SBS single panel',
@@ -246,11 +300,24 @@ xr = xr.replace(
     1)
 p.write_text(xr, encoding='utf-8')
 
+
+# ---------------------------------------------------------------------------
+# 3) FullSbs compositor: keep proven format 1/2 and add GPU-stage format 5.
+# ---------------------------------------------------------------------------
 p = Path('pc-xr/v11-render.hpp')
 render = p.read_text(encoding='utf-8')
-render = render.replace(
+
+render_gate_candidates = [
+    '            (pairFrame->pixelFormat == 1 || pairFrame->pixelFormat == 2) &&\n',
     '            pairFrame->pixelFormat == 1 &&\n',
-    '            (pairFrame->pixelFormat == 1 || pairFrame->pixelFormat == 5) &&\n',
+    '            pairFrame->pixelFormat == 2 &&\n',
+]
+render_gate_old = next((candidate for candidate in render_gate_candidates if candidate in render), None)
+if render_gate_old is None:
+    raise SystemExit('v0.14.1: FullSbs pixel-format gate missing')
+render = render.replace(
+    render_gate_old,
+    '            (pairFrame->pixelFormat == 1 || pairFrame->pixelFormat == 2 || pairFrame->pixelFormat == 5) &&\n',
     1)
 
 left_old = '''                DrawRect(context, stereoPair,
@@ -265,6 +332,7 @@ left_old = '''                DrawRect(context, stereoPair,
                     panelB,
                     0.5f, 0.0f, 1.0f, 1.0f, fullWidth, fullHeight);'''
 req(render, left_old, 'v0.14.1: FullSbs fixed UV pair block missing')
+
 left_new = '''                float srcU0 = 0.0f;
                 float srcUM = 0.5f;
                 float srcU1 = 1.0f;
@@ -300,16 +368,25 @@ left_new = '''                float srcU0 = 0.0f;
 render = render.replace(left_old, left_new, 1)
 p.write_text(render, encoding='utf-8')
 
+
+# ---------------------------------------------------------------------------
+# 4) Hard invariants.
+# ---------------------------------------------------------------------------
 shared = Path('pc-xr/v11-shared.hpp').read_text(encoding='utf-8')
 xr = Path('pc-xr/main-v11.cpp').read_text(encoding='utf-8')
 render = Path('pc-xr/v11-render.hpp').read_text(encoding='utf-8')
+
 for needed, text in (
     ('GeoGebraForQuestPC_B_GPU_v1', shared),
     ('StereoGpuFrameInfoReader', shared),
     ('stereoGpuTexture_.Update', xr),
     ('sbsFrame_.pixelFormat = 5', xr),
+    ('stereoGpuTexture_.Srv()', xr),
     ('pairFrame->pixelFormat == 5', render),
+    ('pairFrame->pixelFormat == 1', render),
+    ('pairFrame->pixelFormat == 2', render),
     ('rightEye ? 0.5f : 0.0f', render),
 ):
     req(text, needed, 'v0.14.1 XR invariant missing: ' + needed)
+
 print('GeoGebraForQuest PC v0.14.1 XR GPU-B patch applied')
