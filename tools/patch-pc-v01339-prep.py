@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
 """Build-compatibility prep for the v0.13.39 GPU full-window experiment.
 
-This file changes no intended architecture. It only normalizes brittle textual
-assumptions inherited from the generated patch chain:
-
-1. v0.13.36 places explanatory comments between host telemetry disposal and
-   LogBundle.Create(); v0.13.39 originally expected the calls to be adjacent.
-2. v0.13.12 changed MakeBaseRect to support native XR splash width/height
-   overrides. v0.13.39 still needs the normal application path to use exactly
-   half of the final native [A_L|A_R] GPU texture width, while splash overrides
-   must remain unchanged.
-3. A diagnostic label's case is normalized so the patch's own final invariant
-   checks the same string that it writes.
+This file changes no intended stereo architecture. It normalizes brittle
+textual assumptions inherited from the generated patch chain and preserves the
+existing RenderEye call contract after the legacy CPU stereo block is removed.
 """
 
 from pathlib import Path
@@ -45,11 +37,8 @@ p.write_text(s, encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # XR logical width normalization.
-# v0.13.12 MakeBaseRect can be either:
-#   std::max(1, baseTexture_.Width())
-# or
-#   std::max(1, widthOverride > 0 ? widthOverride : baseTexture_.Width())
-# Preserve splash widthOverride, but halve only the normal full-SBS texture.
+# v0.13.12 MakeBaseRect supports native XR splash width/height overrides.
+# Preserve those overrides, but halve only the normal full-SBS base texture.
 # ---------------------------------------------------------------------------
 p = Path("pc-xr/main-v11.cpp")
 xr = p.read_text(encoding="utf-8")
@@ -76,7 +65,6 @@ if "baseTexture_.Width() / 2" not in xr:
     elif plain_old in xr:
         xr = xr.replace(plain_old, plain_new, 1)
     else:
-        # Formatting-tolerant fallback scoped to the width declaration.
         pattern = re.compile(
             r"(?m)^(?P<indent>[ \t]*)const int width = std::max\(1,\s*"
             r"(?:(?:widthOverride\s*>\s*0\s*\?\s*widthOverride\s*:\s*)?)"
@@ -105,15 +93,43 @@ p.write_text(xr, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
-# Patch self-check label normalization.
+# Normalize the v0.13.39 patch itself before it runs.
 # ---------------------------------------------------------------------------
 p = Path("tools/patch-pc-v01339.py")
 patch = p.read_text(encoding="utf-8")
+
+# Diagnostic label: final invariant expects this exact case.
 patch = patch.replace(
     'xr = xr.replace("A GPU frame consumed seq=", "FULL-SBS GPU frame consumed seq=")',
     'xr = xr.replace("A GPU frame consumed seq=", "Full-SBS GPU frame consumed seq=")',
     1,
 )
+
+# v0.13.27's RenderEye call still passes interaction-only cursor-handoff
+# arguments. The variables used to live beside FullSbsComposer and were
+# accidentally deleted when v0.13.39 removed that block. v0.13.39 has no CPU
+# stereo snapshot driving the old B-only handoff, so preserve the call contract
+# with an explicitly inactive interaction rectangle. The normal full-window XR
+# cursor remains active; stereo pixels/eye geometry are untouched.
+old_emit = (
+    '    "                ID3D11ShaderResourceView* fullSbsSrv =\\n"\n'
+    '    "                    (!showSplash && baseTexture_.Valid())\\n"\n'
+    '    "                        ? baseTexture_.Srv() : nullptr;\\n" +\n'
+)
+new_emit = (
+    '    "                ID3D11ShaderResourceView* fullSbsSrv =\\n"\n'
+    '    "                    (!showSplash && baseTexture_.Valid())\\n"\n'
+    '    "                        ? baseTexture_.Srv() : nullptr;\\n"\n'
+    '    "                PanelRect cursorStereoRect{};\\n"\n'
+    '    "                const bool cursorStereoValid = false;\\n"\n'
+    '    "                std::array<PanelRect, kMaxUiOverlayRects> uiOverlayRects{};\\n"\n'
+    '    "                const int uiOverlayCount = 0;\\n" +\n'
+)
+if old_emit in patch:
+    patch = patch.replace(old_emit, new_emit, 1)
+elif "const bool cursorStereoValid = false;" not in patch:
+    raise SystemExit("v0.13.39 prep: fullSbsSrv emit block not found in patch")
+
 p.write_text(patch, encoding="utf-8")
 
-print("v0.13.39 prep: shutdown marker + splash-aware XR width + log label normalized")
+print("v0.13.39 prep: shutdown + XR width + cursor contract + log label normalized")
