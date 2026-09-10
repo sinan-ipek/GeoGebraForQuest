@@ -169,7 +169,7 @@ jobs:
         shell: powershell
         run: |
           $runtime = Get-Content 'pc/pc-stereo-layout.js' -Raw
-          $host = Get-Content 'pc/MainFormV139.GpuStereo.cs' -Raw
+          $gpuHostSource = Get-Content 'pc/MainFormV139.GpuStereo.cs' -Raw
           $graphics = Get-Content 'pc/MainFormV11.Graphics.cs' -Raw
           $xr = Get-Content 'pc-xr/main-v11.cpp' -Raw
           $render = Get-Content 'pc-xr/v11-render.hpp' -Raw
@@ -182,8 +182,8 @@ jobs:
           if (-not $runtime.Contains('__ggqPcGpuFullFrameSbsV01339')) { throw 'geometry-only runtime missing' }
           if (-not $index.Contains('ggq-gpu-fullframe-sbs-v01339')) { throw 'eye FBO bridge missing' }
           if ($index.Contains('width * 2, height') -or $index.Contains('width*2,height')) { throw '2W WebGL presentation regression' }
-          if (-not $host.Contains('CaptureLeftPaint') -or -not $host.Contains('CaptureRightPaint')) { throw 'full-window eye capture states missing' }
-          if (-not $host.Contains('ComposeAndPublishGpuFullSbsLocked')) { throw 'native full-SBS compositor missing' }
+          if (-not $gpuHostSource.Contains('CaptureLeftPaint') -or -not $gpuHostSource.Contains('CaptureRightPaint')) { throw 'full-window eye capture states missing' }
+          if (-not $gpuHostSource.Contains('ComposeAndPublishGpuFullSbsLocked')) { throw 'native full-SBS compositor missing' }
           if (-not $graphics.Contains('TryConsumeGpuStereoPaintLocked')) { throw 'CEF accelerated paint state machine missing' }
           if (-not $xr.Contains('baseTexture_.Width() / 2')) { throw 'XR logical eye width missing' }
           if (-not $render.Contains('rightEye ? 0.5f : 0.0f')) { throw 'XR half sampler missing' }
