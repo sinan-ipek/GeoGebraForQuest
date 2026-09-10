@@ -133,6 +133,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v0141-prep.py
           python tools/patch-pc-v0141-host.py
 
       - name: Apply v0.14.1 XR GPU-B patch
