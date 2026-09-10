@@ -150,7 +150,6 @@ build = build.replace(
     "GeoGebraForQuest-PC-v0.13.39-gpu-fullframe-sbs-win-x64",
     "GeoGebraForQuest-PC-v0.13.40-blackframe-fallback-win-x64",
 )
-build = build.replace("v0.13.39", "v0.13.40")
 p.write_text(build, encoding="utf-8")
 
 
