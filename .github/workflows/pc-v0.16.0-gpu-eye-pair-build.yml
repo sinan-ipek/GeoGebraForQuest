@@ -129,20 +129,39 @@ jobs:
           python tools/patch-pc-v01331.py
           python tools/patch-pc-v01335.py
 
-      - name: Import v0.14 GPU metadata and safe-latch plumbing
+      - name: Download pinned v0.14.2 GPU plumbing scripts
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $base141 = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/pc-v0.14.1-zero-copy-fullframe-latch/tools'
-          $base142 = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/pc-v0.14.2-safe-gpu-b-latch/tools'
-          Invoke-WebRequest "$base142/patch-pc-v0141-prep.py" -OutFile 'tools/patch-pc-v0141-prep-imported.py'
-          Invoke-WebRequest "$base141/patch-pc-v0141-host.py" -OutFile 'tools/patch-pc-v0141-host.py'
-          Invoke-WebRequest "$base141/patch-pc-v0141-xr.py" -OutFile 'tools/patch-pc-v0141-xr.py'
-          Invoke-WebRequest "$base142/patch-pc-v0142-prep.py" -OutFile 'tools/patch-pc-v0142-prep.py'
-          Invoke-WebRequest "$base142/patch-pc-v0142-safe.py" -OutFile 'tools/patch-pc-v0142-safe.py'
-          python tools/patch-pc-v0141-prep-imported.py
+          $base = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/57150449dd223d179a7d1ff844e50d3485afd51b/tools'
+          Invoke-WebRequest "$base/patch-pc-v0141-prep.py" -OutFile 'tools/patch-pc-v0141-prep.py'
+          Invoke-WebRequest "$base/patch-pc-v0141-host.py" -OutFile 'tools/patch-pc-v0141-host.py'
+          Invoke-WebRequest "$base/patch-pc-v0141-xr.py" -OutFile 'tools/patch-pc-v0141-xr.py'
+          Invoke-WebRequest "$base/patch-pc-v0142-prep.py" -OutFile 'tools/patch-pc-v0142-prep.py'
+          Invoke-WebRequest "$base/patch-pc-v0142-safe.py" -OutFile 'tools/patch-pc-v0142-safe.py'
+
+      - name: Apply pinned v0.14.1 prep
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v0141-prep.py
+
+      - name: Apply pinned v0.14.1 host GPU plumbing
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
           python tools/patch-pc-v0141-host.py
+
+      - name: Apply pinned v0.14.1 XR GPU plumbing
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
           python tools/patch-pc-v0141-xr.py
+
+      - name: Apply pinned v0.14.2 safe latch and UI fixes
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
           python tools/patch-pc-v0142-safe.py
 
       - name: Apply v0.16.0 two-paint GPU eye-pair transport
