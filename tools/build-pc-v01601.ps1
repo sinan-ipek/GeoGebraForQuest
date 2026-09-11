@@ -28,6 +28,16 @@ if (-not $telemetry.Contains('class GpuStereoV141Telemetry')) {
   throw 'v0.16.3 adapter: GPU stereo telemetry class marker missing'
 }
 
+$logBundleUrl = "$pinnedBase/LogBundle.cs"
+Invoke-WebRequest $logBundleUrl -OutFile 'pc/LogBundle.cs'
+if (-not (Test-Path 'pc/LogBundle.cs')) {
+  throw 'v0.16.4 adapter: LogBundle.cs download failed'
+}
+$logBundle = Get-Content 'pc/LogBundle.cs' -Raw
+if (-not $logBundle.Contains('static class LogBundle')) {
+  throw 'v0.16.4 adapter: LogBundle class marker missing'
+}
+
 $baseText = Get-Content $baseScript -Raw
 $verifyMarker = "Write-Host '[v0.16.0] Verifying architecture...'"
 if (-not $baseText.Contains($verifyMarker)) {
@@ -46,6 +56,7 @@ if (`$LASTEXITCODE -ne 0) { throw 'v0.16.2 cache-busting buildguard failed' }
 
 Write-Host '[v0.16.1] Restored pinned B GPU metadata publisher.'
 Write-Host '[v0.16.3] Restored pinned GPU stereo telemetry source.'
+Write-Host '[v0.16.4] Restored pinned log bundle source.'
 Write-Host '[v0.16.2] Wired cache-busting build guard updater.'
 & $baseScript
 exit $LASTEXITCODE
