@@ -21,10 +21,34 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Build v0.16.0 direct GPU eye-pair package
+        id: build_v016
+        continue-on-error: true
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-        run: .\tools\build-pc-v01600.ps1
+        run: |
+          New-Item -ItemType Directory -Force -Path 'v016-diagnostics' | Out-Null
+          & .\tools\build-pc-v01600.ps1 *>&1 | Tee-Object -FilePath 'v016-diagnostics/build.log'
+          $code = $LASTEXITCODE
+          "exit_code=$code" | Out-File 'v016-diagnostics/status.txt' -Encoding utf8
+          if (Test-Path 'pc/MainFormV11.Graphics.cs') { Copy-Item 'pc/MainFormV11.Graphics.cs' 'v016-diagnostics/MainFormV11.Graphics.cs' -Force }
+          if (Test-Path 'pc/MainFormV141.GpuStereo.cs') { Copy-Item 'pc/MainFormV141.GpuStereo.cs' 'v016-diagnostics/MainFormV141.GpuStereo.cs' -Force }
+          if (Test-Path 'pc/pc-stereo-layout.js') { Copy-Item 'pc/pc-stereo-layout.js' 'v016-diagnostics/pc-stereo-layout.js' -Force }
+          if ($code -ne 0) { exit $code }
+
+      - name: Upload v0.16.0 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.16.0-diagnostics
+          path: v016-diagnostics/**
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Stop on build failure
+        if: steps.build_v016.outcome == 'failure'
+        shell: powershell
+        run: throw 'v0.16.0 build failed; diagnostics artifact uploaded.'
 
       - uses: actions/upload-artifact@v4
         with:
