@@ -1,0 +1,218 @@
+name: GeoGebraForQuest PC v0.15.1 WebGL Source Probe
+
+on:
+  push:
+    branches:
+      - pc-v0.15.1-webgl-source-hook-probe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download Exp46 assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ".exp46" | Out-Null
+          gh release download "v0.9.30-exp46-hover-target-grip-focus" --repo "sinan-ipek/GeoGebraForQuest" --pattern "GeoGebraForQuest-v0.9.30-exp46-hover-target-grip-focus-debug.apk" --dir ".exp46"
+          $apk = Get-ChildItem ".exp46" -Filter "*.apk" | Select-Object -First 1
+          if (-not $apk) { throw 'Exp46 APK missing' }
+          Copy-Item $apk.FullName ".exp46/exp46.zip" -Force
+          Expand-Archive ".exp46/exp46.zip" ".exp46/unpacked" -Force
+          $source = ".exp46/unpacked/assets/web"
+          if (Test-Path "app/src/main/assets/web") { Remove-Item "app/src/main/assets/web" -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "app/src/main/assets" | Out-Null
+          Copy-Item $source "app/src/main/assets/web" -Recurse -Force
+
+      - name: Prepare standalone Quest stereo splash artwork
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $left = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/v0.9.22-splash-20fps/app/src/main/res/drawable-nodpi/stereo_splash_left.webp'
+          $right = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/v0.9.22-splash-20fps/app/src/main/res/drawable-nodpi/stereo_splash_right.webp'
+          Invoke-WebRequest $left -OutFile 'pc-xr/stereo_splash_left.webp'
+          Invoke-WebRequest $right -OutFile 'pc-xr/stereo_splash_right.webp'
+          python -m pip install --disable-pip-version-check --quiet pillow
+          @'
+          from PIL import Image
+          for side in ('left','right'):
+              src=f'pc-xr/stereo_splash_{side}.webp'
+              dst=f'pc-xr/stereo_splash_{side}.png'
+              with Image.open(src) as im:
+                  im.convert('RGBA').save(dst, 'PNG')
+          '@ | python -
+
+      - name: Apply known-working v0.13.22 stack
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v013.py
+          python tools/patch-pc-v013-buildfix.py
+          python tools/patch-pc-v0131.py
+          python tools/patch-pc-v0132.py
+          python tools/patch-pc-v0133-adapter.py
+          python tools/patch-pc-v0133.py
+          python tools/patch-pc-v0133-adapter.py
+          python tools/patch-pc-v0134.py
+          python tools/patch-pc-v0134-buildfix.py
+          python tools/patch-pc-v0135.py
+          python tools/patch-pc-v0135-buildfix.py
+          python tools/patch-pc-v0136.py
+          python tools/patch-pc-v0136-buildfix.py
+          python tools/patch-pc-v0137.py
+          python tools/patch-pc-v0137-buildfix.py
+          python tools/patch-pc-v0138-prep.py
+          python tools/patch-pc-v0138-prep2.py
+          python tools/patch-pc-v0138.py
+          python tools/patch-pc-v0138-buildfix.py
+          python tools/patch-pc-v0139-direct.py
+          python tools/patch-pc-v0139-buildfix.py
+          python tools/patch-pc-v01310.py
+          python tools/patch-pc-v01310-buildfix.py
+          python tools/patch-pc-v01311.py
+          python tools/patch-pc-v01311-extra.py
+          python tools/patch-pc-v01311-postfix.py
+          python tools/patch-pc-v01312-prep.py
+          python tools/patch-pc-v01312-buildprep.py
+          python tools/patch-pc-v01312.py
+          python tools/patch-pc-v01313.py
+          python tools/patch-pc-v01314.py
+          python tools/patch-pc-v01315.py
+          python tools/patch-pc-v01316.py
+          python tools/patch-pc-v01317.py
+          python tools/patch-pc-v01318-prep.py
+          python tools/patch-pc-v01318.py
+          python tools/patch-pc-v01318-buildfix.py
+          python tools/patch-pc-v01319.py
+          python tools/patch-pc-v01320.py
+          python tools/patch-pc-v01321.py
+          python tools/patch-pc-v01321-js-extra.py
+          python tools/patch-pc-v01321-extra.py
+          python tools/patch-pc-v01321-compilefix.py
+          python tools/patch-pc-v01321-buildfix.py
+          python tools/patch-pc-v01322.py
+          python tools/patch-pc-v01322-compilefix.py
+
+      - name: Import proven v0.13.24 raw transport layer
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/6ec8b49d1a23f2eca3a2a3feba220a59589aa545/tools'
+          Invoke-WebRequest "$base/patch-pc-v01324.py" -OutFile 'tools/patch-pc-v01324-imported.py'
+          Invoke-WebRequest "$base/patch-pc-v01324-buildfix.py" -OutFile 'tools/patch-pc-v01324-buildfix-imported.py'
+          python tools/patch-pc-v01324-imported.py
+          python tools/patch-pc-v01324-buildfix-imported.py
+
+      - name: Apply v0.13.27 single-panel compositor base
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v01327.py
+          python tools/patch-pc-v01327-buildfix.py
+          python tools/patch-pc-v01327-xr-compilefix.py
+
+      - name: Apply v0.13.28 true L R compositor
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v01328.py
+
+      - name: Restore exact proven v0.13.22 L R runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/checkpoint-v0.13.22-working-stereo/pc/pc-stereo-layout.js'
+          Invoke-WebRequest $url -OutFile 'pc/pc-stereo-layout.js'
+
+      - name: Apply depth-proven v0.13.29 single-panel cross-connect
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v01329.py
+
+      - name: Apply v0.13.31 exact raw to legacy BGRA transport
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v01331.py
+
+      - name: Apply v0.13.35 correct L R recovery
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v01335.py
+
+      - name: Apply v0.15.0 passive probe base
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v01500-angle-probe.py
+
+      - name: Apply v0.15.1 active WebGL source probe
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/patch-pc-v01501-webgl-source-probe.py
+
+      - name: Verify v0.15.1 architecture
+        shell: powershell
+        run: |
+          $runtime = Get-Content 'pc/pc-stereo-layout.js' -Raw
+          $main = Get-Content 'pc/MainFormV11.cs' -Raw
+          $probe0 = Get-Content 'pc/MainFormV15.AngleDirectProbe.cs' -Raw
+          $probe1 = Get-Content 'pc/MainFormV151.WebGlSourceProbe.cs' -Raw
+          $graphics = Get-Content 'pc/MainFormV11.Graphics.cs' -Raw
+          $writer = Get-Content 'pc/StereoSharedFrameWriter.cs' -Raw
+          $render = Get-Content 'pc-xr/v11-render.hpp' -Raw
+          $xr = Get-Content 'pc-xr/main-v11.cpp' -Raw
+          $project = Get-Content 'pc/GeoGebraForQuest.PC.csproj' -Raw
+          $build = Get-Content 'pc/build.ps1' -Raw
+
+          if (-not $runtime.Contains("type: 'stereoRawPair'")) { throw 'proven raw true L R IPC missing' }
+          if (-not $runtime.Contains('leftCaptureContext.getImageData')) { throw 'checkpoint LEFT source missing' }
+          if (-not $runtime.Contains('rightCaptureContext.getImageData')) { throw 'checkpoint RIGHT source missing' }
+          if (-not $runtime.Contains('__ggqAngleDirectTextureProbeV150')) { throw 'v0.15.0 passive probe base missing' }
+          if (-not $runtime.Contains('__ggqWebGlSourceProbeV151')) { throw 'v0.15.1 active source probe missing' }
+          if (-not $runtime.Contains("reason: 'stereo-pair-completed'")) { throw 'renderer pair completion gate missing' }
+          if (-not $runtime.Contains('rightIsLiveWebGl')) { throw 'RIGHT live WebGL verification missing' }
+          if (-not $main.Contains('case "webglSourceProbe":')) { throw 'host WebGL probe message missing' }
+          if (-not $probe0.Contains('GeoGebraForQuestPC.ANGLE-Probe.json')) { throw 'v0.15.0 comparison probe missing' }
+          if (-not $probe1.Contains('GeoGebraForQuestPC.WebGL-Source-Probe.json')) { throw 'v0.15.1 probe persistence missing' }
+          if (-not $writer.Contains('_view.Write(116, 1)')) { throw 'checkpoint legacy BGRA format missing' }
+          if (-not $render.Contains('pairFrame->pixelFormat == 1')) { throw 'checkpoint XR compositor missing' }
+          if (-not $xr.Contains('sbsFrame_.pixelFormat == 1')) { throw 'checkpoint XR pair gate missing' }
+          if (-not $graphics.Contains('v0.13.35: D3D immediate-context state is global')) { throw 'checkpoint desktop viewport guard missing' }
+          if (-not $project.Contains('<Version>0.15.1</Version>')) { throw 'v0.15.1 version missing' }
+          if (-not $build.Contains('v0.15.1-webgl-source-hook-probe')) { throw 'v0.15.1 package label missing' }
+          if ($runtime.Contains('ggq-gpu-stereo-stage-v0141')) { throw 'abandoned v0.14 staging contamination' }
+          if ($main.Contains('GpuStereoV141State')) { throw 'abandoned v0.14 host contamination' }
+
+      - name: Build Windows EXE package
+        shell: powershell
+        run: .\pc\build.ps1
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          $dir = 'dist/GeoGebraForQuest-PC-v0.15.1-webgl-source-hook-probe-win-x64'
+          if (-not (Test-Path "$dir/GeoGebraForQuestPC.exe")) { throw 'Main EXE missing' }
+          if (-not (Test-Path "$dir/xr/GeoGebraForQuestPC.XR.exe")) { throw 'XR EXE missing' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.15.1-webgl-source-hook-probe-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.15.1-webgl-source-hook-probe-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
