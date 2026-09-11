@@ -131,4 +131,12 @@ b = b.replace(
     1)
 p.write_text(b, encoding='utf-8')
 
+# On the v0.14.2 branch an additional tiny adapter rewrites the v0.14.2 patch's
+# A-publish matcher before that patch is executed later by the workflow. Keeping
+# this hook here avoids duplicating the whole workflow just for formatting drift.
+v142_prep = Path('tools/patch-pc-v0142-prep.py')
+if v142_prep.exists():
+    code = compile(v142_prep.read_text(encoding='utf-8'), str(v142_prep), 'exec')
+    exec(code, {'__name__': '__main__'})
+
 print('v0.14.1 prep: popup-aware latch + XR telemetry rename + CEF/cadence guards applied')
