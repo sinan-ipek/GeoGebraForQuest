@@ -185,7 +185,7 @@ jobs:
           if (-not $runtime.Contains('rightCaptureContext.getImageData')) { throw 'checkpoint RIGHT source missing' }
           if (-not $runtime.Contains('__ggqAngleDirectTextureProbeV150')) { throw 'v0.15.0 passive probe base missing' }
           if (-not $runtime.Contains('__ggqWebGlSourceProbeV151')) { throw 'v0.15.1 active source probe missing' }
-          if (-not $runtime.Contains("reason: 'stereo-pair-completed'")) { throw 'renderer pair completion gate missing' }
+          if (-not $runtime.Contains("finish(true, 'stereo-pair-completed')")) { throw 'renderer pair completion gate missing' }
           if (-not $runtime.Contains('rightIsLiveWebGl')) { throw 'RIGHT live WebGL verification missing' }
           if (-not $main.Contains('case "webglSourceProbe":')) { throw 'host WebGL probe message missing' }
           if (-not $probe0.Contains('GeoGebraForQuestPC.ANGLE-Probe.json')) { throw 'v0.15.0 comparison probe missing' }
