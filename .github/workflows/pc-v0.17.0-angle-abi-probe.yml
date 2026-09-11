@@ -1,0 +1,97 @@
+name: GeoGebraForQuest PC v0.17.0 ANGLE ABI Probe
+
+on:
+  push:
+    branches:
+      - pc-v0.17.0-angle-abi-probe
+  workflow_dispatch:
+
+jobs:
+  build-angle-windows:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      ANGLE_REVISION: 8304737811a7851e2bfdcf6f667b68dbac4e962a
+      DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
+      DEPOT_TOOLS_UPDATE: '0'
+      GYP_MSVS_VERSION: '2022'
+
+    steps:
+      - name: Checkout GGQ probe branch
+        uses: actions/checkout@v4
+
+      - name: Enable long paths
+        shell: powershell
+        run: |
+          git config --global core.longpaths true
+
+      - name: Fetch depot_tools
+        shell: powershell
+        run: |
+          if (Test-Path 'C:\depot_tools') { Remove-Item 'C:\depot_tools' -Recurse -Force }
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
+          'C:\depot_tools' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Checkout Chromium 133 matching ANGLE revision
+        shell: cmd
+        run: |
+          if exist C:\ggq-angle-v017 rmdir /s /q C:\ggq-angle-v017
+          mkdir C:\ggq-angle-v017
+          cd /d C:\ggq-angle-v017
+          git init
+          git remote add origin https://chromium.googlesource.com/angle/angle
+          git fetch --depth=1 origin %ANGLE_REVISION%
+          git checkout --detach FETCH_HEAD
+          git rev-parse HEAD
+
+      - name: Bootstrap and sync ANGLE dependencies
+        shell: cmd
+        run: |
+          set PATH=C:\depot_tools;%PATH%
+          cd /d C:\ggq-angle-v017
+          call C:\depot_tools\update_depot_tools.bat
+          python scripts\bootstrap.py
+          call gclient.bat sync -D --no-history --nohooks
+          call gclient.bat runhooks
+
+      - name: Generate release D3D11 build
+        shell: cmd
+        run: |
+          set PATH=C:\depot_tools;%PATH%
+          cd /d C:\ggq-angle-v017
+          call gn.bat gen out\Release --args="is_debug=false is_component_build=false target_cpu=\"x64\" angle_enable_d3d11=true angle_enable_d3d9=false angle_enable_gl=false angle_enable_vulkan=false angle_enable_null=false"
+
+      - name: Build exact libEGL and libGLESv2
+        shell: cmd
+        run: |
+          set PATH=C:\depot_tools;%PATH%
+          cd /d C:\ggq-angle-v017
+          call autoninja.bat -C out\Release libEGL libGLESv2
+
+      - name: Collect ABI probe binaries
+        shell: powershell
+        run: |
+          $out = 'C:\ggq-angle-v017\out\Release'
+          $dest = Join-Path $env:GITHUB_WORKSPACE 'v017-angle-abi'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $required = @('libEGL.dll', 'libGLESv2.dll')
+          foreach ($name in $required) {
+            $src = Join-Path $out $name
+            if (-not (Test-Path $src)) { throw "Missing ANGLE output: $src" }
+            Copy-Item $src $dest -Force
+          }
+          Get-ChildItem $dest | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content (Join-Path $dest 'SHA256.txt')
+          @(
+            'GeoGebraForQuest PC v0.17.0 ANGLE ABI probe',
+            'CEF runtime: 133.4.2 / Chromium 133.0.6943.127',
+            "ANGLE revision: $env:ANGLE_REVISION",
+            'Purpose: unmodified exact-revision ANGLE DLL compatibility gate; no stereo transport changes.'
+          ) | Set-Content (Join-Path $dest 'README.txt')
+
+      - name: Upload exact ANGLE ABI probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.17.0-angle-abi-probe
+          path: v017-angle-abi/**
+          if-no-files-found: error
+          retention-days: 30
