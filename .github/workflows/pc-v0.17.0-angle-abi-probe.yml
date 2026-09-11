@@ -41,6 +41,21 @@ jobs:
           'C:\depot_tools' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & 'C:\depot_tools\git.bat' --version
 
+      - name: Initialize depot_tools Python runtime
+        shell: cmd
+        run: |
+          set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
+          set "DEPOT_TOOLS_UPDATE=1"
+          call C:\depot_tools\update_depot_tools.bat
+          if errorlevel 1 exit /b %errorlevel%
+          if not exist C:\depot_tools\python3_bin_reldir.txt (
+            echo ERROR: depot_tools bootstrap did not create python3_bin_reldir.txt
+            exit /b 1
+          )
+          type C:\depot_tools\python3_bin_reldir.txt
+          call C:\depot_tools\python3.bat --version
+          if errorlevel 1 exit /b %errorlevel%
+
       - name: Checkout Chromium 133 matching ANGLE revision
         shell: cmd
         run: |
@@ -68,6 +83,7 @@ jobs:
           where git
           where git.bat
           where python
+          where python3
           where gclient
           python scripts\bootstrap.py
           if errorlevel 1 exit /b %errorlevel%
@@ -79,19 +95,22 @@ jobs:
       - name: Generate release D3D11 build
         shell: cmd
         run: |
+          setlocal EnableDelayedExpansion
           set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
           set "DIAG=%GITHUB_WORKSPACE%\v017-gn-diagnostics"
           if not exist "%DIAG%" mkdir "%DIAG%"
           cd /d C:\ggq-angle-v017
           where gn > "%DIAG%\where-gn.txt" 2>&1
           git rev-parse HEAD > "%DIAG%\angle-head.txt" 2>&1
+          git -C C:\depot_tools rev-parse HEAD > "%DIAG%\depot-tools-head.txt" 2>&1
+          if exist C:\depot_tools\python3_bin_reldir.txt copy /y C:\depot_tools\python3_bin_reldir.txt "%DIAG%\python3-bin-reldir.txt" >nul
           call gn.bat gen out\Release --args="is_debug=false is_component_build=false target_cpu=\"x64\" angle_enable_d3d11=true angle_enable_d3d9=false angle_enable_gl=false angle_enable_vulkan=false angle_enable_null=false" > "%DIAG%\gn.log" 2>&1
-          set "GN_EXIT=%ERRORLEVEL%"
-          echo %GN_EXIT%> "%DIAG%\gn-exit-code.txt"
+          set "GN_EXIT=!ERRORLEVEL!"
+          echo !GN_EXIT!> "%DIAG%\gn-exit-code.txt"
           if exist out\Release\args.gn copy /y out\Release\args.gn "%DIAG%\args.gn" >nul
           if exist out\Release\toolchain.ninja copy /y out\Release\toolchain.ninja "%DIAG%\toolchain.ninja" >nul
           type "%DIAG%\gn.log"
-          exit /b %GN_EXIT%
+          exit /b !GN_EXIT!
 
       - name: Upload GN diagnostics
         if: always()
