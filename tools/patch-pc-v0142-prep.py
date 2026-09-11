@@ -21,7 +21,7 @@ if paint_start < 0 or paint_end < 0:
     raise SystemExit('v0.14.2: OnAcceleratedPaint boundaries missing')
 paint = g[paint_start:paint_end]
 m = re.search(
-    r'(?P<indent>^[ \\t]*)CompleteGpuPublishLocked\\((?P<args>.*?)\\);',
+    r'(?P<indent>^[ \t]*)CompleteGpuPublishLocked\((?P<args>.*?)\);',
     paint,
     re.MULTILINE | re.DOTALL)
 if not m:
