@@ -6,15 +6,16 @@ if (-not (Test-Path $baseScript)) {
   throw 'build-pc-v01600.ps1 missing'
 }
 
-$text = Get-Content $baseScript -Raw
-$old = "pc/StereoGpuTexturePublisher.cs"
-$new = "pc/GpuSharedTexturePublisher.cs"
-if (-not $text.Contains($old)) {
-  throw 'v0.16.1 adapter: legacy publisher verifier marker missing'
+$publisherUrl = 'https://raw.githubusercontent.com/sinan-ipek/GeoGebraForQuest/57150449dd223d179a7d1ff844e50d3485afd51b/pc/StereoGpuTexturePublisher.cs'
+Invoke-WebRequest $publisherUrl -OutFile 'pc/StereoGpuTexturePublisher.cs'
+if (-not (Test-Path 'pc/StereoGpuTexturePublisher.cs')) {
+  throw 'v0.16.1 adapter: StereoGpuTexturePublisher.cs download failed'
 }
-$text = $text.Replace($old, $new)
-Set-Content -Path $baseScript -Value $text -Encoding utf8
+$publisher = Get-Content 'pc/StereoGpuTexturePublisher.cs' -Raw
+if (-not $publisher.Contains('GeoGebraForQuestPC_B_GPU_v1')) {
+  throw 'v0.16.1 adapter: B GPU publisher mapping marker missing'
+}
 
-Write-Host '[v0.16.1] Corrected GPU publisher verifier path.'
+Write-Host '[v0.16.1] Restored pinned B GPU metadata publisher.'
 & $baseScript
 exit $LASTEXITCODE
