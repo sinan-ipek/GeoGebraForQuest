@@ -80,10 +80,27 @@ jobs:
         shell: cmd
         run: |
           set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
+          set "DIAG=%GITHUB_WORKSPACE%\v017-gn-diagnostics"
+          if not exist "%DIAG%" mkdir "%DIAG%"
           cd /d C:\ggq-angle-v017
-          where gn
-          call gn.bat gen out\Release --args="is_debug=false is_component_build=false target_cpu=\"x64\" angle_enable_d3d11=true angle_enable_d3d9=false angle_enable_gl=false angle_enable_vulkan=false angle_enable_null=false"
-          if errorlevel 1 exit /b %errorlevel%
+          where gn > "%DIAG%\where-gn.txt" 2>&1
+          git rev-parse HEAD > "%DIAG%\angle-head.txt" 2>&1
+          call gn.bat gen out\Release --args="is_debug=false is_component_build=false target_cpu=\"x64\" angle_enable_d3d11=true angle_enable_d3d9=false angle_enable_gl=false angle_enable_vulkan=false angle_enable_null=false" > "%DIAG%\gn.log" 2>&1
+          set "GN_EXIT=%ERRORLEVEL%"
+          echo %GN_EXIT%> "%DIAG%\gn-exit-code.txt"
+          if exist out\Release\args.gn copy /y out\Release\args.gn "%DIAG%\args.gn" >nul
+          if exist out\Release\toolchain.ninja copy /y out\Release\toolchain.ninja "%DIAG%\toolchain.ninja" >nul
+          type "%DIAG%\gn.log"
+          exit /b %GN_EXIT%
+
+      - name: Upload GN diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.17.0-gn-diagnostics
+          path: v017-gn-diagnostics/**
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Build exact libEGL and libGLESv2
         shell: cmd
