@@ -16,6 +16,23 @@ if (-not $publisher.Contains('GeoGebraForQuestPC_B_GPU_v1')) {
   throw 'v0.16.1 adapter: B GPU publisher mapping marker missing'
 }
 
+$baseText = Get-Content $baseScript -Raw
+$verifyMarker = "Write-Host '[v0.16.0] Verifying architecture...'"
+if (-not $baseText.Contains($verifyMarker)) {
+  throw 'v0.16.2 adapter: architecture verification marker missing'
+}
+if (-not $baseText.Contains('patch-pc-v01602-buildguard.py')) {
+  $guardBlock = @"
+Write-Host '[v0.16.2] Updating inherited cache-busting build guard...'
+python tools/patch-pc-v01602-buildguard.py
+if (`$LASTEXITCODE -ne 0) { throw 'v0.16.2 cache-busting buildguard failed' }
+
+"@
+  $baseText = $baseText.Replace($verifyMarker, $guardBlock + $verifyMarker)
+  Set-Content -Path $baseScript -Value $baseText -Encoding utf8
+}
+
 Write-Host '[v0.16.1] Restored pinned B GPU metadata publisher.'
+Write-Host '[v0.16.2] Wired cache-busting build guard updater.'
 & $baseScript
 exit $LASTEXITCODE
