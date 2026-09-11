@@ -20,7 +20,7 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Build v0.16.0 direct GPU eye-pair package
+      - name: Build v0.16.1 direct GPU eye-pair package
         id: build_v016
         continue-on-error: true
         shell: powershell
@@ -28,7 +28,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force -Path 'v016-diagnostics' | Out-Null
-          & .\tools\build-pc-v01600.ps1 *>&1 | Tee-Object -FilePath 'v016-diagnostics/build.log'
+          & .\tools\build-pc-v01601.ps1 *>&1 | Tee-Object -FilePath 'v016-diagnostics/build.log'
           $code = $LASTEXITCODE
           "exit_code=$code" | Out-File 'v016-diagnostics/status.txt' -Encoding utf8
           if (Test-Path 'pc/MainFormV11.Graphics.cs') { Copy-Item 'pc/MainFormV11.Graphics.cs' 'v016-diagnostics/MainFormV11.Graphics.cs' -Force }
