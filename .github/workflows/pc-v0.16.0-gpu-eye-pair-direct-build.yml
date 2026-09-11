@@ -1,0 +1,34 @@
+name: GeoGebraForQuest PC v0.16.0 GPU Eye Pair Direct
+
+on:
+  push:
+    branches:
+      - pc-v0.16.0-gpu-eye-pair
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build v0.16.0 direct GPU eye-pair package
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .\tools\build-pc-v01600.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeoGebraForQuest-PC-v0.16.0-gpu-eye-pair-win-x64
+          path: dist/GeoGebraForQuest-PC-v0.16.0-gpu-eye-pair-win-x64/**
+          if-no-files-found: error
+          compression-level: 6
