@@ -281,7 +281,7 @@ graphics = Path('pc/MainFormV11.Graphics.cs').read_text(encoding='utf-8')
 host = Path('pc/MainFormV141.GpuStereo.cs').read_text(encoding='utf-8')
 input_stereo = Path('pc/MainFormV11.InputStereo.cs').read_text(encoding='utf-8')
 
-for text, needle, label in (
+for text, needle in (
     (runtime, 'gpuExternallySuspended'),
     (runtime, 'window.ggqGpuResumeAfterCleanA'),
     (runtime, 'window.ggqGpuSetSuspended'),
