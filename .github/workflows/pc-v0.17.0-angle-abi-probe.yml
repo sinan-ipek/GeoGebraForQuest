@@ -1,9 +1,9 @@
-name: GeoGebraForQuest PC v0.17.0 ANGLE ABI Probe
+name: GeoGebraForQuest PC v0.18.0 ANGLE Eye Sequence Probe
 
 on:
   push:
     branches:
-      - pc-v0.17.0-angle-abi-probe
+      - pc-v0.18.0-angle-eye-sequence-probe
   workflow_dispatch:
 
 jobs:
@@ -60,9 +60,9 @@ jobs:
         shell: cmd
         run: |
           set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
-          if exist C:\ggq-angle-v017 rmdir /s /q C:\ggq-angle-v017
-          mkdir C:\ggq-angle-v017
-          cd /d C:\ggq-angle-v017
+          if exist C:\ggq-angle-v018 rmdir /s /q C:\ggq-angle-v018
+          mkdir C:\ggq-angle-v018
+          cd /d C:\ggq-angle-v018
           git init
           git remote add origin https://chromium.googlesource.com/angle/angle
           git fetch --depth=1 origin %ANGLE_REVISION%
@@ -79,7 +79,7 @@ jobs:
         shell: cmd
         run: |
           set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
-          cd /d C:\ggq-angle-v017
+          cd /d C:\ggq-angle-v018
           where git
           where git.bat
           where python
@@ -92,14 +92,131 @@ jobs:
           call gclient.bat runhooks
           if errorlevel 1 exit /b %errorlevel%
 
+      - name: Install passive native eye-sequence probe
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'C:\ggq-angle-v018\src\libGLESv2\entry_points_gles_2_0_autogen.cpp'
+          $text = [IO.File]::ReadAllText($path).Replace("`r`n", "`n")
+          if ($text.Contains('GGQEyeProbeWrite')) { throw 'Eye probe already present unexpectedly.' }
+
+          $includeNeedle = '#include "libGLESv2/entry_points_gles_2_0_autogen.h"'
+          if (-not $text.Contains($includeNeedle)) { throw 'ANGLE include marker missing.' }
+          $text = $text.Replace($includeNeedle, $includeNeedle + "`n`n#if defined(_WIN32)`n#    include <windows.h>`n#endif")
+
+          $helper = @'
+#if defined(_WIN32)
+namespace
+{
+LONG gGgqEyeProbeSequence = 0;
+LONG gGgqEyeProbeEventCount = 0;
+
+void GGQEyeProbeWrite(const char *eventName, const void *context, unsigned value)
+{
+    const LONG eventCount = InterlockedIncrement(&gGgqEyeProbeEventCount);
+    if (eventCount > 50000)
+    {
+        return;
+    }
+
+    char modulePath[MAX_PATH] = {};
+    const DWORD moduleLength = GetModuleFileNameA(nullptr, modulePath, MAX_PATH);
+    if (moduleLength == 0 || moduleLength >= MAX_PATH)
+    {
+        return;
+    }
+
+    char *slash = strrchr(modulePath, '\\');
+    if (slash)
+    {
+        *(slash + 1) = '\0';
+    }
+    else
+    {
+        modulePath[0] = '\0';
+    }
+
+    char logPath[MAX_PATH] = {};
+    snprintf(logPath, sizeof(logPath), "%sGeoGebraForQuestPC.ANGLE-Eye-Probe.log", modulePath);
+
+    HANDLE file = CreateFileA(logPath, FILE_APPEND_DATA,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        return;
+    }
+
+    const LONG sequence = InterlockedIncrement(&gGgqEyeProbeSequence);
+    char line[384] = {};
+    const int count = snprintf(line, sizeof(line), "%ld,%llu,%lu,%lu,%p,%s,0x%08X\r\n",
+                               sequence, static_cast<unsigned long long>(GetTickCount64()),
+                               static_cast<unsigned long>(GetCurrentProcessId()),
+                               static_cast<unsigned long>(GetCurrentThreadId()), context,
+                               eventName, value);
+    if (count > 0)
+    {
+        DWORD written = 0;
+        WriteFile(file, line, static_cast<DWORD>(count), &written, nullptr);
+    }
+    CloseHandle(file);
+}
+}  // namespace
+#endif
+'@
+          $usingNeedle = 'using namespace gl;'
+          if (-not $text.Contains($usingNeedle)) { throw 'ANGLE namespace marker missing.' }
+          $text = $text.Replace($usingNeedle, $usingNeedle + "`n`n" + $helper.TrimEnd())
+
+          $colorMarker = "void GL_APIENTRY GL_ColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha)`n{`n    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());`n    Context *context = GetValidGlobalContext();"
+          if (-not $text.Contains($colorMarker)) { throw 'GL_ColorMask marker missing.' }
+          $colorProbe = @'
+#if defined(_WIN32)
+    if (context)
+    {
+        const unsigned ggqMaskBits = (red ? 1u : 0u) | (green ? 2u : 0u) |
+                                     (blue ? 4u : 0u) | (alpha ? 8u : 0u);
+        if (red && !green && !blue && alpha)
+        {
+            GGQEyeProbeWrite("MASK_LEFT", context, ggqMaskBits);
+        }
+        else if (!red && blue && alpha)
+        {
+            GGQEyeProbeWrite("MASK_RIGHT", context, ggqMaskBits);
+        }
+        else if (red && green && blue && alpha)
+        {
+            GGQEyeProbeWrite("MASK_ALL", context, ggqMaskBits);
+        }
+    }
+#endif
+'@
+          $text = $text.Replace($colorMarker, $colorMarker + "`n" + $colorProbe.TrimEnd())
+
+          $clearMarker = "void GL_APIENTRY GL_Clear(GLbitfield mask)`n{`n    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());`n    Context *context = GetValidGlobalContext();"
+          if (-not $text.Contains($clearMarker)) { throw 'GL_Clear marker missing.' }
+          $clearProbe = @'
+#if defined(_WIN32)
+    if (context && (mask & GL_DEPTH_BUFFER_BIT) != 0)
+    {
+        GGQEyeProbeWrite("CLEAR_DEPTH", context, static_cast<unsigned>(mask));
+    }
+#endif
+'@
+          $text = $text.Replace($clearMarker, $clearMarker + "`n" + $clearProbe.TrimEnd())
+
+          [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding($false)))
+          if (-not ([IO.File]::ReadAllText($path).Contains('MASK_LEFT'))) { throw 'Probe verification failed.' }
+          Select-String -Path $path -Pattern 'GGQEyeProbeWrite|MASK_LEFT|MASK_RIGHT|MASK_ALL|CLEAR_DEPTH'
+
       - name: Generate release D3D11 build
         shell: cmd
         run: |
           setlocal EnableDelayedExpansion
           set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
-          set "DIAG=%GITHUB_WORKSPACE%\v017-gn-diagnostics"
+          set "DIAG=%GITHUB_WORKSPACE%\v018-gn-diagnostics"
           if not exist "%DIAG%" mkdir "%DIAG%"
-          cd /d C:\ggq-angle-v017
+          cd /d C:\ggq-angle-v018
           where gn > "%DIAG%\where-gn.txt" 2>&1
           git rev-parse HEAD > "%DIAG%\angle-head.txt" 2>&1
           git -C C:\depot_tools rev-parse HEAD > "%DIAG%\depot-tools-head.txt" 2>&1
@@ -116,25 +233,25 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.17.0-gn-diagnostics
-          path: v017-gn-diagnostics/**
+          name: GeoGebraForQuest-PC-v0.18.0-gn-diagnostics
+          path: v018-gn-diagnostics/**
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Build exact libEGL and libGLESv2
+      - name: Build probed libEGL and libGLESv2
         shell: cmd
         run: |
           set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
-          cd /d C:\ggq-angle-v017
+          cd /d C:\ggq-angle-v018
           where autoninja
           call autoninja.bat -C out\Release libEGL libGLESv2
           if errorlevel 1 exit /b %errorlevel%
 
-      - name: Collect ABI probe binaries
+      - name: Collect eye-sequence probe binaries
         shell: powershell
         run: |
-          $out = 'C:\ggq-angle-v017\out\Release'
-          $dest = Join-Path $env:GITHUB_WORKSPACE 'v017-angle-abi'
+          $out = 'C:\ggq-angle-v018\out\Release'
+          $dest = Join-Path $env:GITHUB_WORKSPACE 'v018-angle-eye-probe'
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           $required = @('libEGL.dll', 'libGLESv2.dll')
           foreach ($name in $required) {
@@ -144,16 +261,19 @@ jobs:
           }
           Get-ChildItem $dest | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content (Join-Path $dest 'SHA256.txt')
           @(
-            'GeoGebraForQuest PC v0.17.0 ANGLE ABI probe',
+            'GeoGebraForQuest PC v0.18.0 ANGLE eye-sequence probe',
             'CEF runtime: 133.4.2 / Chromium 133.0.6943.127',
             "ANGLE revision: $env:ANGLE_REVISION",
-            'Purpose: unmodified exact-revision ANGLE DLL compatibility gate; no stereo transport changes.'
+            'Passive instrumentation only: no pixel readback, no framebuffer copy, no DOM or CEF-paint modification.',
+            'Log file at runtime: GeoGebraForQuestPC.ANGLE-Eye-Probe.log beside the process executable.',
+            'Log columns: sequence,tick_ms,pid,tid,context,event,value.',
+            'Expected stereo markers to test: MASK_LEFT -> MASK_RIGHT (+ CLEAR_DEPTH) -> MASK_ALL.'
           ) | Set-Content (Join-Path $dest 'README.txt')
 
-      - name: Upload exact ANGLE ABI probe
+      - name: Upload ANGLE eye-sequence probe
         uses: actions/upload-artifact@v4
         with:
-          name: GeoGebraForQuest-PC-v0.17.0-angle-abi-probe
-          path: v017-angle-abi/**
+          name: GeoGebraForQuest-PC-v0.18.0-angle-eye-sequence-probe
+          path: v018-angle-eye-probe/**
           if-no-files-found: error
           retention-days: 30
