@@ -32,10 +32,7 @@ jobs:
         run: |
           if (Test-Path 'C:\depot_tools') { Remove-Item 'C:\depot_tools' -Recurse -Force }
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
-          @(
-            '@echo off',
-            '"C:\Program Files\Git\cmd\git.exe" %*'
-          ) | Set-Content -Path 'C:\depot_tools\git.bat' -Encoding ascii
+          @('@echo off','"C:\Program Files\Git\cmd\git.exe" %*') | Set-Content -Path 'C:\depot_tools\git.bat' -Encoding ascii
           'C:\Program Files\Git\cmd' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           'C:\Program Files\Git\bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           'C:\depot_tools' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -48,15 +45,11 @@ jobs:
           set "DEPOT_TOOLS_UPDATE=1"
           call C:\depot_tools\update_depot_tools.bat
           if errorlevel 1 exit /b %errorlevel%
-          if not exist C:\depot_tools\python3_bin_reldir.txt (
-            echo ERROR: depot_tools bootstrap did not create python3_bin_reldir.txt
-            exit /b 1
-          )
-          type C:\depot_tools\python3_bin_reldir.txt
+          if not exist C:\depot_tools\python3_bin_reldir.txt exit /b 1
           call C:\depot_tools\python3.bat --version
           if errorlevel 1 exit /b %errorlevel%
 
-      - name: Checkout Chromium 133 matching ANGLE revision
+      - name: Checkout exact ANGLE revision
         shell: cmd
         run: |
           set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
@@ -70,21 +63,12 @@ jobs:
           git checkout --detach FETCH_HEAD
           if errorlevel 1 exit /b %errorlevel%
           git rev-parse HEAD
-          where git
-          where git.bat
-          git --version
-          call C:\depot_tools\git.bat --version
 
       - name: Bootstrap and sync ANGLE dependencies
         shell: cmd
         run: |
           set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
           cd /d C:\ggq-angle-v018
-          where git
-          where git.bat
-          where python
-          where python3
-          where gclient
           python scripts\bootstrap.py
           if errorlevel 1 exit /b %errorlevel%
           call gclient.bat sync -D --force --reset --no-history --nohooks
@@ -96,118 +80,11 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $path = 'C:\ggq-angle-v018\src\libGLESv2\entry_points_gles_2_0_autogen.cpp'
-          $text = [IO.File]::ReadAllText($path).Replace("`r`n", "`n")
-          if ($text.Contains('GGQEyeProbeWrite')) { throw 'Eye probe already present unexpectedly.' }
-
-          $includeNeedle = '#include "libGLESv2/entry_points_gles_2_0_autogen.h"'
-          if (-not $text.Contains($includeNeedle)) { throw 'ANGLE include marker missing.' }
-          $text = $text.Replace($includeNeedle, $includeNeedle + "`n`n#if defined(_WIN32)`n#    include <windows.h>`n#endif")
-
-          $helper = @'
-#if defined(_WIN32)
-namespace
-{
-LONG gGgqEyeProbeSequence = 0;
-LONG gGgqEyeProbeEventCount = 0;
-
-void GGQEyeProbeWrite(const char *eventName, const void *context, unsigned value)
-{
-    const LONG eventCount = InterlockedIncrement(&gGgqEyeProbeEventCount);
-    if (eventCount > 50000)
-    {
-        return;
-    }
-
-    char modulePath[MAX_PATH] = {};
-    const DWORD moduleLength = GetModuleFileNameA(nullptr, modulePath, MAX_PATH);
-    if (moduleLength == 0 || moduleLength >= MAX_PATH)
-    {
-        return;
-    }
-
-    char *slash = strrchr(modulePath, '\\');
-    if (slash)
-    {
-        *(slash + 1) = '\0';
-    }
-    else
-    {
-        modulePath[0] = '\0';
-    }
-
-    char logPath[MAX_PATH] = {};
-    snprintf(logPath, sizeof(logPath), "%sGeoGebraForQuestPC.ANGLE-Eye-Probe.log", modulePath);
-
-    HANDLE file = CreateFileA(logPath, FILE_APPEND_DATA,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-    {
-        return;
-    }
-
-    const LONG sequence = InterlockedIncrement(&gGgqEyeProbeSequence);
-    char line[384] = {};
-    const int count = snprintf(line, sizeof(line), "%ld,%llu,%lu,%lu,%p,%s,0x%08X\r\n",
-                               sequence, static_cast<unsigned long long>(GetTickCount64()),
-                               static_cast<unsigned long>(GetCurrentProcessId()),
-                               static_cast<unsigned long>(GetCurrentThreadId()), context,
-                               eventName, value);
-    if (count > 0)
-    {
-        DWORD written = 0;
-        WriteFile(file, line, static_cast<DWORD>(count), &written, nullptr);
-    }
-    CloseHandle(file);
-}
-}  // namespace
-#endif
-'@
-          $usingNeedle = 'using namespace gl;'
-          if (-not $text.Contains($usingNeedle)) { throw 'ANGLE namespace marker missing.' }
-          $text = $text.Replace($usingNeedle, $usingNeedle + "`n`n" + $helper.TrimEnd())
-
-          $colorMarker = "void GL_APIENTRY GL_ColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha)`n{`n    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());`n    Context *context = GetValidGlobalContext();"
-          if (-not $text.Contains($colorMarker)) { throw 'GL_ColorMask marker missing.' }
-          $colorProbe = @'
-#if defined(_WIN32)
-    if (context)
-    {
-        const unsigned ggqMaskBits = (red ? 1u : 0u) | (green ? 2u : 0u) |
-                                     (blue ? 4u : 0u) | (alpha ? 8u : 0u);
-        if (red && !green && !blue && alpha)
-        {
-            GGQEyeProbeWrite("MASK_LEFT", context, ggqMaskBits);
-        }
-        else if (!red && blue && alpha)
-        {
-            GGQEyeProbeWrite("MASK_RIGHT", context, ggqMaskBits);
-        }
-        else if (red && green && blue && alpha)
-        {
-            GGQEyeProbeWrite("MASK_ALL", context, ggqMaskBits);
-        }
-    }
-#endif
-'@
-          $text = $text.Replace($colorMarker, $colorMarker + "`n" + $colorProbe.TrimEnd())
-
-          $clearMarker = "void GL_APIENTRY GL_Clear(GLbitfield mask)`n{`n    ASSERT(!egl::Display::GetCurrentThreadUnlockedTailCall()->any());`n    Context *context = GetValidGlobalContext();"
-          if (-not $text.Contains($clearMarker)) { throw 'GL_Clear marker missing.' }
-          $clearProbe = @'
-#if defined(_WIN32)
-    if (context && (mask & GL_DEPTH_BUFFER_BIT) != 0)
-    {
-        GGQEyeProbeWrite("CLEAR_DEPTH", context, static_cast<unsigned>(mask));
-    }
-#endif
-'@
-          $text = $text.Replace($clearMarker, $clearMarker + "`n" + $clearProbe.TrimEnd())
-
-          [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding($false)))
-          if (-not ([IO.File]::ReadAllText($path).Contains('MASK_LEFT'))) { throw 'Probe verification failed.' }
-          Select-String -Path $path -Pattern 'GGQEyeProbeWrite|MASK_LEFT|MASK_RIGHT|MASK_ALL|CLEAR_DEPTH'
+          $b64 = 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpwYXRoID0gUGF0aChyIkM6XGdncS1hbmdsZS12MDE4XHNyY1xsaWJHTEVTdjJcZW50cnlfcG9pbnRzX2dsZXNfMl8wX2F1dG9nZW4uY3BwIikKdGV4dCA9IHBhdGgucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpLnJlcGxhY2UoIlxyXG4iLCAiXG4iKQoKaWYgIkdHUUV5ZVByb2JlV3JpdGUiIGluIHRleHQ6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJFeWUgcHJvYmUgYWxyZWFkeSBwcmVzZW50IHVuZXhwZWN0ZWRseS4iKQoKaW5jbHVkZV9uZWVkbGUgPSAnI2luY2x1ZGUgImxpYkdMRVN2Mi9lbnRyeV9wb2ludHNfZ2xlc18yXzBfYXV0b2dlbi5oIicKaWYgaW5jbHVkZV9uZWVkbGUgbm90IGluIHRleHQ6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJBTkdMRSBpbmNsdWRlIG1hcmtlciBtaXNzaW5nLiIpCnRleHQgPSB0ZXh0LnJlcGxhY2UoCiAgICBpbmNsdWRlX25lZWRsZSwKICAgIGluY2x1ZGVfbmVlZGxlICsgJ1xuXG4jaWYgZGVmaW5lZChfV0lOMzIpXG4jICAgIGluY2x1ZGUgPHdpbmRvd3MuaD5cbiNlbmRpZicsCiAgICAxLAopCgpoZWxwZXIgPSByJycnCiNpZiBkZWZpbmVkKF9XSU4zMikKbmFtZXNwYWNlCnsKTE9ORyBnR2dxRXllUHJvYmVTZXF1ZW5jZSA9IDA7CkxPTkcgZ0dncUV5ZVByb2JlRXZlbnRDb3VudCA9IDA7Cgp2b2lkIEdHUUV5ZVByb2JlV3JpdGUoY29uc3QgY2hhciAqZXZlbnROYW1lLCBjb25zdCB2b2lkICpjb250ZXh0LCB1bnNpZ25lZCB2YWx1ZSkKewogICAgY29uc3QgTE9ORyBldmVudENvdW50ID0gSW50ZXJsb2NrZWRJbmNyZW1lbnQoJmdHZ3FFeWVQcm9iZUV2ZW50Q291bnQpOwogICAgaWYgKGV2ZW50Q291bnQgPiA1MDAwMCkKICAgIHsKICAgICAgICByZXR1cm47CiAgICB9CgogICAgY2hhciBtb2R1bGVQYXRoW01BWF9QQVRIXSA9IHt9OwogICAgY29uc3QgRFdPUkQgbW9kdWxlTGVuZ3RoID0gR2V0TW9kdWxlRmlsZU5hbWVBKG51bGxwdHIsIG1vZHVsZVBhdGgsIE1BWF9QQVRIKTsKICAgIGlmIChtb2R1bGVMZW5ndGggPT0gMCB8fCBtb2R1bGVMZW5ndGggPj0gTUFYX1BBVEgpCiAgICB7CiAgICAgICAgcmV0dXJuOwogICAgfQoKICAgIGNoYXIgKnNsYXNoID0gc3RycmNocihtb2R1bGVQYXRoLCAnXFwnKTsKICAgIGlmIChzbGFzaCkKICAgIHsKICAgICAgICAqKHNsYXNoICsgMSkgPSAnXDAnOwogICAgfQogICAgZWxzZQogICAgewogICAgICAgIG1vZHVsZVBhdGhbMF0gPSAnXDAnOwogICAgfQoKICAgIGNoYXIgbG9nUGF0aFtNQVhfUEFUSF0gPSB7fTsKICAgIHNucHJpbnRmKGxvZ1BhdGgsIHNpemVvZihsb2dQYXRoKSwgIiVzR2VvR2VicmFGb3JRdWVzdFBDLkFOR0xFLUV5ZS1Qcm9iZS5sb2ciLCBtb2R1bGVQYXRoKTsKCiAgICBIQU5ETEUgZmlsZSA9IENyZWF0ZUZpbGVBKGxvZ1BhdGgsIEZJTEVfQVBQRU5EX0RBVEEsCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIEZJTEVfU0hBUkVfUkVBRCB8IEZJTEVfU0hBUkVfV1JJVEUgfCBGSUxFX1NIQVJFX0RFTEVURSwgbnVsbHB0ciwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgT1BFTl9BTFdBWVMsIEZJTEVfQVRUUklCVVRFX05PUk1BTCwgbnVsbHB0cik7CiAgICBpZiAoZmlsZSA9PSBJTlZBTElEX0hBTkRMRV9WQUxVRSkKICAgIHsKICAgICAgICByZXR1cm47CiAgICB9CgogICAgY29uc3QgTE9ORyBzZXF1ZW5jZSA9IEludGVybG9ja2VkSW5jcmVtZW50KCZnR2dxRXllUHJvYmVTZXF1ZW5jZSk7CiAgICBjaGFyIGxpbmVbMzg0XSA9IHt9OwogICAgY29uc3QgaW50IGNvdW50ID0gc25wcmludGYobGluZSwgc2l6ZW9mKGxpbmUpLCAiJWxkLCVsbHUsJWx1LCVsdSwlcCwlcywweCUwOFhcclxuIiwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHNlcXVlbmNlLCBzdGF0aWNfY2FzdDx1bnNpZ25lZCBsb25nIGxvbmc+KEdldFRpY2tDb3VudDY0KCkpLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgc3RhdGljX2Nhc3Q8dW5zaWduZWQgbG9uZz4oR2V0Q3VycmVudFByb2Nlc3NJZCgpKSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHN0YXRpY19jYXN0PHVuc2lnbmVkIGxvbmc+KEdldEN1cnJlbnRUaHJlYWRJZCgpKSwgY29udGV4dCwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGV2ZW50TmFtZSwgdmFsdWUpOwogICAgaWYgKGNvdW50ID4gMCkKICAgIHsKICAgICAgICBEV09SRCB3cml0dGVuID0gMDsKICAgICAgICBXcml0ZUZpbGUoZmlsZSwgbGluZSwgc3RhdGljX2Nhc3Q8RFdPUkQ+KGNvdW50KSwgJndyaXR0ZW4sIG51bGxwdHIpOwogICAgfQogICAgQ2xvc2VIYW5kbGUoZmlsZSk7Cn0KfSAgLy8gbmFtZXNwYWNlCiNlbmRpZgonJycuc3RyaXAoKQoKdXNpbmdfbmVlZGxlID0gInVzaW5nIG5hbWVzcGFjZSBnbDsiCmlmIHVzaW5nX25lZWRsZSBub3QgaW4gdGV4dDoKICAgIHJhaXNlIFN5c3RlbUV4aXQoIkFOR0xFIG5hbWVzcGFjZSBtYXJrZXIgbWlzc2luZy4iKQp0ZXh0ID0gdGV4dC5yZXBsYWNlKHVzaW5nX25lZWRsZSwgdXNpbmdfbmVlZGxlICsgIlxuXG4iICsgaGVscGVyLCAxKQoKY29sb3JfbWFya2VyID0gJycndm9pZCBHTF9BUElFTlRSWSBHTF9Db2xvck1hc2soR0xib29sZWFuIHJlZCwgR0xib29sZWFuIGdyZWVuLCBHTGJvb2xlYW4gYmx1ZSwgR0xib29sZWFuIGFscGhhKQp7CiAgICBBU1NFUlQoIWVnbDo6RGlzcGxheTo6R2V0Q3VycmVudFRocmVhZFVubG9ja2VkVGFpbENhbGwoKS0+YW55KCkpOwogICAgQ29udGV4dCAqY29udGV4dCA9IEdldFZhbGlkR2xvYmFsQ29udGV4dCgpOycnJwppZiBjb2xvcl9tYXJrZXIgbm90IGluIHRleHQ6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJHTF9Db2xvck1hc2sgbWFya2VyIG1pc3NpbmcuIikKCmNvbG9yX3Byb2JlID0gcicnJwojaWYgZGVmaW5lZChfV0lOMzIpCiAgICBpZiAoY29udGV4dCkKICAgIHsKICAgICAgICBjb25zdCB1bnNpZ25lZCBnZ3FNYXNrQml0cyA9IChyZWQgPyAxdSA6IDB1KSB8IChncmVlbiA/IDJ1IDogMHUpIHwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIChibHVlID8gNHUgOiAwdSkgfCAoYWxwaGEgPyA4dSA6IDB1KTsKICAgICAgICBpZiAocmVkICYmICFncmVlbiAmJiAhYmx1ZSAmJiBhbHBoYSkKICAgICAgICB7CiAgICAgICAgICAgIEdHUUV5ZVByb2JlV3JpdGUoIk1BU0tfTEVGVCIsIGNvbnRleHQsIGdncU1hc2tCaXRzKTsKICAgICAgICB9CiAgICAgICAgZWxzZSBpZiAoIXJlZCAmJiBibHVlICYmIGFscGhhKQogICAgICAgIHsKICAgICAgICAgICAgR0dRRXllUHJvYmVXcml0ZSgiTUFTS19SSUdIVCIsIGNvbnRleHQsIGdncU1hc2tCaXRzKTsKICAgICAgICB9CiAgICAgICAgZWxzZSBpZiAocmVkICYmIGdyZWVuICYmIGJsdWUgJiYgYWxwaGEpCiAgICAgICAgewogICAgICAgICAgICBHR1FFeWVQcm9iZVdyaXRlKCJNQVNLX0FMTCIsIGNvbnRleHQsIGdncU1hc2tCaXRzKTsKICAgICAgICB9CiAgICB9CiNlbmRpZgonJycuc3RyaXAoIlxuIikKdGV4dCA9IHRleHQucmVwbGFjZShjb2xvcl9tYXJrZXIsIGNvbG9yX21hcmtlciArICJcbiIgKyBjb2xvcl9wcm9iZSwgMSkKCmNsZWFyX21hcmtlciA9ICcnJ3ZvaWQgR0xfQVBJRU5UUlkgR0xfQ2xlYXIoR0xiaXRmaWVsZCBtYXNrKQp7CiAgICBBU1NFUlQoIWVnbDo6RGlzcGxheTo6R2V0Q3VycmVudFRocmVhZFVubG9ja2VkVGFpbENhbGwoKS0+YW55KCkpOwogICAgQ29udGV4dCAqY29udGV4dCA9IEdldFZhbGlkR2xvYmFsQ29udGV4dCgpOycnJwppZiBjbGVhcl9tYXJrZXIgbm90IGluIHRleHQ6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJHTF9DbGVhciBtYXJrZXIgbWlzc2luZy4iKQoKY2xlYXJfcHJvYmUgPSByJycnCiNpZiBkZWZpbmVkKF9XSU4zMikKICAgIGlmIChjb250ZXh0ICYmIChtYXNrICYgR0xfREVQVEhfQlVGRkVSX0JJVCkgIT0gMCkKICAgIHsKICAgICAgICBHR1FFeWVQcm9iZVdyaXRlKCJDTEVBUl9ERVBUSCIsIGNvbnRleHQsIHN0YXRpY19jYXN0PHVuc2lnbmVkPihtYXNrKSk7CiAgICB9CiNlbmRpZgonJycuc3RyaXAoIlxuIikKdGV4dCA9IHRleHQucmVwbGFjZShjbGVhcl9tYXJrZXIsIGNsZWFyX21hcmtlciArICJcbiIgKyBjbGVhcl9wcm9iZSwgMSkKCnBhdGgud3JpdGVfdGV4dCh0ZXh0LCBlbmNvZGluZz0idXRmLTgiLCBuZXdsaW5lPSJcbiIpCgpjaGVjayA9IHBhdGgucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpCmZvciB0b2tlbiBpbiAoIkdHUUV5ZVByb2JlV3JpdGUiLCAiTUFTS19MRUZUIiwgIk1BU0tfUklHSFQiLCAiTUFTS19BTEwiLCAiQ0xFQVJfREVQVEgiKToKICAgIGlmIHRva2VuIG5vdCBpbiBjaGVjazoKICAgICAgICByYWlzZSBTeXN0ZW1FeGl0KGYiUHJvYmUgdmVyaWZpY2F0aW9uIGZhaWxlZDoge3Rva2VufSIpCnByaW50KCJ2MC4xOCBleWUtc2VxdWVuY2UgcHJvYmUgcGF0Y2ggaW5zdGFsbGVkOiIsIHBhdGgpCg=='
+          $patch = Join-Path $env:RUNNER_TEMP 'ggq-v018-angle-probe.py'
+          [IO.File]::WriteAllBytes($patch, [Convert]::FromBase64String($b64))
+          python $patch
+          Select-String -Path 'C:\ggq-angle-v018\src\libGLESv2\entry_points_gles_2_0_autogen.cpp' -Pattern 'MASK_LEFT|MASK_RIGHT|MASK_ALL|CLEAR_DEPTH'
 
       - name: Generate release D3D11 build
         shell: cmd
@@ -219,13 +96,10 @@ void GGQEyeProbeWrite(const char *eventName, const void *context, unsigned value
           cd /d C:\ggq-angle-v018
           where gn > "%DIAG%\where-gn.txt" 2>&1
           git rev-parse HEAD > "%DIAG%\angle-head.txt" 2>&1
-          git -C C:\depot_tools rev-parse HEAD > "%DIAG%\depot-tools-head.txt" 2>&1
-          if exist C:\depot_tools\python3_bin_reldir.txt copy /y C:\depot_tools\python3_bin_reldir.txt "%DIAG%\python3-bin-reldir.txt" >nul
           call gn.bat gen out\Release --args="is_debug=false is_component_build=false target_cpu=\"x64\" angle_enable_d3d11=true angle_enable_d3d9=false angle_enable_gl=false angle_enable_vulkan=false angle_enable_null=false" > "%DIAG%\gn.log" 2>&1
           set "GN_EXIT=!ERRORLEVEL!"
           echo !GN_EXIT!> "%DIAG%\gn-exit-code.txt"
           if exist out\Release\args.gn copy /y out\Release\args.gn "%DIAG%\args.gn" >nul
-          if exist out\Release\toolchain.ninja copy /y out\Release\toolchain.ninja "%DIAG%\toolchain.ninja" >nul
           type "%DIAG%\gn.log"
           exit /b !GN_EXIT!
 
@@ -238,12 +112,11 @@ void GGQEyeProbeWrite(const char *eventName, const void *context, unsigned value
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Build probed libEGL and libGLESv2
+      - name: Build probed ANGLE DLLs
         shell: cmd
         run: |
           set "PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\depot_tools;%PATH%"
           cd /d C:\ggq-angle-v018
-          where autoninja
           call autoninja.bat -C out\Release libEGL libGLESv2
           if errorlevel 1 exit /b %errorlevel%
 
@@ -253,8 +126,7 @@ void GGQEyeProbeWrite(const char *eventName, const void *context, unsigned value
           $out = 'C:\ggq-angle-v018\out\Release'
           $dest = Join-Path $env:GITHUB_WORKSPACE 'v018-angle-eye-probe'
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          $required = @('libEGL.dll', 'libGLESv2.dll')
-          foreach ($name in $required) {
+          foreach ($name in @('libEGL.dll','libGLESv2.dll')) {
             $src = Join-Path $out $name
             if (-not (Test-Path $src)) { throw "Missing ANGLE output: $src" }
             Copy-Item $src $dest -Force
@@ -262,12 +134,10 @@ void GGQEyeProbeWrite(const char *eventName, const void *context, unsigned value
           Get-ChildItem $dest | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content (Join-Path $dest 'SHA256.txt')
           @(
             'GeoGebraForQuest PC v0.18.0 ANGLE eye-sequence probe',
-            'CEF runtime: 133.4.2 / Chromium 133.0.6943.127',
-            "ANGLE revision: $env:ANGLE_REVISION",
-            'Passive instrumentation only: no pixel readback, no framebuffer copy, no DOM or CEF-paint modification.',
-            'Log file at runtime: GeoGebraForQuestPC.ANGLE-Eye-Probe.log beside the process executable.',
-            'Log columns: sequence,tick_ms,pid,tid,context,event,value.',
-            'Expected stereo markers to test: MASK_LEFT -> MASK_RIGHT (+ CLEAR_DEPTH) -> MASK_ALL.'
+            'Passive instrumentation only; no pixel readback or framebuffer copy.',
+            'Runtime log: GeoGebraForQuestPC.ANGLE-Eye-Probe.log',
+            'Columns: sequence,tick_ms,pid,tid,context,event,value',
+            'Target pattern: MASK_LEFT -> MASK_RIGHT / CLEAR_DEPTH -> MASK_ALL'
           ) | Set-Content (Join-Path $dest 'README.txt')
 
       - name: Upload ANGLE eye-sequence probe
